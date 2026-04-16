@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(OmniNet VERSION 1.0.0 LANGUAGES CXX)
+project(OmniNet VERSION 0.1.0 LANGUAGES CXX)
 
 # C++20 required
 set(CMAKE_CXX_STANDARD 20)
