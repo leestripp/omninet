@@ -1,5 +1,53 @@
 cmake_minimum_required(VERSION 3.16)
-project(OmniNet VERSION 0.1.0 LANGUAGES CXX)
+
+# ============================================================================
+# Version Detection from Git Tags
+# ============================================================================
+
+# Get version from git tag if available, otherwise use fallback
+set(FALLBACK_VERSION "0.1.0")
+
+# Try to get version from git tag
+find_package(Git QUIET)
+if(Git_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} describe --tags --abbrev=0 2>/dev/null
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE GIT_TAG
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    # Remove 'v' prefix if present
+    string(REGEX REPLACE "^v" "" GIT_TAG "${GIT_TAG}")
+    
+    if(GIT_TAG)
+        # Parse version components
+        string(REGEX MATCH "^([0-9]+)\.([0-9]+)\.([0-9]+)" VERSION_MATCH "${GIT_TAG}")
+        if(VERSION_MATCH)
+            string(REGEX REPLACE "^([0-9]+)\.([0-9]+)\.([0-9]+).*" "\\1" DETECTED_MAJOR "${GIT_TAG}")
+            string(REGEX REPLACE "^([0-9]+)\.([0-9]+)\.([0-9]+).*" "\\2" DETECTED_MINOR "${GIT_TAG}")
+            string(REGEX REPLACE "^([0-9]+)\.([0-9]+)\.([0-9]+).*" "\\3" DETECTED_PATCH "${GIT_TAG}")
+        endif()
+    endif()
+endif()
+
+# Use detected version or fallback
+if(DETECTED_MAJOR AND DETECTED_MINOR AND DETECTED_PATCH)
+    set(PROJECT_VERSION_MAJOR ${DETECTED_MAJOR})
+    set(PROJECT_VERSION_MINOR ${DETECTED_MINOR})
+    set(PROJECT_VERSION_PATCH ${DETECTED_PATCH})
+    set(PROJECT_VERSION "${DETECTED_MAJOR}.${DETECTED_MINOR}.${DETECTED_PATCH}")
+else()
+    set(PROJECT_VERSION "${FALLBACK_VERSION}")
+endif()
+
+message(STATUS "OmniNet Version: ${PROJECT_VERSION} (from git tag: ${GIT_TAG})")
+
+# ============================================================================
+# Project Setup
+# ============================================================================
+
+project(OmniNet VERSION ${PROJECT_VERSION} LANGUAGES CXX)
 
 # C++20 required
 set(CMAKE_CXX_STANDARD 20)

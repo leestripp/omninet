@@ -1,18 +1,23 @@
+#ifndef OMNINET_H
+#define OMNINET_H
 // OmniNet - C++ HTTP/WebSocket Server Library
 // Main include file
 //
 // Project: OmniNet
-// Version: 1.0.0
+// Version: Set via CMake (OMNINET_VERSION_*)
 
-#ifndef OMNINET_H
-#define OMNINET_H
-
-// Version macros
-#define OMNINET_VERSION_MAJOR 1
-#define OMNINET_VERSION_MINOR 0
+// Version macros - defined by CMake
+#ifndef OMNINET_VERSION_MAJOR
+#define OMNINET_VERSION_MAJOR 0
+#endif
+#ifndef OMNINET_VERSION_MINOR
+#define OMNINET_VERSION_MINOR 1
+#endif
+#ifndef OMNINET_VERSION_PATCH
 #define OMNINET_VERSION_PATCH 0
+#endif
 
-#define OMNINET_VERSION_STRING "1.0.0"
+#define OMNINET_VERSION_STRING OMNINET_VERSION_MAJOR "." OMNINET_VERSION_MINOR "." OMNINET_VERSION_PATCH
 
 // Convenience macro for version checks
 #define OMNINET_CHECK_VERSION(major, minor, patch) \
