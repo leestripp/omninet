@@ -221,6 +221,81 @@ TEST(config_change_callback) {
 }
 
 // ============================================================================
+// New Config Options Tests
+// ============================================================================
+
+TEST(config_keepalive_timeout) {
+    auto& cfg = OmniNet::Config::instance();
+    auto timeout = cfg.defaultKeepAliveTimeout();
+    ASSERT_GE(timeout.count(), 1);
+    ASSERT_LE(timeout.count(), 300);
+}
+
+TEST(config_max_request_size) {
+    auto& cfg = OmniNet::Config::instance();
+    auto size = cfg.defaultMaxRequestSize();
+    ASSERT_GE(size, 1024u);  // At least 1KB
+    ASSERT_LE(size, 100 * 1024 * 1024);  // At most 100MB
+}
+
+TEST(config_cors_defaults) {
+    auto& cfg = OmniNet::Config::instance();
+    
+    // CORS should have sensible defaults
+    auto& origins = cfg.defaultCorsOrigins();
+    auto& methods = cfg.defaultCorsMethods();
+    auto& headers = cfg.defaultCorsHeaders();
+    
+    ASSERT_FALSE(origins.empty());
+    ASSERT_FALSE(methods.empty());
+    ASSERT_FALSE(headers.empty());
+}
+
+TEST(config_cors_setter) {
+    auto& cfg = OmniNet::Config::instance();
+    
+    cfg.setDefaultCorsEnabled(true);
+    ASSERT_TRUE(cfg.defaultCorsEnabled());
+    
+    cfg.setDefaultCorsOrigins("https://example.com");
+    ASSERT_EQ(cfg.defaultCorsOrigins(), "https://example.com");
+    
+    cfg.setDefaultCorsMethods("GET,POST");
+    ASSERT_EQ(cfg.defaultCorsMethods(), "GET,POST");
+    
+    // Reset to defaults
+    cfg.setDefaultCorsEnabled(false);
+    cfg.setDefaultCorsOrigins("*");
+    cfg.setDefaultCorsMethods("GET,POST,PUT,DELETE");
+}
+
+TEST(config_json_cors_loading) {
+    std::string tempPath = "/tmp/omninet_cors_test.json";
+    std::ofstream file(tempPath);
+    file << R"({
+        "cors": {
+            "enabled": true,
+            "allowedOrigins": "https://test.com",
+            "allowedMethods": "GET,POST,DELETE",
+            "allowedHeaders": "X-Custom-Header",
+            "maxAge": 3600
+        }
+    })";
+    file.close();
+    
+    auto& cfg = OmniNet::Config::instance();
+    cfg.loadFromFile(tempPath);
+    
+    ASSERT_TRUE(cfg.defaultCorsEnabled());
+    ASSERT_EQ(cfg.defaultCorsOrigins(), "https://test.com");
+    ASSERT_EQ(cfg.defaultCorsMethods(), "GET,POST,DELETE");
+    ASSERT_EQ(cfg.defaultCorsHeaders(), "X-Custom-Header");
+    ASSERT_EQ(cfg.defaultCorsMaxAge().count(), 3600);
+    
+    std::filesystem::remove(tempPath);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -253,6 +328,13 @@ int main() {
     
     std::cout << "\nCallback Tests:\n";
     RUN(config_change_callback);
+    
+    std::cout << "\nNew Config Options Tests:\n";
+    RUN(config_keepalive_timeout);
+    RUN(config_max_request_size);
+    RUN(config_cors_defaults);
+    RUN(config_cors_setter);
+    RUN(config_json_cors_loading);
     
     std::cout << "\n========================================\n";
     std::cout << "Config Tests: " << testsPassed << " passed, " << testsFailed << " failed\n";

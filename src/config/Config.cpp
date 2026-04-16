@@ -131,6 +131,26 @@ void Config::setDefaultRequestTimeout(std::chrono::seconds timeout) {
     m_defaultRequestTimeout = timeout;
 }
 
+std::chrono::seconds Config::defaultKeepAliveTimeout() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_defaultKeepAliveTimeout;
+}
+
+void Config::setDefaultKeepAliveTimeout(std::chrono::seconds timeout) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_defaultKeepAliveTimeout = timeout;
+}
+
+size_t Config::defaultMaxRequestSize() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_defaultMaxRequestSize;
+}
+
+void Config::setDefaultMaxRequestSize(size_t size) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_defaultMaxRequestSize = size;
+}
+
 size_t Config::defaultWorkerCount() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_defaultWorkerCount;
@@ -169,6 +189,58 @@ const std::filesystem::path& Config::databasePath() const {
 void Config::setDatabasePath(const std::filesystem::path& path) {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_databasePath = path;
+}
+
+// --- CORS Defaults ---
+
+bool Config::defaultCorsEnabled() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_defaultCorsEnabled;
+}
+
+void Config::setDefaultCorsEnabled(bool enabled) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_defaultCorsEnabled = enabled;
+}
+
+const std::string& Config::defaultCorsOrigins() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_defaultCorsOrigins;
+}
+
+void Config::setDefaultCorsOrigins(const std::string& origins) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_defaultCorsOrigins = origins;
+}
+
+const std::string& Config::defaultCorsMethods() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_defaultCorsMethods;
+}
+
+void Config::setDefaultCorsMethods(const std::string& methods) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_defaultCorsMethods = methods;
+}
+
+const std::string& Config::defaultCorsHeaders() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_defaultCorsHeaders;
+}
+
+void Config::setDefaultCorsHeaders(const std::string& headers) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_defaultCorsHeaders = headers;
+}
+
+std::chrono::seconds Config::defaultCorsMaxAge() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_defaultCorsMaxAge;
+}
+
+void Config::setDefaultCorsMaxAge(std::chrono::seconds maxAge) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_defaultCorsMaxAge = maxAge;
 }
 
 void Config::loadFromEnvironment() {
@@ -210,6 +282,20 @@ void Config::loadFromEnvironment() {
     if (const char* dataDir = std::getenv("OMNINET_DATA_DIR")) {
         m_dataDir = dataDir;
         std::filesystem::create_directories(m_dataDir);
+    }
+    
+    // CORS environment variables
+    if (const char* corsEnabled = std::getenv("OMNINET_CORS_ENABLED")) {
+        m_defaultCorsEnabled = (strcmp(corsEnabled, "1") == 0 || strcmp(corsEnabled, "true") == 0 || strcmp(corsEnabled, "yes") == 0);
+    }
+    if (const char* corsOrigins = std::getenv("OMNINET_CORS_ORIGINS")) {
+        m_defaultCorsOrigins = corsOrigins;
+    }
+    if (const char* corsMethods = std::getenv("OMNINET_CORS_METHODS")) {
+        m_defaultCorsMethods = corsMethods;
+    }
+    if (const char* corsHeaders = std::getenv("OMNINET_CORS_HEADERS")) {
+        m_defaultCorsHeaders = corsHeaders;
     }
 }
 
@@ -255,6 +341,12 @@ void Config::loadFromJson(const json& j) {
         if (server.contains("requestTimeout")) {
             m_defaultRequestTimeout = std::chrono::seconds(server["requestTimeout"].get<int>());
         }
+        if (server.contains("keepAliveTimeout")) {
+            m_defaultKeepAliveTimeout = std::chrono::seconds(server["keepAliveTimeout"].get<int>());
+        }
+        if (server.contains("maxRequestSize")) {
+            m_defaultMaxRequestSize = server["maxRequestSize"].get<size_t>();
+        }
         if (server.contains("address")) {
             // Would be used when creating a server instance
         }
@@ -292,6 +384,24 @@ void Config::loadFromJson(const json& j) {
         }
         if (logging.contains("file") && !logging["file"].empty()) {
             m_logFile = logging["file"].get<std::string>();
+        }
+    }
+    
+    // CORS section
+    if (j.contains("cors")) {
+        const auto& cors = j["cors"];
+        if (cors.contains("enabled")) m_defaultCorsEnabled = cors["enabled"].get<bool>();
+        if (cors.contains("allowedOrigins") && !cors["allowedOrigins"].empty()) {
+            m_defaultCorsOrigins = cors["allowedOrigins"].get<std::string>();
+        }
+        if (cors.contains("allowedMethods") && !cors["allowedMethods"].empty()) {
+            m_defaultCorsMethods = cors["allowedMethods"].get<std::string>();
+        }
+        if (cors.contains("allowedHeaders") && !cors["allowedHeaders"].empty()) {
+            m_defaultCorsHeaders = cors["allowedHeaders"].get<std::string>();
+        }
+        if (cors.contains("maxAge")) {
+            m_defaultCorsMaxAge = std::chrono::seconds(cors["maxAge"].get<int>());
         }
     }
 }
@@ -419,8 +529,8 @@ json Config::toJsonInternal() const {
         {"port", m_defaultPort},
         {"workers", m_defaultWorkerCount},
         {"requestTimeout", static_cast<int>(m_defaultRequestTimeout.count())},
-        {"keepAliveTimeout", 5},
-        {"maxRequestSize", 1048576}
+        {"keepAliveTimeout", static_cast<int>(m_defaultKeepAliveTimeout.count())},
+        {"maxRequestSize", m_defaultMaxRequestSize}
     };
     
     // TLS
@@ -431,13 +541,13 @@ json Config::toJsonInternal() const {
         {"verifyClient", false}
     };
     
-    // CORS (default)
+    // CORS
     j["cors"] = {
-        {"enabled", false},
-        {"allowedOrigins", "*"},
-        {"allowedMethods", "GET,POST,PUT,DELETE"},
-        {"allowedHeaders", "Content-Type,Authorization"},
-        {"maxAge", 86400}
+        {"enabled", m_defaultCorsEnabled},
+        {"allowedOrigins", m_defaultCorsOrigins},
+        {"allowedMethods", m_defaultCorsMethods},
+        {"allowedHeaders", m_defaultCorsHeaders},
+        {"maxAge", static_cast<int>(m_defaultCorsMaxAge.count())}
     };
     
     // WebSocket (default)

@@ -60,6 +60,14 @@ public:
     std::chrono::seconds defaultRequestTimeout() const;
     void setDefaultRequestTimeout(std::chrono::seconds timeout);
     
+    // Default keep-alive timeout
+    std::chrono::seconds defaultKeepAliveTimeout() const;
+    void setDefaultKeepAliveTimeout(std::chrono::seconds timeout);
+    
+    // Default max request size
+    size_t defaultMaxRequestSize() const;
+    void setDefaultMaxRequestSize(size_t size);
+    
     // --- Threading ---
     
     // Default worker thread count (0 = auto-detect)
@@ -75,6 +83,28 @@ public:
     // Default TLS key path
     const std::optional<std::string>& defaultTlsKey() const;
     void setDefaultTlsKey(const std::string& path);
+    
+    // --- CORS Defaults ---
+    
+    // Default CORS enabled
+    bool defaultCorsEnabled() const;
+    void setDefaultCorsEnabled(bool enabled);
+    
+    // Default CORS allowed origins
+    const std::string& defaultCorsOrigins() const;
+    void setDefaultCorsOrigins(const std::string& origins);
+    
+    // Default CORS allowed methods
+    const std::string& defaultCorsMethods() const;
+    void setDefaultCorsMethods(const std::string& methods);
+    
+    // Default CORS allowed headers
+    const std::string& defaultCorsHeaders() const;
+    void setDefaultCorsHeaders(const std::string& headers);
+    
+    // Default CORS max age
+    std::chrono::seconds defaultCorsMaxAge() const;
+    void setDefaultCorsMaxAge(std::chrono::seconds maxAge);
     
     // --- Database ---
     
@@ -142,10 +172,19 @@ private:
     LogLevel m_logLevel = LogLevel::INFO;
     uint16_t m_defaultPort = 8080;
     std::chrono::seconds m_defaultRequestTimeout{30};
+    std::chrono::seconds m_defaultKeepAliveTimeout{5};
+    size_t m_defaultMaxRequestSize = 1024 * 1024;  // 1MB
     size_t m_defaultWorkerCount = 0;  // 0 = auto
     std::optional<std::string> m_defaultTlsCert;
     std::optional<std::string> m_defaultTlsKey;
     std::filesystem::path m_databasePath;
+    
+    // CORS defaults
+    bool m_defaultCorsEnabled = false;
+    std::string m_defaultCorsOrigins = "*";
+    std::string m_defaultCorsMethods = "GET,POST,PUT,DELETE";
+    std::string m_defaultCorsHeaders = "Content-Type,Authorization";
+    std::chrono::seconds m_defaultCorsMaxAge{86400};
     
     // Hot reload
     std::thread m_watcherThread;

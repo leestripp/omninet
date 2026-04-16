@@ -141,11 +141,16 @@
 | server.port | OMNINET_PORT |
 | server.workers | OMNINET_WORKERS |
 | server.requestTimeout | OMNINET_TIMEOUT |
+| server.keepAliveTimeout | OMNINET_KEEPALIVE_TIMEOUT |
+| server.maxRequestSize | OMNINET_MAX_REQUEST_SIZE |
 | logging.level | OMNINET_LOG_LEVEL |
 | tls.certFile | OMNINET_TLS_CERT |
 | tls.keyFile | OMNINET_TLS_KEY |
 | database.path | OMNINET_DATABASE |
-| dashboard.enabled | OMNINET_DASHBOARD |
+| cors.enabled | OMNINET_CORS_ENABLED |
+| cors.allowedOrigins | OMNINET_CORS_ORIGINS |
+| cors.allowedMethods | OMNINET_CORS_METHODS |
+| cors.allowedHeaders | OMNINET_CORS_HEADERS |
 
 ---
 
