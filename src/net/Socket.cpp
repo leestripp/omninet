@@ -23,13 +23,6 @@
 namespace OmniNet {
 
 // ============================================================================
-// Socket Exception
-// ============================================================================
-
-SocketException::SocketException(const std::string& message, int errorCode)
-    : Exception(message, errorCode) {}
-
-// ============================================================================
 // Socket Base Class
 // ============================================================================
 
@@ -117,7 +110,7 @@ void Socket::bind(const std::string& address, uint16_t port) {
 
 void Socket::listen(int backlog) {
     if (::listen(m_fd, backlog) < 0) {
-        throw SocketException("Failed to listen", getError());
+        throw SocketException(std::string("Failed to listen"), getError());
     }
 }
 
@@ -132,7 +125,7 @@ std::unique_ptr<Socket> Socket::accept() {
         if (wouldBlock()) {
             return nullptr;
         }
-        throw SocketException("Failed to accept connection", getError());
+        throw SocketException(std::string("Failed to accept connection"), getError());
     }
     
     return std::make_unique<Socket>(clientFd);
@@ -143,7 +136,7 @@ size_t Socket::send(std::span<const uint8_t> data) {
                             static_cast<size_t>(data.size()), 0);
     if (result < 0) {
         if (wouldBlock()) return 0;
-        throw SocketException("Send failed", getError());
+        throw SocketException(std::string("Send failed"), getError());
     }
     return static_cast<size_t>(result);
 }
@@ -159,7 +152,7 @@ void Socket::sendAll(std::span<const uint8_t> data) {
     while (totalSent < data.size()) {
         size_t sent = send(data.subspan(totalSent));
         if (sent == 0) {
-            throw SocketException("Connection closed during send");
+            throw SocketException(std::string("Connection closed during send"));
         }
         totalSent += sent;
     }
@@ -170,7 +163,7 @@ size_t Socket::recv(std::span<uint8_t> buffer) {
                            static_cast<size_t>(buffer.size()), 0);
     if (result < 0) {
         if (wouldBlock()) return 0;
-        throw SocketException("Receive failed", getError());
+        throw SocketException(std::string("Receive failed"), getError());
     }
     return static_cast<size_t>(result);
 }
@@ -212,7 +205,7 @@ std::vector<uint8_t> Socket::recvExactly(size_t n) {
     while (totalReceived < n) {
         size_t received = recv(std::span<uint8_t>(buffer.data() + totalReceived, n - totalReceived));
         if (received == 0) {
-            throw SocketException("Connection closed before receiving all data");
+            throw SocketException(std::string("Connection closed before receiving all data"));
         }
         totalReceived += received;
     }
@@ -449,7 +442,7 @@ bool Socket::wouldBlock() {
 ServerSocket::ServerSocket() {
     m_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (m_fd == INVALID_SOCKET) {
-        throw SocketException("Failed to create socket", getError());
+        throw SocketException(std::string("Failed to create socket"), getError());
     }
     setReuseAddr(true);
 }

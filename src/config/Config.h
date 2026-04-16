@@ -7,6 +7,8 @@
 #include <optional>
 #include <filesystem>
 
+#include "utils/Logger.h"
+
 namespace OmniNet::Config {
 
 // ============================================================================

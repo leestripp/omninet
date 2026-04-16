@@ -7,8 +7,16 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace OmniNet {
+
+// Forward declarations
+namespace HTTP {
+class Request;
+class Response;
+struct Version;
+}
 
 // ============================================================================
 // Rate Limiter
@@ -111,6 +119,9 @@ public:
     
     // Get hits in window
     size_t hits() const;
+    
+    // Get max hits
+    size_t maxHits() const;
     
     // Check if at limit
     bool isAtLimit() const;

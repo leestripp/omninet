@@ -155,12 +155,12 @@ void Response::setETag(std::string_view etag) {
 }
 
 void Response::setKeepAlive(std::chrono::seconds timeout) {
-    setHeader("Keep-Alive", "timeout=" + std::to_string(timeout.count()));
-    setHeader("Connection", "keep-alive");
+    setHeader(std::string("Keep-Alive"), std::string("timeout=") + std::to_string(timeout.count()));
+    setHeader(std::string("Connection"), std::string("keep-alive"));
 }
 
 void Response::setConnectionClose() {
-    setHeader("Connection", "close");
+    setHeader(std::string("Connection"), std::string("close"));
 }
 
 void Response::setTransferEncoding(const std::string& encoding) {

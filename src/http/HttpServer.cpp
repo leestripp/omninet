@@ -222,13 +222,8 @@ void Server::applySocketOptions(Socket& socket) {
 }
 
 // ============================================================================
-// HTTPSServer
+// HTTPSServer (defined in header)
 // ============================================================================
-
-HTTPSServer::HTTPSServer(Config config)
-    : Server(config) {
-    m_config.tlsEnabled = true;
-}
 
 // ============================================================================
 // ServerBuilder

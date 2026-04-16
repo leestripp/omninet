@@ -1,5 +1,5 @@
 // OmniNet HTTP Response Tests
-#include "HttpResponse.h"
+#include "http/HttpResponse.h"
 #include <iostream>
 
 int main() {

@@ -1,8 +1,8 @@
 // OmniNet Logger Tests
-#include "Logger.h"
+#include "utils/Logger.h"
 #include <iostream>
 
 int main() {
-    OmniNet::Logger::instance().info("Logger test");
+    OmniNet::Logger::instance().info(std::string("Logger test"));
     return 0;
 }

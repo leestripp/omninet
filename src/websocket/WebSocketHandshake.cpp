@@ -1,4 +1,5 @@
 // OmniNet - WebSocket Handshake Implementation
+#include "utils/Utils.h"
 #include "WebSocketHandshake.h"
 
 #include <openssl/sha.h>

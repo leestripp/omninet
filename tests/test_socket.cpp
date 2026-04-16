@@ -1,5 +1,5 @@
 // OmniNet Socket Tests
-#include "Socket.h"
+#include "net/Socket.h"
 #include <iostream>
 
 int main() {

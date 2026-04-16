@@ -45,7 +45,7 @@ public:
         const std::string& clientIp,
         const std::string& method,
         const std::string& path,
-        const HTTP::Request& req = {}
+        const HTTP::Request* req = nullptr
     );
     
     // Check if IP is blocked

@@ -11,6 +11,8 @@
 #include <string_view>
 #include <vector>
 
+#include "utils/Exception.h"
+
 // Forward declare sqlite3
 struct sqlite3;
 

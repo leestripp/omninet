@@ -1,5 +1,5 @@
 // OmniNet Utils Tests
-#include "Utils.h"
+#include "utils/Utils.h"
 #include <iostream>
 
 int main() {

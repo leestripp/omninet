@@ -1,4 +1,5 @@
 // OmniNet - WebSocket Implementation
+#include "utils/Utils.h"
 #include "WebSocket.h"
 
 #include <thread>

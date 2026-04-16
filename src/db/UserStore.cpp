@@ -1,4 +1,5 @@
 // OmniNet - User Store Implementation
+#include "utils/Utils.h"
 #include "UserStore.h"
 
 namespace OmniNet::DB {

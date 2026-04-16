@@ -1,4 +1,5 @@
 // OmniNet - Session Store Implementation
+#include "utils/Utils.h"
 #include "SessionStore.h"
 
 #include <chrono>

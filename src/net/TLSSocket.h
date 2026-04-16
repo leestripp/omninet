@@ -10,22 +10,15 @@
 #include <vector>
 
 #include "net/Socket.h"
+#include "crypto/Crypto.h"
 
-// Forward OpenSSL declarations
-struct ssl_st;
-struct ssl_ctx_st;
-struct bio_st;
+#include <openssl/ssl.h>
 
 namespace OmniNet {
 
 // ============================================================================
-// TLS Socket Exception
+// TLS Socket Exception (defined in Exception.h)
 // ============================================================================
-
-class TLSException : public Exception {
-public:
-    TLSException(const std::string& message, int errorCode = 0);
-};
 
 // ============================================================================
 // TLS Socket Class
@@ -81,8 +74,8 @@ public:
     // Connect and perform TLS handshake (client)
     void connect(const std::string& host, uint16_t port) override;
     
-    // Accept connection and perform TLS handshake (server)
-    void accept() override;
+    // Perform TLS handshake on existing connected socket (server)
+    void performHandshake();
     
     // Shutdown TLS connection gracefully
     bool shutdown();
@@ -150,6 +143,7 @@ private:
     std::string m_keyFile;
     std::string m_caFile;
     std::string m_caDir;
+    std::string m_sniHostname;
 };
 
 // ============================================================================

@@ -1,7 +1,11 @@
 // OmniNet - Dashboard Handler Implementation
 #include "DashboardHandler.h"
+#include "utils/Utils.h"
+#include "utils/Exception.h"
 
 namespace OmniNet::Dashboard {
+using OmniNet::Utils::split;
+using OmniNet::Utils::urlDecode;
 
 // ============================================================================
 // Handler

@@ -1,10 +1,19 @@
 // OmniNet - Static File Handler Implementation
 #include "StaticHandler.h"
+#include "utils/Utils.h"
 
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 
 namespace OmniNet::HTTP {
+using OmniNet::Utils::urlDecode;
+using OmniNet::Utils::normalizePath;
+using OmniNet::Utils::filenameOf;
+using OmniNet::Utils::extensionOf;
+using OmniNet::Utils::readFile;
+using OmniNet::Utils::escapeHtml;
+using OmniNet::Utils::directoryOf;
 
 // ============================================================================
 // Static Handler

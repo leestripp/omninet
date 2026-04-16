@@ -1,4 +1,4 @@
-// OmniNet - OpenSSL Cryptography Implementation
+// OmniNet - OpenSSL Cryptography Implementation (OpenSSL 3.x compatible)
 #include "Crypto.h"
 
 #include <openssl/bio.h>
@@ -11,7 +11,6 @@
 #include <openssl/rand.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
-
 #include <algorithm>
 #include <cstring>
 #include <memory>
@@ -27,8 +26,8 @@ bool Crypto::s_initialized = false;
 
 void Crypto::initialize() {
     if (!s_initialized) {
-        OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | 
-                        OPENSSL_INIT_LOAD_CRYPTO_STRINGS, nullptr);
+        // OpenSSL 3.x auto-initializes, but explicit init is still recommended
+        OPENSSL_init_crypto(OPENSSL_INIT_LOAD_CRYPTO_STRINGS, nullptr);
         s_initialized = true;
     }
 }
@@ -61,7 +60,6 @@ std::string Crypto::errorString(unsigned long error) {
 // ============================================================================
 // Random
 // ============================================================================
-
 std::vector<uint8_t> Crypto::randomBytes(size_t count) {
     std::vector<uint8_t> result(count);
     if (RAND_bytes(result.data(), static_cast<int>(count)) != 1) {
@@ -74,11 +72,9 @@ std::vector<uint8_t> Crypto::randomBytes(size_t count) {
     }
     return result;
 }
-
 std::string Crypto::randomHex(size_t count) {
     return hexEncode(randomBytes(count));
 }
-
 // ============================================================================
 // Hashing
 // ============================================================================
@@ -182,50 +178,26 @@ std::vector<uint8_t> Crypto::hkdfSha256(
     std::span<const uint8_t> info,
     size_t outputLen
 ) {
+    // HKDF-SHA256 using pure HMAC (works with OpenSSL 3.x)
+    std::vector<uint8_t> prk = hmacSha256(salt, inputKey);
     std::vector<uint8_t> output(outputLen);
     
-    if (EVP_KDF_fetch(nullptr, "HKDF", nullptr) == nullptr) {
-        // Fallback: simple HMAC-based KDF
-        std::vector<uint8_t> prk = hmacSha256(salt, inputKey);
+    std::vector<uint8_t> t;
+    uint8_t counter = 1;
+    size_t offset = 0;
+    
+    while (offset < outputLen) {
+        t = hmacSha256(prk, t.empty() ? inputKey : t);
+        t.insert(t.end(), info.begin(), info.end());
+        t.push_back(counter++);
         
-        std::vector<uint8_t> t;
-        uint8_t counter = 1;
-        size_t offset = 0;
-        
-        while (offset < outputLen) {
-            t = hmacSha256(prk, 
-                std::span<const uint8_t>(t.data(), t.size()));
-            t.insert(t.end(), info.begin(), info.end());
-            t.push_back(counter++);
-            
-            auto extracted = hmacSha256(prk, t);
-            size_t toCopy = std::min(outputLen - offset, extracted.size());
-            std::copy(extracted.begin(), extracted.begin() + toCopy, 
-                      output.begin() + offset);
-            offset += toCopy;
-        }
-        
-        return output;
+        auto extracted = hmacSha256(prk, t);
+        size_t toCopy = std::min(outputLen - offset, extracted.size());
+        std::copy(extracted.begin(), extracted.begin() + toCopy, 
+                  output.begin() + static_cast<long>(offset));
+        offset += toCopy;
+        t.clear();
     }
-    
-    // Use OpenSSL HKDF if available
-    EVP_KDF* kdf = EVP_KDF_fetch(nullptr, "HKDF", nullptr);
-    EVP_KDF_CTX* ctx = EVP_KDF_CTX_new(kdf);
-    
-    OSSL_PARAM params[] = {
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_KEY, 
-            const_cast<uint8_t*>(inputKey.data()), inputKey.size()),
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT,
-            const_cast<uint8_t*>(salt.data()), salt.size()),
-        OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_INFO,
-            const_cast<uint8_t*>(info.data()), info.size()),
-        OSSL_PARAM_construct_size_t(OSSL_KDF_PARAM_KEYLEN, &outputLen),
-        OSSL_PARAM_construct_end()
-    };
-    
-    EVP_KDF_derive(ctx, output.data(), outputLen, params);
-    EVP_KDF_CTX_free(ctx);
-    EVP_KDF_free(kdf);
     
     return output;
 }
@@ -251,7 +223,6 @@ std::vector<uint8_t> Crypto::pbkdf2Sha256(
     
     return output;
 }
-
 // ============================================================================
 // Encoding
 // ============================================================================
@@ -289,7 +260,6 @@ std::optional<std::vector<uint8_t>> Crypto::base64Decode(std::string_view encode
     result.resize(len);
     return result;
 }
-
 std::string Crypto::hexEncode(std::span<const uint8_t> data) {
     std::string result;
     result.reserve(data.size() * 2);
@@ -337,9 +307,7 @@ bool Crypto::constantTimeEqual(std::string_view a, std::string_view b) {
 // ============================================================================
 // Password Hasher
 // ============================================================================
-
 PasswordHasher::PasswordHasher() = default;
-
 PasswordHasher::HashResult PasswordHasher::hash(const std::string& password) const {
     std::vector<uint8_t> salt = Crypto::randomBytes(m_saltLength);
     return hash(password, salt);
@@ -370,7 +338,7 @@ bool PasswordHasher::verify(const std::string& password, const HashResult& store
         m_hashLength
     );
     
-    return constantTimeEqual(
+    return Crypto::constantTimeEqual(
         std::span<const uint8_t>(computed.data(), computed.size()),
         std::span<const uint8_t>(
             reinterpret_cast<const uint8_t*>(stored.hash.data()),
@@ -390,7 +358,6 @@ size_t PasswordHasher::iterations() const {
 void PasswordHasher::setIterations(size_t count) {
     m_iterations = count;
 }
-
 size_t PasswordHasher::saltLength() const {
     return m_saltLength;
 }
@@ -398,7 +365,6 @@ size_t PasswordHasher::saltLength() const {
 void PasswordHasher::setSaltLength(size_t len) {
     m_saltLength = len;
 }
-
 size_t PasswordHasher::hashLength() const {
     return m_hashLength;
 }
@@ -410,7 +376,6 @@ void PasswordHasher::setHashLength(size_t len) {
 // ============================================================================
 // Secure Token
 // ============================================================================
-
 std::string SecureToken::generate(size_t length) {
     return Crypto::hexEncode(Crypto::randomBytes(length));
 }

@@ -3,6 +3,7 @@
 #define OMNINET_HTTP_CONNECTION_H
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -125,15 +126,15 @@ public:
     
     std::unique_ptr<Connection> create(std::unique_ptr<Socket> socket) override;
     
-    void setHandler(Handler handler);
-    void setErrorHandler(ErrorHandler handler);
+    void setHandler(Connection::Handler handler);
+    void setErrorHandler(Connection::ErrorHandler handler);
     void setRequestTimeout(std::chrono::seconds timeout);
     void setKeepAliveTimeout(std::chrono::seconds timeout);
     void setMaxRequestSize(size_t maxSize);
 
 private:
-    Handler m_handler;
-    ErrorHandler m_errorHandler;
+    Connection::Handler m_handler;
+    Connection::ErrorHandler m_errorHandler;
     std::chrono::seconds m_requestTimeout{30};
     std::chrono::seconds m_keepAliveTimeout{5};
     size_t m_maxRequestSize = 1024 * 1024;

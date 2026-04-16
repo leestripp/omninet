@@ -10,6 +10,8 @@
 #include <string>
 #include <string_view>
 
+#include "utils/Exception.h"
+
 // Platform-specific includes
 #ifdef _WIN32
     #include <winsock2.h>
@@ -31,13 +33,8 @@
 namespace OmniNet {
 
 // ============================================================================
-// Socket Exception
+// Socket Exception (defined in Exception.h)
 // ============================================================================
-
-class SocketException : public Exception {
-public:
-    SocketException(const std::string& message, int errorCode = 0);
-};
 
 // ============================================================================
 // Base Socket Class

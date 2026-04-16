@@ -1,5 +1,5 @@
 // OmniNet HTTP Request Tests
-#include "HttpRequest.h"
+#include "http/HttpRequest.h"
 #include <iostream>
 
 int main() {

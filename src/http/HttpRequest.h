@@ -152,6 +152,13 @@ public:
     // Get full URL (scheme://host:port/path?query)
     std::string url() const;
     
+    // --- Setters (for RequestBuilder) ---
+    void setMethod(Method method);
+    void setPath(std::string path);
+    void setVersion(Version version);
+    void setHeader(std::string name, std::string value);
+    void setBody(std::vector<uint8_t> data);
+    
     // Reset for reuse
     void reset();
 
@@ -190,7 +197,7 @@ private:
     
     QueryParams m_queryParams;
     bool m_queryParsed = false;
-    void parseQueryString();
+    void parseQueryString() const;
 };
 
 // ============================================================================

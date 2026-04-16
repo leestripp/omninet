@@ -1,5 +1,5 @@
 // OmniNet Database Tests
-#include "Database.h"
+#include "db/Database.h"
 #include <iostream>
 
 int main() {

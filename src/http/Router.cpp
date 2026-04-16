@@ -105,7 +105,8 @@ void Router::setDefaultFile(std::string filename) {
 }
 
 void Router::allowDirectoryListing(bool allow) {
-    m_allowDirectoryListing = allow;
+    (void)allow;
+    // Directory listing is handled by StaticHandler
 }
 
 void Router::setNotFoundHandler(Handler handler) {

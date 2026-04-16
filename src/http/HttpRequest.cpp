@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 
 namespace OmniNet::HTTP {
 using OmniNet::Utils::toLower;
@@ -41,6 +42,24 @@ Method parseMethod(std::string_view str) {
     if (str == "CONNECT") return Method::CONNECT;
     if (str == "TRACE") return Method::TRACE;
     return Method::UNKNOWN;
+}
+
+// ============================================================================
+// Version parsing
+// ============================================================================
+
+Version parseVersion(std::string_view str) {
+    // Expected format: "HTTP/1.1" or "HTTP/2.0"
+    if (str.size() >= 8 && str.substr(0, 5) == "HTTP/") {
+        int major = str[5] - '0';
+        int minor = str[7] - '0';
+        return Version{major, minor};
+    }
+    return Version{1, 0};  // Default to HTTP/1.0
+}
+
+std::string versionToString(const Version& v) {
+    return "HTTP/" + std::to_string(v.major) + "." + std::to_string(v.minor);
 }
 
 // ============================================================================
@@ -101,6 +120,9 @@ size_t Request::parse(std::span<const uint8_t> data) {
     const char* ptr = reinterpret_cast<const char*>(data.data());
     size_t len = data.size();
     
+    // Temporary string for parsing version
+    std::string versionStr;
+    
     while (pos < len) {
         switch (m_state) {
             case State::METHOD: {
@@ -135,12 +157,14 @@ size_t Request::parse(std::span<const uint8_t> data) {
             }
             case State::VERSION: {
                 while (pos < len && ptr[pos] != '\n' && ptr[pos] != '\r') {
-                    m_version += ptr[pos++];
+                    versionStr += ptr[pos++];
                 }
                 if (ptr[pos] == '\n') {
+                    m_version = parseVersion(versionStr);
                     m_state = State::HEADER_NAME;
                     ++pos;
                 } else if (ptr[pos] == '\r' && pos + 1 < len && ptr[pos + 1] == '\n') {
+                    m_version = parseVersion(versionStr);
                     m_state = State::HEADER_NAME;
                     pos += 2;
                 }
@@ -262,18 +286,14 @@ const QueryParams& Request::query() const {
 }
 
 Version Request::version() const {
-    // Parse "HTTP/1.1" format
-    if (m_version.size() >= 7 && m_version.substr(0, 5) == "HTTP/") {
-        int major = m_version[5] - '0';
-        int minor = m_version[7] - '0';
-        return Version{major, minor};
-    }
-    return Version{1, 0};
+    return m_version;
 }
 
 std::string_view Request::pathParam(size_t index) const {
     if (index < m_pathParams.size()) {
-        return m_pathParams[index];
+        auto it = m_pathParams.begin();
+        std::advance(it, index);
+        return it->second;
     }
     return "";
 }
@@ -404,7 +424,7 @@ std::string Request::url() const {
 
 void Request::reset() {
     m_method = Method::GET;
-    m_version.clear();
+    m_version = HTTP_1_1;
     m_path.clear();
     m_queryString.clear();
     m_headers.clear();
@@ -418,7 +438,7 @@ void Request::reset() {
     m_remotePort = 0;
 }
 
-void Request::parseQueryString() {
+void Request::parseQueryString() const {
     if (m_queryParsed) return;
     
     if (!m_queryString.empty()) {
@@ -440,41 +460,67 @@ void Request::parseQueryString() {
 }
 
 // ============================================================================
+// Setters
+// ============================================================================
+
+void Request::setMethod(Method method) {
+    m_method = method;
+}
+
+void Request::setPath(std::string path) {
+    m_path = std::move(path);
+}
+
+void Request::setVersion(Version version) {
+    m_version = version;
+}
+
+void Request::setHeader(std::string name, std::string value) {
+    m_headers[std::move(name)] = std::move(value);
+}
+
+void Request::setBody(std::vector<uint8_t> data) {
+    m_body = std::move(data);
+}
+
+// ============================================================================
 // Request Builder
 // ============================================================================
 
 RequestBuilder& RequestBuilder::setMethod(Method method) {
-    m_request.m_method = method;
+    m_request.setMethod(method);
     return *this;
 }
 
 RequestBuilder& RequestBuilder::setPath(std::string_view path) {
-    m_request.m_path = std::string(path);
+    m_request.setPath(std::string(path));
     return *this;
 }
 
 RequestBuilder& RequestBuilder::setVersion(Version version) {
-    m_request.m_version = "HTTP/" + std::to_string(version.major) + "." + std::to_string(version.minor);
+    m_request.setVersion(version);
     return *this;
 }
 
 RequestBuilder& RequestBuilder::setHeader(std::string_view name, std::string_view value) {
-    m_request.m_headers[std::string(name)] = std::string(value);
+    m_request.setHeader(std::string(name), std::string(value));
     return *this;
 }
 
 RequestBuilder& RequestBuilder::setBody(std::span<const uint8_t> data) {
-    m_request.m_body.assign(data.begin(), data.end());
+    std::vector<uint8_t> bodyData(data.begin(), data.end());
+    m_request.setBody(std::move(bodyData));
     return *this;
 }
 
 RequestBuilder& RequestBuilder::setBody(std::string_view data) {
-    m_request.m_body.assign(data.begin(), data.end());
+    std::vector<uint8_t> bodyData(data.begin(), data.end());
+    m_request.setBody(std::move(bodyData));
     return *this;
 }
 
 RequestBuilder& RequestBuilder::setContentType(std::string_view type) {
-    m_request.m_headers["Content-Type"] = std::string(type);
+    m_request.setHeader("Content-Type", std::string(type));
     return *this;
 }
 

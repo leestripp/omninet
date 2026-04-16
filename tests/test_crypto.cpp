@@ -1,5 +1,5 @@
 // OmniNet Crypto Tests
-#include "Crypto.h"
+#include "crypto/Crypto.h"
 #include <iostream>
 
 int main() {

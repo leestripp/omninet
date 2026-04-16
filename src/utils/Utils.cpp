@@ -12,6 +12,10 @@
 #include <sstream>
 #include <streambuf>
 
+// OpenSSL includes for HMAC-SHA256
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -683,10 +687,31 @@ bool writeFile(const std::string& path, std::span<const uint8_t> data) {
 
 // ============================================================================
 // HMAC-SHA256 (using Crypto::hmacSha256)
+// Note: This function requires the Crypto module to be compiled
 // ============================================================================
 
 std::string hmacSha256(std::string_view key, std::string_view message) {
-    return Crypto::hmacSha256(key, message);
+    // Using OpenSSL directly for HMAC-SHA256
+    std::vector<uint8_t> keyBytes(key.data(), key.data() + key.size());
+    std::vector<uint8_t> msgBytes(message.data(), message.data() + message.size());
+    
+    // Simple HMAC-SHA256 using HMAC function from OpenSSL
+    unsigned char result[EVP_MAX_MD_SIZE];
+    unsigned int resultLen = 0;
+    
+    HMAC(EVP_sha256(), keyBytes.data(), static_cast<int>(keyBytes.size()),
+         msgBytes.data(), static_cast<int>(msgBytes.size()),
+         result, &resultLen);
+    
+    // Convert to hex string manually
+    static const char hex[] = "0123456789abcdef";
+    std::string hexStr;
+    hexStr.reserve(resultLen * 2);
+    for (unsigned int i = 0; i < resultLen; i++) {
+        hexStr += hex[(result[i] >> 4) & 0xf];
+        hexStr += hex[result[i] & 0xf];
+    }
+    return hexStr;
 }
 
 } // namespace OmniNet::Utils

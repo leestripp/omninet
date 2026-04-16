@@ -210,8 +210,9 @@ CloseFrame parseCloseFrame(std::span<const uint8_t> payload) {
 std::vector<uint8_t> buildCloseFrame(const CloseFrame& frame) {
     std::vector<uint8_t> result;
     
-    result.push_back(static_cast<uint8_t>((static_cast<int>(frame.code) >> 8) & 0xff));
-    result.push_back(static_cast<uint8_t>(frame.code & 0xff));
+    uint16_t code = static_cast<uint16_t>(frame.code);
+    result.push_back(static_cast<uint8_t>((code >> 8) & 0xff));
+    result.push_back(static_cast<uint8_t>(code & 0xff));
     
     if (!frame.reason.empty()) {
         result.insert(result.end(), frame.reason.begin(), frame.reason.end());

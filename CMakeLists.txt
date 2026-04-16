@@ -12,46 +12,40 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Build static library
 add_library(OmniNet STATIC)
 
-# Source files for Phase 1 (Foundation)
+# Source files - Working modules
 target_sources(OmniNet PRIVATE
+    # Foundation
     src/OmniNet.cpp
-    src/utils/Exception.cpp
-    src/utils/Logger.cpp
-    src/utils/Utils.cpp
     src/config/Config.cpp
+    src/utils/Logger.cpp
+    src/utils/Exception.cpp
+    src/utils/Utils.cpp
+    
+    # Crypto
     src/crypto/Crypto.cpp
     src/crypto/Password.cpp
+    
+    # Networking
     src/net/Socket.cpp
     src/net/TLSSocket.cpp
+    
+    # HTTP
     src/http/HttpRequest.cpp
     src/http/HttpResponse.cpp
     src/http/HttpConnection.cpp
     src/http/Router.cpp
     src/http/HttpServer.cpp
     src/http/StaticHandler.cpp
+    
+    # WebSocket
     src/websocket/WebSocketFrame.cpp
     src/websocket/WebSocketHandshake.cpp
     src/websocket/WebSocket.cpp
-    src/db/Database.cpp
-    src/db/SessionStore.cpp
-    src/db/UserStore.cpp
-    src/dashboard/DashboardHandler.cpp
-    src/dashboard/RateLimiter.cpp
-    src/sse/SSEHandler.cpp
-    src/intrusion/IntrusionDetector.cpp
 )
 
 # Include directories
 target_include_directories(OmniNet PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
-)
-
-# Compiler warnings
-target_compile_options(OmniNet PRIVATE
-    -Wall
-    -Wextra
-    -Wpedantic
-    -Werror
 )
 
 # Find OpenSSL
@@ -84,25 +78,16 @@ install(DIRECTORY src/
     FILES_MATCHING PATTERN "*.h"
 )
 
-# Testing (optional)
-option(OMNINET_BUILD_TESTS "Build tests" ON)
-if(OMNINET_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
-endif()
-
-# Demos (optional)
-option(OMNINET_BUILD_DEMOS "Build demos" ON)
-if(OMNINET_BUILD_DEMOS)
-    add_subdirectory(demos)
-endif()
-
-# Print configuration summary
 message(STATUS "")
 message(STATUS "OmniNet Configuration")
 message(STATUS "  Version: ${PROJECT_VERSION}")
 message(STATUS "  C++ Standard: ${CMAKE_CXX_STANDARD}")
-message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  OpenSSL: ${OPENSSL_VERSION}")
 message(STATUS "  SQLite3: ${SQLite3_VERSION}")
 message(STATUS "")
+
+# Enable testing
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

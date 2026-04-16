@@ -69,7 +69,7 @@ public:
     
     // --- Construction ---
     
-    explicit Server(Config config = Config());
+    explicit Server(Config config);
     ~Server();
     
     // Non-copyable
@@ -195,12 +195,12 @@ private:
 };
 
 // ============================================================================
-// HTTPS Server (convenience)
+// HTTPSServer (convenience)
 // ============================================================================
 
 class HTTPSServer : public Server {
 public:
-    explicit HTTPSServer(Config config);
+    explicit HTTPSServer(Config config) : Server(config) {}
 };
 
 // ============================================================================

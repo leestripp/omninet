@@ -9,6 +9,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "http/HttpServer.h"
@@ -30,7 +31,7 @@ struct Event {
     
     // Static factory
     static Event comment(const std::string& text);
-    static Event data(const std::string& data);
+    static Event make(const std::string& data);
     static Event named(const std::string& type, const std::string& data);
 };
 

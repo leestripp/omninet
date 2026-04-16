@@ -1,4 +1,5 @@
 // OmniNet - Intrusion Detector Implementation
+#include "utils/Utils.h"
 #include "IntrusionDetector.h"
 
 namespace OmniNet {

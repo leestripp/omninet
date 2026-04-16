@@ -1,5 +1,5 @@
 // OmniNet WebSocket Tests
-#include "WebSocket.h"
+#include "websocket/WebSocket.h"
 #include <iostream>
 
 int main() {

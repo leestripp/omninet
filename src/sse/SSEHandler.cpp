@@ -1,4 +1,5 @@
 // OmniNet - SSE Handler Implementation
+#include "utils/Utils.h"
 #include "SSEHandler.h"
 
 #include <thread>
@@ -43,7 +44,7 @@ Event Event::comment(const std::string& text) {
     return e;
 }
 
-Event Event::data(const std::string& data) {
+Event Event::make(const std::string& data) {
     Event e;
     e.data = data;
     return e;

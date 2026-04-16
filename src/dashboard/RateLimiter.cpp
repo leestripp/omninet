@@ -208,6 +208,10 @@ bool SlidingWindow::isAtLimit() const {
     return hits() >= m_maxHits;
 }
 
+size_t SlidingWindow::maxHits() const {
+    return m_maxHits;
+}
+
 void SlidingWindow::reset() {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_hits.clear();
@@ -231,7 +235,7 @@ void IPRateLimiter::record(const std::string& ip) {
 
 size_t IPRateLimiter::remaining(const std::string& ip) const {
     (void)ip;
-    return m_maxHits - m_window.hits();
+    return m_window.maxHits() - m_window.hits();
 }
 
 bool IPRateLimiter::operator()(const HTTP::Request& req, HTTP::Response& resp) {

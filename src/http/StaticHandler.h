@@ -3,6 +3,7 @@
 #define OMNINET_STATIC_HANDLER_H
 
 #include <filesystem>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>

@@ -11,6 +11,12 @@
 
 namespace OmniNet::DB {
 
+// Forward declarations
+namespace HTTP {
+class Request;
+class Response;
+}
+
 // ============================================================================
 // Session Store
 // ============================================================================

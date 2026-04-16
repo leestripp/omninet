@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <set>
 #include <sstream>
 
 // SQLite include

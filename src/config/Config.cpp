@@ -1,5 +1,7 @@
 // OmniNet - Configuration Implementation
 #include "Config.h"
+#include "utils/Logger.h"
+#include <cstring>
 
 namespace OmniNet::Config {
 
