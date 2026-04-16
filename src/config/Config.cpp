@@ -181,6 +181,24 @@ void Config::setDefaultTlsKey(const std::string& path) {
     m_defaultTlsKey = path;
 }
 
+std::filesystem::path Config::defaultTlsCertPath() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto path = m_dataDir / "certs" / "omninet.crt";
+    if (std::filesystem::exists(path)) {
+        return path;
+    }
+    return {};
+}
+
+std::filesystem::path Config::defaultTlsKeyPath() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto path = m_dataDir / "certs" / "omninet.key";
+    if (std::filesystem::exists(path)) {
+        return path;
+    }
+    return {};
+}
+
 const std::filesystem::path& Config::databasePath() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_databasePath;

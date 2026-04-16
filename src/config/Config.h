@@ -84,6 +84,13 @@ public:
     const std::optional<std::string>& defaultTlsKey() const;
     void setDefaultTlsKey(const std::string& path);
     
+    // Default TLS certificate/key file paths (~/.omninet/certs/)
+    // Returns path to default certificate if exists, empty otherwise
+    std::filesystem::path defaultTlsCertPath() const;
+    
+    // Returns path to default private key if exists, empty otherwise
+    std::filesystem::path defaultTlsKeyPath() const;
+    
     // --- CORS Defaults ---
     
     // Default CORS enabled

@@ -31,7 +31,7 @@ usage() {
 }
 
 # Default values
-OUTPUT_DIR="certificates"
+OUTPUT_DIR="$HOME/.omninet/certs"
 CERT_NAME="omninet"
 HOSTNAME="localhost"
 EMAIL="admin@localhost"
@@ -202,12 +202,12 @@ echo ""
 openssl x509 -in "$CERT_FILE" -noout -text 2>/dev/null | head -20
 
 echo ""
-log "To use with OmniNet, add to config.json:"
+log "To use with OmniNet, add to ~/.omninet/config.json:"
 echo ""
 echo '  "tls": {'
 echo '    "enabled": true,'
-echo "    \"certFile\": \"$CERT_FILE\","
-echo "    \"keyFile\": \"$KEY_FILE\","
+echo "    \"certFile\": \"$HOME/.omninet/certs/omninet.crt\","
+echo "    \"keyFile\": \"$HOME/.omninet/certs/omninet.key\","
 echo '    "verifyClient": false'
 echo '  }'
 echo ""

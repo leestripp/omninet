@@ -296,6 +296,68 @@ TEST(config_json_cors_loading) {
 }
 
 // ============================================================================
+// TLS Certificate Path Tests
+// ============================================================================
+
+TEST(config_tls_default_paths) {
+    auto& cfg = OmniNet::Config::instance();
+    
+    // Default TLS paths should be under ~/.omninet/certs/
+    auto certPath = cfg.defaultTlsCertPath();
+    auto keyPath = cfg.defaultTlsKeyPath();
+    
+    // Paths should be empty if certs don't exist yet
+    // When they exist, should point to ~/.omninet/certs/omninet.*
+    if (!certPath.empty()) {
+        ASSERT_TRUE(certPath.string().find(".omninet") != std::string::npos);
+        ASSERT_TRUE(certPath.string().find("certs") != std::string::npos);
+        ASSERT_TRUE(certPath.string().find("omninet.crt") != std::string::npos);
+    }
+    
+    if (!keyPath.empty()) {
+        ASSERT_TRUE(keyPath.string().find(".omninet") != std::string::npos);
+        ASSERT_TRUE(keyPath.string().find("certs") != std::string::npos);
+        ASSERT_TRUE(keyPath.string().find("omninet.key") != std::string::npos);
+    }
+}
+
+TEST(config_tls_paths_exist_check) {
+    auto& cfg = OmniNet::Config::instance();
+    
+    // Generate test certificates
+    std::string certDir = "/tmp/omninet_test_certs";
+    std::filesystem::create_directories(certDir + "/certs");
+    
+    // Create dummy cert files
+    std::ofstream cert(certDir + "/certs/omninet.crt");
+    cert << "test certificate content";
+    cert.close();
+    
+    std::ofstream key(certDir + "/certs/omninet.key");
+    key << "test key content";
+    key.close();
+    
+    // Change data dir
+    cfg.setDataDir(certDir);
+    
+    // Now paths should exist
+    auto certPath = cfg.defaultTlsCertPath();
+    auto keyPath = cfg.defaultTlsKeyPath();
+    
+    // First check paths are not empty
+    ASSERT_FALSE(certPath.empty());
+    ASSERT_FALSE(keyPath.empty());
+    
+    // Then check files exist
+    ASSERT_TRUE(std::filesystem::exists(certPath));
+    ASSERT_TRUE(std::filesystem::exists(keyPath));
+    
+    // Cleanup
+    std::filesystem::remove_all(certDir);
+    cfg.setDataDir(std::filesystem::path("/home/lee/.omninet"));  // Reset
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 
@@ -335,6 +397,10 @@ int main() {
     RUN(config_cors_defaults);
     RUN(config_cors_setter);
     RUN(config_json_cors_loading);
+    
+    std::cout << "\nTLS Certificate Path Tests:\n";
+    RUN(config_tls_default_paths);
+    RUN(config_tls_paths_exist_check);
     
     std::cout << "\n========================================\n";
     std::cout << "Config Tests: " << testsPassed << " passed, " << testsFailed << " failed\n";
