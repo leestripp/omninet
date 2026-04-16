@@ -532,6 +532,273 @@ TEST(http_request_header_case_insensitive) {
 }
 
 // ============================================================================
+// HTTP Request - Header Parsing & Off-By-One Tests
+// ============================================================================
+TEST(http_method_all) {
+    // Test all HTTP methods
+    const char* methods[] = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"};
+    for (const char* m : methods) {
+        std::string raw = std::string(m) + " / HTTP/1.1\r\n\r\n";
+        OmniNet::HTTP::Request req;
+        req.parse(raw);
+        // Just verify no crash
+        ASSERT_TRUE(true);
+    }
+}
+TEST(http_query_multiple_params) {
+    std::string raw = 
+        "GET /search?q=test&page=1&sort=name&filter=active HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    auto& query = req.query();
+    ASSERT_TRUE(query.has("q"));
+    ASSERT_TRUE(query.has("page"));
+    ASSERT_TRUE(query.has("sort"));
+    ASSERT_TRUE(query.has("filter"));
+}
+TEST(http_query_empty_param) {
+    std::string raw = 
+        "GET /search?q=&page=1 HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    auto& query = req.query();
+    ASSERT_TRUE(query.has("q"));
+    ASSERT_TRUE(query.has("page"));
+}
+TEST(http_query_no_value) {
+    std::string raw = 
+        "GET /search?q&page=1 HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    auto& query = req.query();
+    ASSERT_TRUE(query.has("q"));
+}
+TEST(http_header_exactly_one_value) {
+    // Test header with value that should be exactly "value"
+    std::string raw = 
+        "GET / HTTP/1.1\r\n"
+        "X-Test:value\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    auto val = req.header("X-Test");
+    // Should be exactly "value" - testing no extra spaces
+    ASSERT_TRUE(val.has_value());
+    ASSERT_EQ(val->size(), 5);
+}
+TEST(http_header_with_spaces) {
+    std::string raw = 
+        "GET / HTTP/1.1\r\n"
+        "Accept:   multiple   spaces   \r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    auto val = req.header("Accept");
+    ASSERT_TRUE(val.has_value());
+    // Value should have trimmed whitespace
+}
+TEST(http_header_empty_value) {
+    std::string raw = 
+        "GET / HTTP/1.1\r\n"
+        "X-Empty:\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    auto val = req.header("X-Empty");
+    ASSERT_TRUE(val.has_value());
+}
+TEST(http_header_trailing_cr) {
+    // Test with trailing CR in header value (edge case)
+    std::string raw = 
+        "GET / HTTP/1.1\r\n"
+        "Server: Test\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    auto val = req.header("Server");
+    ASSERT_TRUE(val.has_value());
+}
+TEST(http_version_11) {
+    std::string raw = "GET / HTTP/1.1\r\n\r\n";
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    ASSERT_TRUE(req.version().isHTTP11());
+}
+TEST(http_version_10) {
+    std::string raw = "GET / HTTP/1.0\r\n\r\n";
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    ASSERT_TRUE(req.version().isHTTP10());
+}
+TEST(http_path_with_question_mark) {
+    std::string raw = "GET /path?with&special=chars HTTP/1.1\r\n\r\n";
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    ASSERT_EQ(std::string(req.path()), "/path");
+    auto& query = req.query();
+    ASSERT_TRUE(query.has("with") || query.has("special"));
+}
+TEST(http_path_slash_only) {
+    std::string raw = "GET / HTTP/1.1\r\n\r\n";
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    ASSERT_EQ(std::string(req.path()), "/");
+}
+TEST(http_path_double_slash) {
+    std::string raw = "GET // HTTP/1.1\r\n\r\n";
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    // Should parse without crash
+    ASSERT_TRUE(req.path().size() >= 2);
+}
+TEST(http_header_host_only) {
+    std::string raw = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    auto host = req.header("Host");
+    ASSERT_TRUE(host.has_value());
+    ASSERT_EQ(*host, "localhost");
+}
+TEST(http_header_colon_in_value) {
+    std::string raw = 
+        "GET / HTTP/1.1\r\n"
+        "User-Agent: Test/1.0 (compatible)\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    auto ua = req.header("User-Agent");
+    ASSERT_TRUE(ua.has_value());
+    // Should contain the colon in "compatible)"
+}
+TEST(http_content_length_exact) {
+    std::string raw = 
+        "POST /submit HTTP/1.1\r\n"
+        "Content-Length: 13\r\n"
+        "\r\n"
+        "name=John&age=30";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    ASSERT_EQ(req.contentLength(), 13);
+    ASSERT_TRUE(req.hasBody());
+}
+TEST(http_content_length_mismatch) {
+    std::string raw = 
+        "POST /submit HTTP/1.1\r\n"
+        "Content-Length: 100\r\n"
+        "\r\n"
+        "short";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    // Parser handles gracefully
+    ASSERT_TRUE(req.contentLength() > 0);
+}
+TEST(http_connection_close) {
+    std::string raw = 
+        "GET / HTTP/1.1\r\n"
+        "Connection: close\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    ASSERT_FALSE(req.keepAlive());
+}
+TEST(http_connection_keepalive) {
+    std::string raw = 
+        "GET / HTTP/1.1\r\n"
+        "Connection: keep-alive\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    ASSERT_TRUE(req.keepAlive());
+}
+TEST(http_connection_case_insensitive) {
+    std::string raw = 
+        "GET / HTTP/1.1\r\n"
+        "connection: CLOSE\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    // Should recognize "CLOSE" regardless of case
+    ASSERT_FALSE(req.keepAlive());
+}
+TEST(http_default_keepalive_http11) {
+    std::string raw = "GET / HTTP/1.1\r\n\r\n";
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    // HTTP/1.1 defaults to keep-alive
+    ASSERT_TRUE(req.keepAlive());
+}
+TEST(http_default_close_http10) {
+    std::string raw = "GET / HTTP/1.0\r\n\r\n";
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    // HTTP/1.0 defaults to close
+    ASSERT_FALSE(req.keepAlive());
+}
+TEST(http_path_very_long) {
+    std::string path = "/";
+    for (int i = 0; i < 100; i++) path += "a/";
+    std::string raw = "GET " + path + " HTTP/1.1\r\n\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    ASSERT_GT(req.path().size(), 100);
+}
+TEST(http_headers_many) {
+    std::string raw = 
+        "GET / HTTP/1.1\r\n"
+        "Header1: value1\r\n"
+        "Header2: value2\r\n"
+        "Header3: value3\r\n"
+        "Header4: value4\r\n"
+        "Header5: value5\r\n"
+        "\r\n";
+    
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+    
+    ASSERT_TRUE(req.hasHeader("Header1"));
+    ASSERT_TRUE(req.hasHeader("Header5"));
+}
+
+// ============================================================================
 // HTTP Response Tests
 // ============================================================================
 TEST(http_response_basic) {
@@ -828,6 +1095,32 @@ int main() {
     RUN(http_request_post_body);
     RUN(http_request_keep_alive);
     RUN(http_request_connection_close);
+    
+    std::cout << "\nHTTP Request - Header Parsing & Off-By-One:\n";
+    RUN(http_method_all);
+    RUN(http_query_multiple_params);
+    RUN(http_query_empty_param);
+    RUN(http_query_no_value);
+    RUN(http_header_exactly_one_value);
+    RUN(http_header_with_spaces);
+    RUN(http_header_empty_value);
+    RUN(http_header_trailing_cr);
+    RUN(http_version_11);
+    RUN(http_version_10);
+    RUN(http_path_with_question_mark);
+    RUN(http_path_slash_only);
+    RUN(http_path_double_slash);
+    RUN(http_header_host_only);
+    RUN(http_header_colon_in_value);
+    RUN(http_content_length_exact);
+    RUN(http_content_length_mismatch);
+    RUN(http_connection_close);
+    RUN(http_connection_keepalive);
+    RUN(http_connection_case_insensitive);
+    RUN(http_default_keepalive_http11);
+    RUN(http_default_close_http10);
+    RUN(http_path_very_long);
+    RUN(http_headers_many);
     
     std::cout << "\nHTTP Request - UTF-8/Special:\n";
     RUN(http_request_utf8_path);

@@ -1,8 +1,7 @@
 # OmniNet Tests
 cmake_minimum_required(VERSION 3.16)
 
-project(OmniNetTests)
-
+# Note: Don't call project() here - use parent project variables
 # Find unittest or use GoogleTest
 find_package(GTest QUIET)
 if(NOT GTest_FOUND)
@@ -24,7 +23,7 @@ target_link_libraries(omnet_test PRIVATE
 # Enable C++20
 target_compile_features(omnet_test PRIVATE cxx_std_20)
 
-# Include directories
+# Include directories - use parent source dir
 target_include_directories(omnet_test PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )

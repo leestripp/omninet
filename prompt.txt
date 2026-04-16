@@ -6,6 +6,7 @@ check for security issues.
 check fo rUTF-8 issues, string, char vs byte, emojies etc...
 SQL injection hacks, common file access hacks etc...
 code quality.
+Check for any off by 1 errors, add unit test for any you find.
 
 Create a Plan to implement this http server plan, put this Plan in CodeMax.md
 Then start the plan.

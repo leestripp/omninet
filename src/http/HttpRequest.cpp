@@ -356,7 +356,12 @@ std::string_view Request::referer() const {
 
 bool Request::keepAlive() const {
     auto conn = headerOr("connection", "");
-    return Utils::toLower(conn) == "keep-alive" || version().isHTTP11();
+    std::string lc = Utils::toLower(conn);
+    // Explicit Connection header takes precedence
+    if (lc == "close") return false;
+    if (lc == "keep-alive") return true;
+    // Default based on HTTP version
+    return version().isHTTP11();
 }
 
 bool Request::isChunked() const {
