@@ -87,18 +87,96 @@ const Connection::Stats& Connection::stats() const {
 }
 
 bool Connection::readRequest() {
-    // Read data
-    auto data = m_socket->recvAll(m_maxRequestSize);
-    if (data.empty()) {
-        return false;
+    // Read until we have complete headers (double CRLF)
+    // Then optionally read body based on Content-Length
+    std::vector<uint8_t> buffer;
+    buffer.reserve(4096);
+    
+    enum class State { READING_HEADERS, READING_BODY };
+    State state = State::READING_HEADERS;
+    size_t contentLength = 0;
+    bool haveSeenDoubleCrlf = false;
+    
+    while (m_socket->isOpen()) {
+        // Read available data
+        std::vector<uint8_t> chunk = m_socket->recvAll(65536);
+        if (chunk.empty()) {
+            // Connection closed or timeout
+            if (buffer.empty()) {
+                return false;
+            }
+            break;
+        }
+        
+        buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+        
+        // Check if we have complete headers
+        if (state == State::READING_HEADERS) {
+            // Look for double CRLF (end of headers)
+            for (size_t i = 0; i + 3 < buffer.size(); ++i) {
+                if (buffer[i] == '\r' && buffer[i+1] == '\n' && 
+                    buffer[i+2] == '\r' && buffer[i+3] == '\n') {
+                    haveSeenDoubleCrlf = true;
+                    break;
+                }
+            }
+            
+            if (haveSeenDoubleCrlf) {
+                // Find the end of headers
+                size_t headerEnd = 0;
+                for (size_t i = 0; i + 3 < buffer.size(); ++i) {
+                    if (buffer[i] == '\r' && buffer[i+1] == '\n' && 
+                        buffer[i+2] == '\r' && buffer[i+3] == '\n') {
+                        headerEnd = i + 4;
+                        break;
+                    }
+                }
+                
+                // Parse headers
+                std::string headerStr(buffer.begin(), buffer.begin() + headerEnd);
+                size_t consumed = m_currentRequest.parse(headerStr);
+                (void)consumed; // May not equal headerEnd due to parsing
+                
+                // Get content length
+                contentLength = m_currentRequest.contentLength();
+                
+                // Remove headers from buffer
+                buffer.erase(buffer.begin(), buffer.begin() + headerEnd);
+                
+                if (contentLength > 0) {
+                    state = State::READING_BODY;
+                } else {
+                    // No body, we're done
+                    m_stats.bytesReceived += buffer.size() + headerEnd;
+                    ++m_stats.requestsReceived;
+                    return true;
+                }
+            }
+        }
+        
+        // Read body if needed
+        if (state == State::READING_BODY && buffer.size() >= contentLength) {
+            m_currentRequest.setBody(std::move(buffer));
+            m_stats.bytesReceived += m_currentRequest.contentLength();
+            ++m_stats.requestsReceived;
+            return true;
+        }
+        
+        // Limit buffer size to prevent memory exhaustion
+        if (buffer.size() > m_maxRequestSize) {
+            return false;
+        }
     }
     
-    m_stats.bytesReceived += data.size();
-    ++m_stats.requestsReceived;
+    // Handle case where we have partial data
+    if (!buffer.empty()) {
+        m_stats.bytesReceived += buffer.size();
+        ++m_stats.requestsReceived;
+        m_currentRequest.parse(buffer);
+        return true;
+    }
     
-    // Parse request
-    size_t consumed = m_currentRequest.parse(data);
-    return consumed > 0;
+    return false;
 }
 
 bool Connection::sendResponse(const Response& resp) {

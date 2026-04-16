@@ -8,5 +8,9 @@ SQL injection hacks, common file access hacks etc...
 code quality.
 Check for any off by 1 errors, add unit test for any you find.
 
+Next steps:
+Lets focus on getting the http_server_demo working, it should serve a simple page using the CCS file from the static/css/ folder. the page should have buttons on it the show each endpoint in action, nice styling as well like the main page.
+
+
 Create a Plan to implement this http server plan, put this Plan in CodeMax.md
 Then start the plan.

@@ -177,35 +177,39 @@ void Server::runAcceptLoop() {
 }
 
 void Server::handleConnection(std::unique_ptr<Socket> socket) {
-    Connection conn(std::move(socket));
-    conn.setHandler([this](const Request& req, Response& resp) {
-        // Add CORS headers if enabled
-        if (m_corsEnabled) {
-            resp.setAccessControlAllowOrigin(m_corsAllowedOrigins);
-            resp.setAccessControlAllowMethods(m_corsAllowedMethods);
-            resp.setAccessControlAllowHeaders(m_corsAllowedHeaders);
-        }
+    // Spawn a new thread to handle this connection
+    // This allows the accept loop to immediately continue accepting new connections
+    std::thread([this, socket = std::move(socket)]() mutable {
+        Connection conn(std::move(socket));
+        conn.setHandler([this](const Request& req, Response& resp) {
+            // Add CORS headers if enabled
+            if (m_corsEnabled) {
+                resp.setAccessControlAllowOrigin(m_corsAllowedOrigins);
+                resp.setAccessControlAllowMethods(m_corsAllowedMethods);
+                resp.setAccessControlAllowHeaders(m_corsAllowedHeaders);
+            }
+            
+            // Let router handle the request
+            m_router.handle(req, resp);
+        });
         
-        // Let router handle the request
-        m_router.handle(req, resp);
-    });
-    
-    conn.setErrorHandler([this](const Request& req, Response& resp, std::exception_ptr) {
-        if (m_errorHandler) {
-            m_errorHandler(req, resp);
-        } else {
-            resp = Response::internalError();
-        }
-    });
-    
-    conn.setRequestTimeout(m_config.requestTimeout);
-    conn.setKeepAliveTimeout(m_config.keepAliveTimeout);
-    conn.setMaxRequestSize(m_config.maxRequestSize);
-    
-    ++m_stats.requestsActive;
-    conn.processRequests();
-    --m_stats.requestsActive;
-    ++m_stats.requestsTotal;
+        conn.setErrorHandler([this](const Request& req, Response& resp, std::exception_ptr) {
+            if (m_errorHandler) {
+                m_errorHandler(req, resp);
+            } else {
+                resp = Response::internalError();
+            }
+        });
+        
+        conn.setRequestTimeout(m_config.requestTimeout);
+        conn.setKeepAliveTimeout(m_config.keepAliveTimeout);
+        conn.setMaxRequestSize(m_config.maxRequestSize);
+        
+        ++m_stats.requestsActive;
+        conn.processRequests();
+        --m_stats.requestsActive;
+        ++m_stats.requestsTotal;
+    }).detach();
 }
 
 void Server::workerLoop() {
