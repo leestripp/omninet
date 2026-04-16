@@ -23,6 +23,7 @@ secrets/
 
 # Codemax
 .codemax/
+prompt.txt
 
 # Temp files
 *.tmp
