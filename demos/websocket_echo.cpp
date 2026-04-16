@@ -1,13 +1,11 @@
 // OmniNet WebSocket Echo Server Demo
 #include "OmniNet.h"
 #include "websocket/WebSocket.h"
-
 #include <iostream>
 #include <thread>
 #include <chrono>
 
 using namespace OmniNet;
-using namespace OmniNet::HTTP;
 using namespace OmniNet::WebSocket;
 
 int main() {
@@ -17,120 +15,42 @@ int main() {
     // Initialize OmniNet
     OmniNet::init();
     
-    // Create HTTP server configuration
-    Server::Config config;
+    // Create WebSocket server with HTTP config
+    OmniNet::HTTP::Server::Config config;
     config.address = "127.0.0.1";
     config.port = 8080;
-    config.workerCount = 4;
     
-    // Create HTTP server
-    Server server(config);
+    Server wsServer(config);
     
-    // Create WebSocket server
-    WebSocket::Server wsServer;
-    
-    // Register WebSocket endpoint
+    // Register WebSocket endpoint - Echo
     wsServer.on("/echo", [](Connection& ws) {
         std::cout << "Client connected to echo endpoint" << std::endl;
         
-        // Set up message handler
-        ws.onMessage([&ws](std::span<const uint8_t> data, Opcode opcode) {
-            std::string message(reinterpret_cast<const char*>(data.data()), data.size());
+        // Set up text message handler
+        ws.onText([&ws](std::string message) {
             std::cout << "Received: " << message << std::endl;
-            
-            // Echo back the message
-            if (opcode == Opcode::TEXT) {
-                std::string response = "Echo: " + message;
-                ws.sendText(response);
-            } else if (opcode == Opcode::BINARY) {
-                ws.sendBinary(data);
-            }
+            ws.sendText("Echo: " + message);
         });
         
         // Set up close handler
-        ws.onClose([](uint16_t code, std::string reason) {
-            std::cout << "Client disconnected: " << code << " - " << reason << std::endl;
+        ws.onClose([](CloseCode code, std::string reason) {
+            std::cout << "Client disconnected: " << static_cast<int>(code) << " - " << reason << std::endl;
         });
         
-        // Set up error handler
-        ws.onError([](const std::string& error) {
-            std::cerr << "WebSocket error: " << error << std::endl;
-        });
-        
-        // Send welcome message
-        ws.sendText("Welcome to OmniNet WebSocket Echo Server!");
+        std::cout << "Echo handler registered" << std::endl;
     });
     
-    // Also handle a chat endpoint
-    wsServer.on("/chat", [](Connection& ws) {
-        std::cout << "Client connected to chat endpoint" << std::endl;
-        
-        ws.sendText("Welcome to the chat room!");
-        
-        ws.onMessage([&ws](std::span<const uint8_t> data, Opcode opcode) {
-            if (opcode == Opcode::TEXT) {
-                std::string message(reinterpret_cast<const char*>(data.data()), data.size());
-                std::cout << "Chat: " << message << std::endl;
-                // In a real chat, we'd broadcast to all clients
-                ws.sendText("You said: " + message);
-            }
-        });
-    });
+    std::cout << "Starting WebSocket server on ws://127.0.0.1:8080/echo" << std::endl;
+    wsServer.start();
     
-    // Mount WebSocket server on HTTP server
-    wsServer.mount(server);
+    std::cout << "Server running. Press Ctrl+C to stop." << std::endl;
     
-    // Setup HTTP routes for info
-    server.router().get("/", [](const Request& req, Response& resp) {
-        resp.setStatus(StatusCode::OK);
-        resp.setContentType("text/html");
-        resp.setBody(R"(
-<!DOCTYPE html>
-<html>
-<head>
-    <title>OmniNet WebSocket Demo</title>
-</head>
-<body>
-    <h1>OmniNet WebSocket Echo Server</h1>
-    <p>Connect to <code>ws://localhost:8080/echo</code> to test echo.</p>
-    <p>Connect to <code>ws://localhost:8080/chat</code> for chat demo.</p>
-    <hr>
-    <h2>Test with JavaScript:</h2>
-    <pre>
-const ws = new WebSocket('ws://localhost:8080/echo');
-ws.onopen = () => ws.send('Hello!');
-ws.onmessage = (event) => console.log(event.data);
-    </pre>
-</body>
-</html>
-)");
-    });
+    // Keep running
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
     
-    // Start server in background
-    std::cout << "Starting server on " << config.address << ":" << config.port << std::endl;
-    
-    std::thread serverThread([&server]() {
-        try {
-            server.start();
-        } catch (const std::exception& e) {
-            std::cerr << "Server error: " << e.what() << std::endl;
-        }
-    });
-    
-    // Wait for server to start
-    std::this_thread::sleep_for(std::chrono::seconds(2));
-    
-    std::cout << "WebSocket Server started!" << std::endl;
-    std::cout << "Endpoints:" << std::endl;
-    std::cout << "  ws://localhost:" << config.port << "/echo - Echo server" << std::endl;
-    std::cout << "  ws://localhost:" << config.port << "/chat - Chat demo" << std::endl;
-    std::cout << std::endl;
-    std::cout << "Press Ctrl+C to stop the server..." << std::endl;
-    
-    // Wait for interrupt
-    serverThread.join();
-    
-    // Cleanup
+    wsServer.stop();
     OmniNet::cleanup();
     
     return 0;

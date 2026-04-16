@@ -15,6 +15,12 @@
 
 namespace OmniNet {
 
+// Forward declarations
+namespace HTTP {
+class Request;
+class Response;
+}
+
 // ============================================================================
 // Intrusion Detector
 // ============================================================================

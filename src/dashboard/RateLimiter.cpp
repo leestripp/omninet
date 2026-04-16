@@ -1,5 +1,7 @@
 // OmniNet - Rate Limiter Implementation
 #include "RateLimiter.h"
+#include "http/HttpRequest.h"
+#include "http/HttpResponse.h"
 
 namespace OmniNet {
 
@@ -239,7 +241,7 @@ size_t IPRateLimiter::remaining(const std::string& ip) const {
 }
 
 bool IPRateLimiter::operator()(const HTTP::Request& req, HTTP::Response& resp) {
-    auto ip = req.remoteAddress();
+    auto ip = std::string(req.remoteAddress());
     
     if (isLimited(ip)) {
         resp = HTTP::Response::tooManyRequests();

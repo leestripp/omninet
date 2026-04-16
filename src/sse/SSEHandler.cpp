@@ -1,5 +1,6 @@
 // OmniNet - SSE Handler Implementation
 #include "utils/Utils.h"
+#include "crypto/Crypto.h"
 #include "SSEHandler.h"
 
 #include <thread>
@@ -89,9 +90,9 @@ bool Handler::handleRequest(const HTTP::Request& req, HTTP::Response& resp) {
     // Build SSE response
     resp.setStatus(HTTP::StatusCode::OK);
     resp.setContentType("text/event-stream");
-    resp.setHeader("Cache-Control", "no-cache");
-    resp.setHeader("Connection", "keep-alive");
-    resp.setHeader("Access-Control-Allow-Origin", "*");
+    resp.setHeader(std::string_view("Cache-Control"), std::string_view("no-cache"));
+    resp.setHeader(std::string_view("Connection"), std::string_view("keep-alive"));
+    resp.setHeader(std::string_view("Access-Control-Allow-Origin"), std::string_view("*"));
     
     // Generate client ID
     auto clientId = SecureToken::generateUrlSafe(16);
@@ -219,10 +220,6 @@ void Handler::addClient(const std::string& clientId, std::function<bool(const st
     auto client = std::make_shared<Client>();
     client->sender = std::move(sender);
     m_clients[clientId] = client;
-    
-    if (m_connectHandler) {
-        m_connectHandler(clientId);
-    }
 }
 
 void Handler::keepAliveWorker() {

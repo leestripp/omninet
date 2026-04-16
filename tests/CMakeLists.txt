@@ -9,9 +9,9 @@ if(NOT GTest_FOUND)
     message(STATUS "GTest not found, tests will be minimal")
 endif()
 
-# Test executable - only compile test_main.cpp
+# Comprehensive test executable - test_all.cpp has all tests
 add_executable(omnet_test
-    test_main.cpp
+    test_all.cpp
 )
 
 # Link with OmniNet and dependencies

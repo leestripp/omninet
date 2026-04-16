@@ -27,13 +27,19 @@ public:
     struct Config {
         std::string urlPath = "/omninet";
         std::string apiPath = "/omninet/api";
-        std::string dbPath;  // Empty = auto (in data directory)
+        std::string dbPath;
         std::vector<std::string> allowedIpPrefixes = {"127.", "::1"};
         int sessionTtlSeconds = 3600;
+        size_t maxLoginAttempts = 5;
         bool enabled = true;
+        
+        // Resolve path (e.g., for dbPath)
+        static std::string resolve(const std::string& path);
+        
+        Config();
     };
     
-    explicit Handler(const Config& config = Config());
+    explicit Handler(const Config& config);
     
     // Mount on HTTP server
     void mount(HTTP::Server& server);
@@ -54,8 +60,8 @@ public:
     
     // --- User Management ---
     
-    UserStore& users();
-    SessionStore& sessions();
+    DB::UserStore& users();
+    DB::SessionStore& sessions();
     
     // --- Statistics Store ---
     
@@ -108,8 +114,8 @@ private:
     
     Config m_config;
     std::unique_ptr<DB::Database> m_db;
-    std::unique_ptr<SessionStore> m_sessions;
-    std::unique_ptr<UserStore> m_users;
+    std::unique_ptr<DB::SessionStore> m_sessions;
+    std::unique_ptr<DB::UserStore> m_users;
     std::unique_ptr<StatsStore> m_stats;
     std::unique_ptr<RateLimiter> m_rateLimiter;
     

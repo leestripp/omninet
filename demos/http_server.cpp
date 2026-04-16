@@ -39,20 +39,13 @@ int main() {
     StaticHandler staticHandler(staticDir);
     staticHandler.setDefaultFile("index.html");
     
-    // Serve static files
-    server.router().get("/css/*", [&staticHandler](const Request& req, Response& resp) {
-        std::string path = std::string(req.path());
-        staticHandler.handle(path, resp);
+    // Mount static file handler for root and static paths
+    server.router().get("/", [&staticHandler](const Request& req, Response& resp) {
+        staticHandler.handle(req, resp);
     });
     
     server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
-        // Try to serve index.html for root
-        std::string path = std::string(req.path());
-        if (path == "/") {
-            staticHandler.handle("/index.html", resp);
-        } else {
-            staticHandler.handle(path, resp);
-        }
+        staticHandler.handle(req, resp);
     });
     
     // API endpoints
@@ -77,24 +70,10 @@ int main() {
         (void)req;
         resp.setStatus(StatusCode::OK);
         resp.setContentType("application/json");
-        resp.setBody(R"({"status": "healthy", "version": ")" OMNINET_VERSION R"("})");
+        resp.setBody(R"({"status": "healthy"})");
     });
     
-    server.router().get("/api/info", [](const Request& req, Response& resp) {
-        (void)req;
-        resp.setStatus(StatusCode::OK);
-        resp.setContentType("application/json");
-        
-        std::string json = "{";
-        json += "\"name\": \"OmniNet\",";
-        json += "\"version\": \"" OMNINET_VERSION "\",";
-        json += "\"features\": [\"http\", \"websocket\", \"tls\", \"sse\", \"static-files\"]";
-        json += "}";
-        
-        resp.setBody(json);
-    });
-    
-    // Handle POST request
+    // POST endpoint
     server.router().post("/api/echo", [](const Request& req, Response& resp) {
         resp.setStatus(StatusCode::OK);
         resp.setContentType("application/json");
@@ -118,10 +97,9 @@ int main() {
     
     std::cout << "Server started!" << std::endl;
     std::cout << "Try these endpoints:" << std::endl;
-    std::cout << "  http://localhost:" << config.port << "/" << std::endl;
-    std::cout << "  http://localhost:" << config.port << "/css/style.css" << std::endl;
-    std::cout << "  http://localhost:" << config.port << "/api/info" << std::endl;
+    std::cout << "  http://localhost:" << config.port << "/api/hello" << std::endl;
     std::cout << "  http://localhost:" << config.port << "/api/health" << std::endl;
+    std::cout << "  http://localhost:" << config.port << "/api/time" << std::endl;
     std::cout << std::endl;
     std::cout << "Press Ctrl+C to stop the server..." << std::endl;
     

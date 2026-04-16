@@ -107,7 +107,7 @@ private:
     void keepAliveWorker();
     
     std::string m_path;
-    std::mutex m_clientsMutex;
+    mutable std::mutex m_clientsMutex;
     std::unordered_map<std::string, std::shared_ptr<Client>> m_clients;
     
     std::chrono::seconds m_keepAliveInterval{30};

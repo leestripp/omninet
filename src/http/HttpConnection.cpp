@@ -102,7 +102,7 @@ bool Connection::readRequest() {
 }
 
 bool Connection::sendResponse(const Response& resp) {
-    auto data = resp.build();
+    auto data = resp.buildFull();
     if (data.empty()) {
         return false;
     }

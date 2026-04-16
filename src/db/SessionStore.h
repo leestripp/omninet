@@ -8,14 +8,10 @@
 #include <unordered_map>
 
 #include "Database.h"
+#include "http/HttpRequest.h"
+#include "http/HttpResponse.h"
 
 namespace OmniNet::DB {
-
-// Forward declarations
-namespace HTTP {
-class Request;
-class Response;
-}
 
 // ============================================================================
 // Session Store

@@ -1,3 +1,11 @@
 read PLAN.md, then analize the codebase to see whats missing.
+
+Analize the codebase.
+Check for bugs and issues.
+check for security issues.
+check fo rUTF-8 issues, string, char vs byte, emojies etc...
+SQL injection hacks, common file access hacks etc...
+code quality.
+
 Create a Plan to implement this http server plan, put this Plan in CodeMax.md
 Then start the plan.

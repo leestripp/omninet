@@ -41,6 +41,21 @@ target_sources(OmniNet PRIVATE
     src/websocket/WebSocketFrame.cpp
     src/websocket/WebSocketHandshake.cpp
     src/websocket/WebSocket.cpp
+    
+    # Dashboard
+    src/dashboard/RateLimiter.cpp
+    src/dashboard/DashboardHandler.cpp
+    
+    # Database
+    src/db/Database.cpp
+    src/db/SessionStore.cpp
+    src/db/UserStore.cpp
+    
+    # SSE
+    src/sse/SSEHandler.cpp
+    
+    # Intrusion
+    src/intrusion/IntrusionDetector.cpp
 )
 
 # Include directories
@@ -91,3 +106,6 @@ include(CTest)
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
+
+# Build demos
+add_subdirectory(demos)

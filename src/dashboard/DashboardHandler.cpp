@@ -3,6 +3,8 @@
 #include "utils/Utils.h"
 #include "utils/Exception.h"
 
+#include <filesystem>
+
 namespace OmniNet::Dashboard {
 using OmniNet::Utils::split;
 using OmniNet::Utils::urlDecode;
@@ -10,6 +12,14 @@ using OmniNet::Utils::urlDecode;
 // ============================================================================
 // Handler
 // ============================================================================
+
+std::string Handler::Config::resolve(const std::string& path) {
+    std::filesystem::path p(path);
+    if (p.is_absolute()) return path;
+    return (std::filesystem::current_path() / p).string();
+}
+
+Handler::Config::Config() = default;
 
 Handler::Handler(const Config& config)
     : m_config(config) {
@@ -21,10 +31,10 @@ Handler::Handler(const Config& config)
     m_db = std::make_unique<DB::Database>();
     m_db->open(dbPath);
     
-    m_sessions = std::make_unique<SessionStore>(*m_db);
+    m_sessions = std::make_unique<DB::SessionStore>(*m_db);
     m_sessions->initialize();
     
-    m_users = std::make_unique<UserStore>(*m_db);
+    m_users = std::make_unique<DB::UserStore>(*m_db);
     m_users->initialize();
     
     m_stats = std::make_unique<StatsStore>();
@@ -68,8 +78,8 @@ void Handler::mount(HTTP::Server& server) {
 
 bool Handler::handleRequest(const HTTP::Request& req, HTTP::Response& resp) {
     // Check IP
-    auto ip = req.remoteAddress();
-    if (!m_config.allowedIpPrefixes.empty() && !isAllowedIp(ip)) {
+    auto ip = std::string(req.remoteAddress());
+    if (!m_config.allowedIpPrefixes.empty() && !isAllowedIp(std::string(ip))) {
         resp = HTTP::Response::forbidden("Access denied from this IP");
         return true;
     }
@@ -102,7 +112,7 @@ DB::UserStore& Handler::users() {
     return *m_users;
 }
 
-SessionStore& Handler::sessions() {
+DB::SessionStore& Handler::sessions() {
     return *m_sessions;
 }
 
@@ -119,7 +129,7 @@ void Handler::setCustomJS(const std::string& js) {
 // ============================================================================
 
 void Handler::handleLogin(const HTTP::Request& req, HTTP::Response& resp) {
-    auto ip = req.remoteAddress();
+    auto ip = std::string(req.remoteAddress());
     
     // Check if blocked
     if (m_rateLimiter->isBlocked(ip)) {
@@ -301,10 +311,10 @@ std::optional<std::string> Handler::extractSessionId(const HTTP::Request& req) {
     if (!header) {
         header = req.header("Authorization");
         if (header && header->starts_with("Bearer ")) {
-            return header->substr(7);
+            return std::string(header->substr(7));
         }
     }
-    return header ? std::optional<std::string>(*header) : std::nullopt;
+    return header ? std::optional<std::string>(std::string(*header)) : std::nullopt;
 }
 
 std::optional<DB::UserStore::User> Handler::getAuthenticatedUser(const HTTP::Request& req) {
@@ -320,14 +330,14 @@ std::optional<DB::UserStore::User> Handler::getAuthenticatedUser(const HTTP::Req
 void Handler::requireAuth(const HTTP::Request& req) {
     auto user = getAuthenticatedUser(req);
     if (!user) {
-        throw AuthException("Authentication required");
+        throw AuthException(std::string("Authentication required"));
     }
 }
 
 void Handler::requireAdmin(const HTTP::Request& req) {
     auto user = getAuthenticatedUser(req);
     if (!user || user->role != "admin") {
-        throw PermissionException("Admin access required");
+        throw PermissionException(std::string("Admin access required"));
     }
 }
 

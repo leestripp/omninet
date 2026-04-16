@@ -1,6 +1,7 @@
 // OmniNet Admin Dashboard Demo
 #include "OmniNet.h"
 #include "dashboard/DashboardHandler.h"
+#include "http/StaticHandler.h"
 
 #include <iostream>
 #include <thread>
@@ -9,7 +10,6 @@
 
 using namespace OmniNet;
 using namespace OmniNet::HTTP;
-using namespace OmniNet::Dashboard;
 
 int main() {
     std::cout << "OmniNet Admin Dashboard Demo" << std::endl;
@@ -18,17 +18,22 @@ int main() {
     // Initialize OmniNet
     OmniNet::init();
     
+    // Determine static files directory
+    std::string staticDir = "static";
+    if (!std::filesystem::exists(staticDir)) {
+        std::cout << "Warning: static/ directory not found" << std::endl;
+    }
+    
     // Create dashboard configuration
-    Handler::Config config;
+    Dashboard::Handler::Config config;
     config.urlPath = "/dashboard";
     config.apiPath = "/api";
     config.dbPath = "dashboard.db";
-    config.sessionTtlSeconds = 3600;  // 1 hour
-    // Allow access from localhost only for security
+    config.sessionTtlSeconds = 3600;
     config.allowedIpPrefixes = {"127.", "::1"};
     
     // Create dashboard handler
-    Handler dashboard(config);
+    Dashboard::Handler dashboard(config);
     
     // Create HTTP server
     Server::Config serverConfig;
@@ -41,34 +46,26 @@ int main() {
     // Mount dashboard
     dashboard.mount(server);
     
-    // Add some custom routes
-    server.router().get("/", [](const Request& req, Response& resp) {
-        resp.setStatus(StatusCode::OK);
-        resp.setContentType("text/html");
-        resp.setBody(R"(
-<!DOCTYPE html>
-<html>
-<head>
-    <title>OmniNet Server</title>
-</head>
-<body>
-    <h1>OmniNet Server</h1>
-    <p>Server is running!</p>
-    <p>Visit <a href="/dashboard">Admin Dashboard</a> for management.</p>
-</body>
-</html>
-)");
+    // Create static file handler for index.html and CSS
+    StaticHandler staticHandler(staticDir);
+    staticHandler.setDefaultFile("index.html");
+    
+    // Serve root path with index.html
+    server.router().get("/", [&staticHandler](const Request& req, Response& resp) {
+        staticHandler.handle(req, resp);
     });
     
+    // Serve static files (CSS, etc)
+    server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
+        staticHandler.handle(req, resp);
+    });
+    
+    // API status endpoint
     server.router().get("/api/status", [](const Request& req, Response& resp) {
         (void)req;
         resp.setStatus(StatusCode::OK);
         resp.setContentType("application/json");
-        resp.setBody(R"({
-    "status": "running",
-    "version": ")" OMNINET_VERSION R"(",
-    "uptime": "0"
-})");
+        resp.setBody(R"({"status": "running"})");
     });
     
     // Start server in background
@@ -90,7 +87,6 @@ int main() {
     std::cout << "Endpoints:" << std::endl;
     std::cout << "  http://localhost:" << serverConfig.port << "/" << std::endl;
     std::cout << "  http://localhost:" << serverConfig.port << "/dashboard - Admin Dashboard" << std::endl;
-    std::cout << "  http://localhost:" << serverConfig.port << "/api/status" << std::endl;
     std::cout << std::endl;
     std::cout << "First user created will become admin!" << std::endl;
     std::cout << "Press Ctrl+C to stop the server..." << std::endl;

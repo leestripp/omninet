@@ -1,5 +1,7 @@
 // OmniNet - User Store Implementation
 #include "utils/Utils.h"
+#include "http/HttpRequest.h"
+#include "http/HttpResponse.h"
 #include "UserStore.h"
 
 namespace OmniNet::DB {
@@ -215,7 +217,7 @@ size_t UserStore::countByRole(const std::string& role) const {
 // Auth Middleware
 // ============================================================================
 
-AuthMiddleware::AuthMiddleware(VerifyUser verifyUser, GetUser getUser)
+AuthMiddleware::AuthMiddleware(VerifyUserCallback verifyUser, GetUserCallback getUser)
     : m_verifyUser(std::move(verifyUser)), m_getUser(std::move(getUser)) {}
 
 bool AuthMiddleware::operator()(const HTTP::Request& req, HTTP::Response& resp) {
@@ -239,7 +241,7 @@ std::optional<int64_t> AuthMiddleware::getUserId(const HTTP::Request& req) {
 // RBAC
 // ============================================================================
 
-RBAC::RBAC(GetUser getUser) : m_getUser(std::move(getUser)) {}
+RBAC::RBAC(GetUserCallback getUser) : m_getUser(std::move(getUser)) {}
 
 bool RBAC::hasRole(int64_t userId, const std::string& role) {
     auto user = m_getUser(userId);
@@ -252,13 +254,13 @@ bool RBAC::isAdmin(int64_t userId) {
 
 void RBAC::requireRole(int64_t userId, const std::string& role) {
     if (!hasRole(userId, role)) {
-        throw PermissionException("Required role: " + role);
+        throw RBAC::PermissionException("Required role: " + role);
     }
 }
 
 void RBAC::requireAdmin(int64_t userId) {
     if (!isAdmin(userId)) {
-        throw PermissionException("Admin access required");
+        throw RBAC::PermissionException("Admin access required");
     }
 }
 
