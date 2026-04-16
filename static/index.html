@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniNet - C++ HTTP/WebSocket Server</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1>🔥 OmniNet</h1>
+            <nav class="nav">
+                <a href="/" class="active">Home</a>
+                <a href="/api/info">API Info</a>
+                <a href="/dashboard">Dashboard</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container" style="padding-top: 2rem;">
+        <section class="card fade-in">
+            <h2>Welcome to OmniNet</h2>
+            <p>
+                A lightweight, modular C++20 HTTP/WebSocket server library with TLS support, 
+                session management, and optional admin dashboard.
+            </p>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-value">C++20</span>
+                    <span class="stat-label">Modern C++</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">TLS</span>
+                    <span class="stat-label">SSL/TLS Support</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">WS</span>
+                    <span class="stat-label">WebSocket</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">SQL</span>
+                    <span class="stat-label">SQLite3</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="card fade-in">
+            <h2>Features</h2>
+            <ul style="list-style: none; padding: 0;">
+                <li class="flex items-center gap-2 mb-2">
+                    <span class="badge badge-success">✓</span>
+                    High-performance HTTP/1.1 server with keep-alive support
+                </li>
+                <li class="flex items-center gap-2 mb-2">
+                    <span class="badge badge-success">✓</span>
+                    Full WebSocket support (RFC 6455)
+                </li>
+                <li class="flex items-center gap-2 mb-2">
+                    <span class="badge badge-success">✓</span>
+                    TLS/SSL encryption with OpenSSL
+                </li>
+                <li class="flex items-center gap-2 mb-2">
+                    <span class="badge badge-success">✓</span>
+                    Session management with SQLite
+                </li>
+                <li class="flex items-center gap-2 mb-2">
+                    <span class="badge badge-success">✓</span>
+                    User authentication and RBAC
+                </li>
+                <li class="flex items-center gap-2 mb-2">
+                    <span class="badge badge-success">✓</span>
+                    Server-Sent Events (SSE)
+                </li>
+                <li class="flex items-center gap-2 mb-2">
+                    <span class="badge badge-success">✓</span>
+                    Intrusion detection (SQL injection, XSS, path traversal)
+                </li>
+                <li class="flex items-center gap-2">
+                    <span class="badge badge-success">✓</span>
+                    Static file serving with MIME types
+                </li>
+            </ul>
+        </section>
+
+        <section class="card fade-in">
+            <h2>API Endpoints</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Method</th>
+                        <th>Path</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="badge badge-success">GET</span></td>
+                        <td><code>/api/info</code></td>
+                        <td>Server information</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-success">GET</span></td>
+                        <td><code>/api/health</code></td>
+                        <td>Health check</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-success">GET</span></td>
+                        <td><code>/api/time</code></td>
+                        <td>Current server time</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-warning">POST</span></td>
+                        <td><code>/api/echo</code></td>
+                        <td>Echo back request body</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-success">GET</span></td>
+                        <td><code>/ws/*</code></td>
+                        <td>WebSocket endpoints</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge badge-success">GET</span></td>
+                        <td><code>/dashboard</code></td>
+                        <td>Admin dashboard</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="card fade-in">
+            <h2>Quick Start</h2>
+            <pre><code>#include "OmniNet.h"
+
+using namespace OmniNet;
+
+int main() {
+    OmniNet::init();
+    
+    HTTP::Server server;
+    server.get("/hello", [](const HTTP::Request& req, HTTP::Response& resp) {
+        resp.setBody("Hello, World!");
+    });
+    
+    server.start();
+    std::this_thread::sleep_for(std::chrono::hours(24));
+    server.stop();
+    
+    OmniNet::cleanup();
+    return 0;
+}</code></pre>
+        </section>
+
+        <section class="card fade-in">
+            <h2>WebSocket Demo</h2>
+            <p>Test WebSocket functionality in your browser console:</p>
+            <pre><code>// Connect to echo endpoint
+const ws = new WebSocket('ws://localhost:8080/echo');
+
+ws.onopen = () => {
+    console.log('Connected!');
+    ws.send('Hello, OmniNet!');
+};
+
+ws.onmessage = (event) => {
+    console.log('Received:', event.data);
+};</code></pre>
+        </section>
+    </main>
+
+    <footer style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+        <p>OmniNet v1.0.0 - Built with C++20</p>
+        <p class="text-muted">Lightweight, modular HTTP/WebSocket server library</p>
+    </footer>
+</body>
+</html>
