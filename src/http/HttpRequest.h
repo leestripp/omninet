@@ -2,6 +2,7 @@
 #ifndef OMNINET_HTTP_REQUEST_H
 #define OMNINET_HTTP_REQUEST_H
 
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>

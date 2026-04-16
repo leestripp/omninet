@@ -13,10 +13,10 @@
 #include <thread>
 #include <vector>
 
-#include "Socket.h"
-#include "TLSSocket.h"
-#include "Router.h"
-#include "HttpConnection.h"
+#include "net/Socket.h"
+#include "net/TLSSocket.h"
+#include "http/Router.h"
+#include "http/HttpConnection.h"
 
 namespace OmniNet::HTTP {
 

@@ -68,7 +68,6 @@
 #include "websocket/WebSocketFrame.h"
 #include "websocket/WebSocketHandshake.h"
 #include "websocket/WebSocket.h"
-#include "websocket/WebSocketServer.h"
 
 // ============================================================================
 // Database Layer

@@ -10,10 +10,10 @@
 #include <string>
 #include <vector>
 
-#include "HttpServer.h"
-#include "SessionStore.h"
-#include "UserStore.h"
-#include "RateLimiter.h"
+#include "http/HttpServer.h"
+#include "db/SessionStore.h"
+#include "db/UserStore.h"
+#include "dashboard/RateLimiter.h"
 
 namespace OmniNet::Dashboard {
 

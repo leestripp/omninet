@@ -13,10 +13,10 @@
 #include <thread>
 #include <vector>
 
-#include "Socket.h"
-#include "TLSSocket.h"
-#include "WebSocketFrame.h"
-#include "WebSocketHandshake.h"
+#include "net/Socket.h"
+#include "net/TLSSocket.h"
+#include "websocket/WebSocketFrame.h"
+#include "websocket/WebSocketHandshake.h"
 
 namespace OmniNet::WebSocket {
 

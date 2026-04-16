@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-#include "Socket.h"
+#include "net/Socket.h"
 
 // Forward OpenSSL declarations
 struct ssl_st;

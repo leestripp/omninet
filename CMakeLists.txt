@@ -32,7 +32,6 @@ target_sources(OmniNet PRIVATE
     src/websocket/WebSocketFrame.cpp
     src/websocket/WebSocketHandshake.cpp
     src/websocket/WebSocket.cpp
-    src/websocket/WebSocketServer.cpp
     src/db/Database.cpp
     src/db/SessionStore.cpp
     src/db/UserStore.cpp

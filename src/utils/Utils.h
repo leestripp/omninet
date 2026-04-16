@@ -2,11 +2,14 @@
 #ifndef OMNINET_UTILS_H
 #define OMNINET_UTILS_H
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <variant>
 #include <vector>
 
 namespace OmniNet::Utils {

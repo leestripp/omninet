@@ -11,7 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "HttpServer.h"
+#include "http/HttpServer.h"
 
 namespace OmniNet::SSE {
 

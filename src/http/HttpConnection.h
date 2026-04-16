@@ -7,9 +7,9 @@
 #include <thread>
 #include <vector>
 
-#include "Socket.h"
-#include "HttpRequest.h"
-#include "HttpResponse.h"
+#include "net/Socket.h"
+#include "http/HttpRequest.h"
+#include "http/HttpResponse.h"
 
 namespace OmniNet::HTTP {
 

@@ -2,6 +2,7 @@
 #ifndef OMNINET_WS_HANDSHAKE_H
 #define OMNINET_WS_HANDSHAKE_H
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
