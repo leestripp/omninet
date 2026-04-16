@@ -193,7 +193,7 @@ std::string urlDecode(std::string_view str) {
     size_t i = 0;
     while (i < str.size()) {
         if (str[i] == '%' && i + 2 < str.size()) {
-            int value;
+            unsigned int value;
             std::sscanf(str.substr(i + 1, 2).data(), "%02x", &value);
             result += static_cast<char>(value);
             i += 3;
@@ -337,7 +337,7 @@ std::optional<std::vector<uint8_t>> hexToBytes(std::string_view hex) {
     result.reserve(clean.size() / 2);
     
     for (size_t i = 0; i < clean.size(); i += 2) {
-        int value;
+        unsigned int value;
         if (std::sscanf(clean.substr(i, 2).data(), "%02x", &value) != 1) {
             return std::nullopt;
         }

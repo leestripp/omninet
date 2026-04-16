@@ -1,8 +1,10 @@
 // OmniNet - Password Hashing
 // This file provides convenience wrappers around Crypto::PasswordHasher
 #include "Password.h"
+#include "utils/Utils.h"
 
 namespace OmniNet {
+using Utils::split;
 
 PasswordHasher& getPasswordHasher() {
     static PasswordHasher instance;

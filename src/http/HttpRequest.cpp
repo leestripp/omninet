@@ -1,10 +1,15 @@
 // OmniNet - HTTP Request Implementation
 #include "HttpRequest.h"
+#include "utils/Utils.h"
 
 #include <algorithm>
 #include <cctype>
 
 namespace OmniNet::HTTP {
+using OmniNet::Utils::toLower;
+using OmniNet::Utils::trim;
+using OmniNet::Utils::split;
+using OmniNet::Utils::urlDecode;
 
 // ============================================================================
 // HTTP Methods
