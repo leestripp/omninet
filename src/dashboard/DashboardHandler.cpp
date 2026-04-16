@@ -338,95 +338,170 @@ void Handler::requireAdmin(const HTTP::Request& req) {
 std::string Handler::renderLoginPage(const std::string& error) {
     std::ostringstream html;
     html << R"(<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - OmniNet Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css">
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .login-box { background: #16213e; padding: 40px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); width: 320px; }
-        h1 { margin: 0 0 30px 0; font-size: 24px; text-align: center; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: none; border-radius: 4px; box-sizing: border-box; background: #0f3460; color: #fff; }
-        button { width: 100%; padding: 12px; background: #e94560; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px; }
-        button:hover { background: #d63e56; }
-        .error { color: #e94560; margin-bottom: 20px; text-align: center; }
+        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .login-card { width: 100%; max-width: 400px; }
     </style>
 </head>
 <body>
-    <div class="login-box">
-        <h1>OmniNet Dashboard</h1>
-        )" << (error.empty() ? "" : "<div class='error'>" + error + "</div>") << R"(
-        <form method="post" action=")" << m_config.apiPath << R"(/login">
-            <input type="text" name="username" placeholder="Username" required>
-            <input type="password" name="password" placeholder="Password" required>
-            <button type="submit">Login</button>
-        </form>
-    </div>
+    <main class="container" style="padding-top: 4rem;">
+        <div class="Box login-card">
+            <div class="Box-header">
+                <h2 class="Box-title">
+                    <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.5 9.5a.5.5 0 0 1-.5.5H5.5a.5.5 0 0 1 0-1h5.5a.5.5 0 0 1 .5.5zm-1.5 1.5h-3v-3h3v3z"/>
+                    </svg>
+                    OmniNet Dashboard
+                </h2>
+            </div>
+            <div class="Box-body">)" << 
+                (error.empty() ? "" : "<div class=\"flash flash-error mb-2\">" + error + "</div>") << R"(
+                <form method="post" action=")" << m_config.apiPath << R"(/login">
+                    <div class="form-group">
+                        <label class="form-label" for="username">Username</label>
+                        <input type="text" id="username" name="username" class="form-control" required autofocus>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="password">Password</label>
+                        <input type="password" id="password" name="password" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+                </form>
+            </div>
+        </div>
+    </main>
 </body>
 </html>)";
     return html.str();
 }
 
+
 std::string Handler::renderDashboardPage(const DB::UserStore::User& user) {
+    (void)user;
     std::ostringstream html;
     html << R"(<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>OmniNet Dashboard</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; margin: 0; }
-        .header { background: #16213e; padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; }
-        .header h1 { margin: 0; font-size: 24px; }
-        .logout { background: #e94560; color: #fff; padding: 8px 16px; text-decoration: none; border-radius: 4px; }
-        .container { padding: 40px; max-width: 1200px; margin: 0 auto; }
-        .card { background: #16213e; border-radius: 8px; padding: 24px; margin-bottom: 24px; }
-        .card h2 { margin: 0 0 20px 0; font-size: 18px; color: #e94560; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #0f3460; }
-        th { color: #888; }
-        .btn { padding: 8px 16px; border-radius: 4px; cursor: pointer; border: none; }
-        .btn-danger { background: #e94560; color: #fff; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
-        .stat { background: #0f3460; padding: 20px; border-radius: 8px; text-align: center; }
-        .stat-value { font-size: 36px; font-weight: bold; color: #e94560; }
-        .stat-label { color: #888; margin-top: 8px; }
-    </style>
-)" << m_customCSS << R"(
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - OmniNet</title>
+    <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-    <div class="header">
-        <h1>OmniNet Dashboard</h1>
-        <a href=")" << m_config.apiPath << R"(/logout" class="logout">Logout</a>
-    </div>
-    <div class="container">
-        <div class="stats">
-            <div class="stat">
-                <div class="stat-value">)" << m_users->count() << R"(</div>
-                <div class="stat-label">Users</div>
+    <header class="header">
+        <div class="container header-content">
+            <h1>
+                <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.5 9.5a.5.5 0 0 1-.5.5H5.5a.5.5 0 0 1 0-1h5.5a.5.5 0 0 1 .5.5zm-1.5 1.5h-3v-3h3v3z"/>
+                </svg>
+                OmniNet Dashboard
+            </h1>
+            <nav class="nav">
+                <a href=")" << m_config.urlPath << R"(" class="active">Dashboard</a>
+                <a href=")" << m_config.apiPath << R"(/logout" class="btn btn-secondary btn-sm">Sign out</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="subnav">
+            <a href="#" class="subnav-item selected">Overview</a>
+            <a href="#" class="subnav-item">Users</a>
+            <a href="#" class="subnav-item">Settings</a>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-value">)" << m_users->count() << R"(</span>
+                <span class="stat-label">Users</span>
             </div>
-            <div class="stat">
-                <div class="stat-value">)" << m_sessions->count() << R"(</div>
-                <div class="stat-label">Active Sessions</div>
+            <div class="stat-card">
+                <span class="stat-value">)" << m_sessions->count() << R"(</span>
+                <span class="stat-label">Active Sessions</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">v1.0</span>
+                <span class="stat-label">Version</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value text-success">✓</span>
+                <span class="stat-label">Status</span>
             </div>
         </div>
-        <div class="card">
-            <h2>Users</h2>
-            <table>
-                <thead><tr><th>Username</th><th>Role</th><th>Actions</th></tr></thead>
-                <tbody>)";
+
+        <div class="Box">
+            <div class="Box-header">
+                <h2 class="Box-title">Users</h2>
+                <button class="btn btn-primary btn-sm">Add user</button>
+            </div>
+            <div class="Box-body" style="padding: 0;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Role</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>)";
     
     for (const auto& u : m_users->list()) {
-        html << "<tr><td>" << u.username << "</td><td>" << u.role << "</td>";
-        html << R"(<td><button class="btn btn-danger" onclick="deleteUser()" data-id=")" << u.id << R"(">Delete</button></td></tr>)";
+        std::string roleClass = (u.role == "admin") ? "label-primary" : "label-secondary";
+        html << "<tr>";
+        html << "<td><strong>" << u.username << "</strong></td>";
+        html << "<td><span class=\"label " << roleClass << "\">" << u.role << "</span></td>";
+        html << "<td class=\"text-muted\">-</td>";
+        html << "<td><button class=\"btn btn-danger btn-sm\" onclick=\"deleteUser(" << u.id << ")\">Delete</button></td>";
+        html << "</tr>";
     }
     
-    html << R"(</tbody></table>
+    if (m_users->count() == 0) {
+        html << "<tr><td colspan=\"4\" class=\"text-center text-muted\">No users yet. Create your first user!</td></tr>";
+    }
+    
+    html << R"(</tbody>
+                </table>
+            </div>
         </div>
-    </div>
+
+        <div class="Box">
+            <div class="Box-header">
+                <h2 class="Box-title">Quick Actions</h2>
+            </div>
+            <div class="Box-body">
+                <div class="d-flex gap-2">
+                    <a href="#" class="btn btn-secondary">View Logs</a>
+                    <a href="#" class="btn btn-secondary">System Info</a>
+                    <a href="#" class="btn btn-secondary">Restart Server</a>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="container" style="padding: 2rem 0; border-top: 1px solid var(--color-border-default); margin-top: 2rem;">
+        <p class="text-center text-muted">
+            OmniNet Dashboard &middot; v1.0.0
+        </p>
+    </footer>
+
     <script>)" << m_customJS << R"(
         async function deleteUser(id) {
-            if (confirm('Delete user?')) {
-                await fetch('/api/users/' + id, { method: 'DELETE' });
-                location.reload();
+            if (confirm('Are you sure you want to delete this user?')) {
+                try {
+                    const response = await fetch(')" << m_config.apiPath << R"(/users/' + id, { method: 'DELETE' });
+                    if (response.ok) {
+                        location.reload();
+                    }
+                } catch (error) {
+                    alert('Failed to delete user');
+                }
             }
         }
     </script>
