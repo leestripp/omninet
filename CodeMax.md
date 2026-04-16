@@ -116,6 +116,9 @@ OmniNet/
 │   ├── dashboard/            # Dashboard Handler
 │   ├── sse/                  # Server-Sent Events
 │   └── intrusion/            # Intrusion Detection
+├── static/                   # Static files (HTML, CSS)
+│   ├── css/style.css         # Dark theme stylesheet
+│   └── index.html            # Welcome page
 ├── tests/                    # Unit tests
 └── demos/                    # Demo applications
 ```
