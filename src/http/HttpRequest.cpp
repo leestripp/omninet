@@ -278,7 +278,7 @@ std::string_view Request::queryString() const {
     return m_queryString;
 }
 
-const QueryParams& Request::query() const {
+const QueryParams& Request::query() {
     if (!m_queryParsed) {
         parseQueryString();
     }
@@ -438,7 +438,7 @@ void Request::reset() {
     m_remotePort = 0;
 }
 
-void Request::parseQueryString() const {
+void Request::parseQueryString() {
     if (m_queryParsed) return;
     
     if (!m_queryString.empty()) {

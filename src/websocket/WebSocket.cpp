@@ -1,6 +1,7 @@
 // OmniNet - WebSocket Implementation
 #include "utils/Utils.h"
 #include "WebSocket.h"
+#include "http/HttpServer.h"
 
 #include <thread>
 
@@ -356,8 +357,8 @@ void Server::on(std::string path, std::function<void(Connection&)> handler) {
         // Find matching endpoint
         for (const auto& ep : m_endpoints) {
             if (req.path() == ep.path) {
-                // Create WebSocket connection
-                Connection ws(nullptr, req.path());
+                // Create WebSocket connection - use nullptr for unique_ptr
+                Connection ws(std::unique_ptr<Socket>(nullptr), req.path());
                 
                 // Call handler
                 ep.handler(ws);

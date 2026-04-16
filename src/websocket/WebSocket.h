@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -17,6 +18,8 @@
 #include "net/TLSSocket.h"
 #include "websocket/WebSocketFrame.h"
 #include "websocket/WebSocketHandshake.h"
+#include "http/HttpServer.h"
+#include "http/Router.h"
 
 namespace OmniNet::WebSocket {
 

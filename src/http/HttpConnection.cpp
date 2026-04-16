@@ -150,11 +150,11 @@ std::unique_ptr<Connection> DefaultConnectionFactory::create(std::unique_ptr<Soc
     return conn;
 }
 
-void DefaultConnectionFactory::setHandler(Handler handler) {
+void DefaultConnectionFactory::setHandler(Connection::Handler handler) {
     m_handler = std::move(handler);
 }
 
-void DefaultConnectionFactory::setErrorHandler(ErrorHandler handler) {
+void DefaultConnectionFactory::setErrorHandler(Connection::ErrorHandler handler) {
     m_errorHandler = std::move(handler);
 }
 

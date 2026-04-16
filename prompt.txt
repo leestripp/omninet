@@ -1,0 +1,3 @@
+read PLAN.md, then analize the codebase to see whats missing.
+Create a Plan to implement this http server plan, put this Plan in CodeMax.md
+Then start the plan.
