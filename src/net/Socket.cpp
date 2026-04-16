@@ -1,0 +1,636 @@
+// OmniNet - Socket Implementation
+#include "Socket.h"
+
+#include <algorithm>
+#include <cstring>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <sys/select.h>
+#include <sys/time.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#endif
+
+namespace OmniNet {
+
+// ============================================================================
+// Socket Exception
+// ============================================================================
+
+SocketException::SocketException(const std::string& message, int errorCode)
+    : Exception(message, errorCode) {}
+
+// ============================================================================
+// Socket Base Class
+// ============================================================================
+
+Socket::Socket() : m_fd(INVALID_SOCKET), m_ownsFd(true) {}
+
+Socket::Socket(SOCKET fd) : m_fd(fd), m_ownsFd(true) {}
+
+Socket::~Socket() {
+    if (m_fd != INVALID_SOCKET && m_ownsFd) {
+        close();
+    }
+}
+
+Socket::Socket(Socket&& other) noexcept
+    : m_fd(other.m_fd)
+    , m_ownsFd(other.m_ownsFd)
+    , m_nonBlocking(other.m_nonBlocking) {
+    other.m_fd = INVALID_SOCKET;
+    other.m_ownsFd = false;
+}
+
+Socket& Socket::operator=(Socket&& other) noexcept {
+    if (this != &other) {
+        if (m_fd != INVALID_SOCKET && m_ownsFd) {
+            ::close(m_fd);
+        }
+        m_fd = other.m_fd;
+        m_ownsFd = other.m_ownsFd;
+        m_nonBlocking = other.m_nonBlocking;
+        other.m_fd = INVALID_SOCKET;
+        other.m_ownsFd = false;
+    }
+    return *this;
+}
+
+void Socket::connect(const std::string& host, uint16_t port) {
+    struct addrinfo hints, *result = nullptr;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    
+    std::string portStr = std::to_string(port);
+    int error = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
+    if (error != 0) {
+        throw SocketException("Failed to resolve host: " + host, error);
+    }
+    
+    for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
+        m_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (m_fd == INVALID_SOCKET) continue;
+        
+        if (::connect(m_fd, rp->ai_addr, static_cast<socklen_t>(rp->ai_addrlen)) == 0) {
+            break;
+        }
+        
+        ::close(m_fd);
+        m_fd = INVALID_SOCKET;
+    }
+    
+    freeaddrinfo(result);
+    
+    if (m_fd == INVALID_SOCKET) {
+        throw SocketException("Failed to connect to " + host + ":" + std::to_string(port));
+    }
+}
+
+void Socket::bind(const std::string& address, uint16_t port) {
+    struct sockaddr_in addr;
+    std::memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    
+    if (address.empty() || address == "0.0.0.0") {
+        addr.sin_addr.s_addr = INADDR_ANY;
+    } else {
+        if (inet_pton(AF_INET, address.c_str(), &addr.sin_addr) != 1) {
+            throw SocketException("Invalid address: " + address);
+        }
+    }
+    
+    if (::bind(m_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        throw SocketException("Failed to bind to " + address + ":" + std::to_string(port), getError());
+    }
+}
+
+void Socket::listen(int backlog) {
+    if (::listen(m_fd, backlog) < 0) {
+        throw SocketException("Failed to listen", getError());
+    }
+}
+
+std::unique_ptr<Socket> Socket::accept() {
+    struct sockaddr_in clientAddr;
+    socklen_t clientLen = sizeof(clientAddr);
+    
+    std::memset(&clientAddr, 0, sizeof(clientAddr));
+    SOCKET clientFd = ::accept(m_fd, (struct sockaddr*)&clientAddr, &clientLen);
+    
+    if (clientFd == INVALID_SOCKET) {
+        if (wouldBlock()) {
+            return nullptr;
+        }
+        throw SocketException("Failed to accept connection", getError());
+    }
+    
+    return std::make_unique<Socket>(clientFd);
+}
+
+size_t Socket::send(std::span<const uint8_t> data) {
+    ssize_t result = ::send(m_fd, reinterpret_cast<const char*>(data.data()),
+                            static_cast<size_t>(data.size()), 0);
+    if (result < 0) {
+        if (wouldBlock()) return 0;
+        throw SocketException("Send failed", getError());
+    }
+    return static_cast<size_t>(result);
+}
+
+size_t Socket::send(std::string_view data) {
+    return send(std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(data.data()), data.size()
+    ));
+}
+
+void Socket::sendAll(std::span<const uint8_t> data) {
+    size_t totalSent = 0;
+    while (totalSent < data.size()) {
+        size_t sent = send(data.subspan(totalSent));
+        if (sent == 0) {
+            throw SocketException("Connection closed during send");
+        }
+        totalSent += sent;
+    }
+}
+
+size_t Socket::recv(std::span<uint8_t> buffer) {
+    ssize_t result = ::recv(m_fd, reinterpret_cast<char*>(buffer.data()),
+                           static_cast<size_t>(buffer.size()), 0);
+    if (result < 0) {
+        if (wouldBlock()) return 0;
+        throw SocketException("Receive failed", getError());
+    }
+    return static_cast<size_t>(result);
+}
+
+std::vector<uint8_t> Socket::recvAll(size_t maxSize) {
+    std::vector<uint8_t> buffer(std::min(maxSize, size_t(65536)));
+    std::vector<uint8_t> result;
+    result.reserve(4096);
+    
+    while (result.size() < maxSize) {
+        size_t available = buffer.size();
+        if (result.size() + available > maxSize) {
+            available = maxSize - result.size();
+        }
+        
+        size_t received = recv(std::span<uint8_t>(buffer.data(), available));
+        if (received == 0) {
+            break;
+        }
+        
+        result.insert(result.end(), buffer.begin(), buffer.begin() + received);
+        
+        if (received < available) {
+            break;
+        }
+        
+        if (result.size() >= maxSize) {
+            break;
+        }
+    }
+    
+    return result;
+}
+
+std::vector<uint8_t> Socket::recvExactly(size_t n) {
+    std::vector<uint8_t> buffer(n);
+    size_t totalReceived = 0;
+    
+    while (totalReceived < n) {
+        size_t received = recv(std::span<uint8_t>(buffer.data() + totalReceived, n - totalReceived));
+        if (received == 0) {
+            throw SocketException("Connection closed before receiving all data");
+        }
+        totalReceived += received;
+    }
+    
+    return buffer;
+}
+
+std::optional<std::string> Socket::readLine(size_t maxLength) {
+    std::string line;
+    line.reserve(256);
+    
+    while (line.size() < maxLength) {
+        char c;
+        ssize_t result = ::recv(m_fd, &c, 1, 0);
+        
+        if (result <= 0) {
+            if (result < 0 && wouldBlock()) {
+                if (!line.empty()) {
+                    return line;
+                }
+                return std::nullopt;
+            }
+            if (line.empty()) {
+                return std::nullopt;
+            }
+            return line;
+        }
+        
+        if (c == '\n') {
+            // Remove \r if present
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            return line;
+        }
+        
+        line += c;
+    }
+    
+    return line;
+}
+
+bool Socket::isOpen() const {
+    return m_fd != INVALID_SOCKET;
+}
+
+void Socket::close() {
+    if (m_fd != INVALID_SOCKET) {
+#ifdef _WIN32
+        ::closesocket(m_fd);
+#else
+        ::close(m_fd);
+#endif
+        m_fd = INVALID_SOCKET;
+    }
+}
+
+SOCKET Socket::fd() const {
+    return m_fd;
+}
+
+std::string Socket::peerAddress() const {
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if (getpeername(m_fd, (struct sockaddr*)&addr, &len) < 0) {
+        return "";
+    }
+    char buffer[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &addr.sin_addr, buffer, sizeof(buffer)) == nullptr) {
+        return "";
+    }
+    return buffer;
+}
+
+uint16_t Socket::peerPort() const {
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if (getpeername(m_fd, (struct sockaddr*)&addr, &len) < 0) {
+        return 0;
+    }
+    return ntohs(addr.sin_port);
+}
+
+std::string Socket::localAddress() const {
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if (getsockname(m_fd, (struct sockaddr*)&addr, &len) < 0) {
+        return "";
+    }
+    char buffer[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &addr.sin_addr, buffer, sizeof(buffer)) == nullptr) {
+        return "";
+    }
+    return buffer;
+}
+
+uint16_t Socket::localPort() const {
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if (getsockname(m_fd, (struct sockaddr*)&addr, &len) < 0) {
+        return 0;
+    }
+    return ntohs(addr.sin_port);
+}
+
+void Socket::setNonBlocking(bool enabled) {
+#ifdef _WIN32
+    u_long mode = enabled ? 1 : 0;
+    ioctlsocket(m_fd, FIONBIO, &mode);
+#else
+    int flags = fcntl(m_fd, F_GETFL, 0);
+    if (enabled) {
+        fcntl(m_fd, F_SETFL, flags | O_NONBLOCK);
+    } else {
+        fcntl(m_fd, F_SETFL, flags & ~O_NONBLOCK);
+    }
+#endif
+    m_nonBlocking = enabled;
+}
+
+bool Socket::isNonBlocking() const {
+    return m_nonBlocking;
+}
+
+void Socket::setRecvTimeout(std::chrono::milliseconds timeout) {
+#ifdef _WIN32
+    DWORD ms = static_cast<DWORD>(timeout.count());
+    setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&ms, sizeof(ms));
+#else
+    struct timeval tv;
+    tv.tv_sec = timeout.count() / 1000;
+    tv.tv_usec = (timeout.count() % 1000) * 1000;
+    setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+}
+
+void Socket::setSendTimeout(std::chrono::milliseconds timeout) {
+#ifdef _WIN32
+    DWORD ms = static_cast<DWORD>(timeout.count());
+    setsockopt(m_fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&ms, sizeof(ms));
+#else
+    struct timeval tv;
+    tv.tv_sec = timeout.count() / 1000;
+    tv.tv_usec = (timeout.count() % 1000) * 1000;
+    setsockopt(m_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+}
+
+void Socket::setReuseAddr(bool enabled) {
+    int optval = enabled ? 1 : 0;
+    setOption(SOL_SOCKET, SO_REUSEADDR, optval);
+}
+
+void Socket::setTcpNoDelay(bool enabled) {
+    int optval = enabled ? 1 : 0;
+    setOption(IPPROTO_TCP, TCP_NODELAY, optval);
+}
+
+void Socket::setRecvBufferSize(size_t size) {
+    setOption(SOL_SOCKET, SO_RCVBUF, static_cast<int>(size));
+}
+
+void Socket::setSendBufferSize(size_t size) {
+    setOption(SOL_SOCKET, SO_SNDBUF, static_cast<int>(size));
+}
+
+bool Socket::waitForRead(std::chrono::milliseconds timeout) const {
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(m_fd, &fds);
+    
+    struct timeval tv;
+    tv.tv_sec = timeout.count() / 1000;
+    tv.tv_usec = (timeout.count() % 1000) * 1000;
+    
+    int result = select(static_cast<int>(m_fd + 1), &fds, nullptr, nullptr, &tv);
+    return result > 0;
+}
+
+bool Socket::waitForWrite(std::chrono::milliseconds timeout) const {
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(m_fd, &fds);
+    
+    struct timeval tv;
+    tv.tv_sec = timeout.count() / 1000;
+    tv.tv_usec = (timeout.count() % 1000) * 1000;
+    
+    int result = select(static_cast<int>(m_fd + 1), nullptr, &fds, nullptr, &tv);
+    return result > 0;
+}
+
+bool Socket::waitForIO(std::chrono::milliseconds timeout) const {
+    fd_set readFds, writeFds, errorFds;
+    FD_ZERO(&readFds);
+    FD_ZERO(&writeFds);
+    FD_ZERO(&errorFds);
+    FD_SET(m_fd, &readFds);
+    FD_SET(m_fd, &writeFds);
+    FD_SET(m_fd, &errorFds);
+    
+    struct timeval tv;
+    tv.tv_sec = timeout.count() / 1000;
+    tv.tv_usec = (timeout.count() % 1000) * 1000;
+    
+    int result = select(static_cast<int>(m_fd + 1), &readFds, &writeFds, &errorFds, &tv);
+    return result > 0;
+}
+
+bool Socket::pollRead(int timeoutMs) const {
+    return waitForRead(std::chrono::milliseconds(timeoutMs));
+}
+
+int Socket::getError() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+bool Socket::wouldBlock() {
+#ifdef _WIN32
+    return getError() == WSAEWOULDBLOCK;
+#else
+    return getError() == EAGAIN || getError() == EWOULDBLOCK;
+#endif
+}
+
+// ============================================================================
+// Server Socket
+// ============================================================================
+
+ServerSocket::ServerSocket() {
+    m_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (m_fd == INVALID_SOCKET) {
+        throw SocketException("Failed to create socket", getError());
+    }
+    setReuseAddr(true);
+}
+
+void ServerSocket::bindAndListen(uint16_t port, const std::string& address, int backlog) {
+    bind(address, port);
+    listen(backlog);
+}
+
+std::unique_ptr<Socket> ServerSocket::acceptWithTimeout(std::chrono::milliseconds timeout) {
+    if (waitForRead(timeout)) {
+        return accept();
+    }
+    return nullptr;
+}
+
+void ServerSocket::setReusePort(bool enabled) {
+#ifdef SO_REUSEPORT
+    int optval = enabled ? 1 : 0;
+    setOption(SOL_SOCKET, SO_REUSEPORT, optval);
+#endif
+}
+
+// ============================================================================
+// Network Utilities
+// ============================================================================
+
+namespace Network {
+
+std::optional<std::string> resolveHost(const std::string& hostname) {
+    struct addrinfo hints, *result = nullptr;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    
+    if (getaddrinfo(hostname.c_str(), nullptr, &hints, &result) != 0) {
+        return std::nullopt;
+    }
+    
+    std::optional<std::string> addr;
+    if (result) {
+        char buffer[INET_ADDRSTRLEN];
+        auto* addr4 = reinterpret_cast<struct sockaddr_in*>(result->ai_addr);
+        if (inet_ntop(AF_INET, &addr4->sin_addr, buffer, sizeof(buffer))) {
+            addr = buffer;
+        }
+        freeaddrinfo(result);
+    }
+    
+    return addr;
+}
+
+std::vector<std::string> resolveHostAll(const std::string& hostname) {
+    struct addrinfo hints, *result = nullptr;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    
+    std::vector<std::string> addresses;
+    
+    if (getaddrinfo(hostname.c_str(), nullptr, &hints, &result) != 0) {
+        return addresses;
+    }
+    
+    char buffer[INET6_ADDRSTRLEN];
+    
+    for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
+        if (rp->ai_family == AF_INET) {
+            auto* addr4 = reinterpret_cast<struct sockaddr_in*>(rp->ai_addr);
+            if (inet_ntop(AF_INET, &addr4->sin_addr, buffer, sizeof(buffer))) {
+                addresses.push_back(buffer);
+            }
+        } else if (rp->ai_family == AF_INET6) {
+            auto* addr6 = reinterpret_cast<struct sockaddr_in6*>(rp->ai_addr);
+            if (inet_ntop(AF_INET6, &addr6->sin6_addr, buffer, sizeof(buffer))) {
+                addresses.push_back(buffer);
+            }
+        }
+    }
+    
+    freeaddrinfo(result);
+    return addresses;
+}
+
+int getAddressFamily(const std::string& address) {
+    if (isIpv4(address)) return AF_INET;
+    if (isIpv6(address)) return AF_INET6;
+    return AF_UNSPEC;
+}
+
+std::string addressToString(const struct sockaddr* addr, socklen_t addrlen) {
+    char buffer[INET6_ADDRSTRLEN];
+    
+    if (addr->sa_family == AF_INET) {
+        auto* addr4 = reinterpret_cast<const struct sockaddr_in*>(addr);
+        inet_ntop(AF_INET, &addr4->sin_addr, buffer, sizeof(buffer));
+    } else if (addr->sa_family == AF_INET6) {
+        auto* addr6 = reinterpret_cast<const struct sockaddr_in6*>(addr);
+        inet_ntop(AF_INET6, &addr6->sin6_addr, buffer, sizeof(buffer));
+    } else {
+        return "";
+    }
+    
+    return buffer;
+}
+
+bool stringToAddress(const std::string& address, uint16_t port,
+                     struct sockaddr_storage* result) {
+    std::memset(result, 0, sizeof(*result));
+    
+    if (isIpv4(address)) {
+        auto* addr4 = reinterpret_cast<struct sockaddr_in*>(result);
+        addr4->sin_family = AF_INET;
+        addr4->sin_port = htons(port);
+        return inet_pton(AF_INET, address.c_str(), &addr4->sin_addr) == 1;
+    } else if (isIpv6(address)) {
+        auto* addr6 = reinterpret_cast<struct sockaddr_in6*>(result);
+        addr6->sin6_family = AF_INET6;
+        addr6->sin6_port = htons(port);
+        return inet_pton(AF_INET6, address.c_str(), &addr6->sin6_addr) == 1;
+    }
+    
+    return false;
+}
+
+bool isIpv4(const std::string& address) {
+    struct sockaddr_in addr;
+    return inet_pton(AF_INET, address.c_str(), &addr.sin_addr) == 1;
+}
+
+bool isIpv6(const std::string& address) {
+    struct sockaddr_in6 addr;
+    return inet_pton(AF_INET6, address.c_str(), &addr.sin6_addr) == 1;
+}
+
+bool isLoopback(const std::string& address) {
+    if (isIpv4(address)) {
+        struct in_addr addr;
+        inet_pton(AF_INET, address.c_str(), &addr);
+        return (ntohl(addr.s_addr) & 0xff000000) == 0x7f000000;  // 127.x.x.x
+    }
+    return address == "::1";
+}
+
+bool isPrivate(const std::string& address) {
+    if (isIpv4(address)) {
+        struct in_addr addr;
+        inet_pton(AF_INET, address.c_str(), &addr);
+        uint32_t ip = ntohl(addr.s_addr);
+        
+        // 10.0.0.0/8
+        if ((ip & 0xff000000) == 0x0a000000) return true;
+        
+        // 172.16.0.0/12
+        if ((ip & 0xfff00000) == 0xac100000) return true;
+        
+        // 192.168.0.0/16
+        if ((ip & 0xffff0000) == 0xc0a80000) return true;
+        
+        return false;
+    }
+    
+    // IPv6 private (link-local, unique local)
+    return address.starts_with("fe80:") ||
+           address.starts_with("fc") ||
+           address.starts_with("fd");
+}
+
+} // namespace Network
+
+// ============================================================================
+// Convenience Function
+// ============================================================================
+
+std::unique_ptr<Socket> createConnectedSocket(const std::string& host, uint16_t port,
+                                             std::chrono::milliseconds timeout) {
+    auto socket = std::make_unique<Socket>();
+    socket->setRecvTimeout(timeout);
+    socket->setSendTimeout(timeout);
+    socket->connect(host, port);
+    return socket;
+}
+
+} // namespace OmniNet

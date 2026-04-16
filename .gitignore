@@ -1,0 +1,30 @@
+# Build outputs
+build/
+out/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test data
+test_data/
+
+# Secrets
+secrets/
+
+# Codemax
+.codemax/
+
+# Temp files
+*.tmp
+*.swp
+*~
