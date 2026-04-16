@@ -1,6 +1,7 @@
 // OmniNet - Static File Handler Implementation
 #include "StaticHandler.h"
 #include "utils/Utils.h"
+#include "utils/Logger.h"
 
 #include <filesystem>
 #include <fstream>
@@ -14,6 +15,7 @@ using OmniNet::Utils::extensionOf;
 using OmniNet::Utils::readFile;
 using OmniNet::Utils::escapeHtml;
 using OmniNet::Utils::directoryOf;
+using OmniNet::Logger;
 
 // ============================================================================
 // Static Handler
@@ -70,36 +72,57 @@ bool StaticHandler::handle(const Request& req, Response& resp) {
         return false;
     }
     
-    auto path = resolvePath(req.path());
+    std::string path;
+    try {
+        path = resolvePath(req.path());
+        Logger::instance().debugF("[StaticHandler] Resolved path: '%s' -> '%s'", std::string(req.path()).c_str(), path.c_str());
+    } catch (const std::exception& e) {
+        Logger::instance().errorF("[StaticHandler] Failed to resolve path '%s': %s", std::string(req.path()).c_str(), e.what());
+        resp = Response::internalError("Failed to resolve path");
+        return true;  // Return true to indicate we handled the request (with error)
+    }
     
     if (isHidden(path)) {
+        Logger::instance().debugF("[StaticHandler] Path is hidden: %s", path.c_str());
         return false;
     }
     
     std::filesystem::path fsPath(path);
     
-    if (std::filesystem::is_directory(fsPath)) {
-        // Try index files
-        for (const auto& index : m_indexFiles) {
-            auto indexPath = fsPath / index;
-            if (std::filesystem::exists(indexPath)) {
-                resp = serveFile(indexPath.string(), std::string(req.path()));
+    try {
+        if (std::filesystem::is_directory(fsPath)) {
+            Logger::instance().debugF("[StaticHandler] Path is directory: %s", path.c_str());
+            // Try index files
+            for (const auto& index : m_indexFiles) {
+                auto indexPath = fsPath / index;
+                if (std::filesystem::exists(indexPath)) {
+                    Logger::instance().debugF("[StaticHandler] Found index file: %s", indexPath.string().c_str());
+                    resp = serveFile(indexPath.string(), std::string(req.path()));
+                    return true;
+                }
+            }
+            
+            // Directory listing?
+            if (m_allowDirectoryListing) {
+                resp = serveDirectory(path, std::string(req.path()));
                 return true;
             }
+            
+            Logger::instance().debug(std::string_view("[StaticHandler] Directory has no index file and listing disabled"));
+            return false;
         }
         
-        // Directory listing?
-        if (m_allowDirectoryListing) {
-            resp = serveDirectory(path, std::string(req.path()));
+        if (std::filesystem::is_regular_file(fsPath)) {
+            Logger::instance().debugF("[StaticHandler] Path is regular file: %s", path.c_str());
+            resp = serveFile(path, std::string(req.path()));
             return true;
         }
         
-        return false;
-    }
-    
-    if (std::filesystem::is_regular_file(fsPath)) {
-        resp = serveFile(path, std::string(req.path()));
-        return true;
+        Logger::instance().debugF("[StaticHandler] Path does not exist or is not accessible: %s", path.c_str());
+    } catch (const std::exception& e) {
+        Logger::instance().errorF("[StaticHandler] Filesystem error for path '%s': %s", path.c_str(), e.what());
+        resp = Response::internalError("Filesystem error: " + std::string(e.what()));
+        return true;  // Return true to indicate we handled the request (with error)
     }
     
     return false;
@@ -181,19 +204,36 @@ std::chrono::seconds StaticHandler::cacheMaxAge() const {
 Response StaticHandler::serveFile(const std::string& realPath, const std::string& urlPath) {
     Response resp;
     
-    // Check if modified using ETag
-    auto content = Utils::readFile(realPath);
-    if (!content) {
+    Logger::instance().debugF("[StaticHandler] serveFile: realPath='%s', urlPath='%s'", realPath.c_str(), urlPath.c_str());
+    
+    // Check if file exists first
+    if (!std::filesystem::exists(realPath)) {
+        Logger::instance().warnF("[StaticHandler] File does not exist: %s", realPath.c_str());
         return Response::notFound();
     }
     
-    auto etag = ResponseUtil::computeETag(*content);
-    resp.setETag(etag);
-    resp.setContentType(mimeType(realPath));
-    resp.setBody(std::move(*content));
-    resp.setCacheControl("max-age=" + std::to_string(m_cacheMaxAge.count()));
-    
-    return resp;
+    // Read the file
+    try {
+        auto content = Utils::readFile(realPath);
+        if (!content) {
+            Logger::instance().warnF("[StaticHandler] Failed to read file: %s", realPath.c_str());
+            return Response::notFound();
+        }
+        
+        Logger::instance().debugF("[StaticHandler] Successfully read %zu bytes from %s", content->size(), realPath.c_str());
+        
+        auto etag = ResponseUtil::computeETag(*content);
+        resp.setETag(etag);
+        resp.setContentType(mimeType(realPath));
+        resp.setBody(std::move(*content));
+        resp.setCacheControl("max-age=" + std::to_string(m_cacheMaxAge.count()));
+        resp.setStatus(StatusCode::OK);
+        
+        return resp;
+    } catch (const std::exception& e) {
+        Logger::instance().errorF("[StaticHandler] Error serving file '%s': %s", realPath.c_str(), e.what());
+        return Response::internalError("Error reading file: " + std::string(e.what()));
+    }
 }
 
 Response StaticHandler::serveDirectory(const std::string& dirPath, const std::string& urlPath) {

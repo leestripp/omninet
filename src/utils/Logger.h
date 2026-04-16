@@ -8,6 +8,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -118,6 +119,9 @@ public:
     void logF(LogLevel level, const char* format, Args&&... args);
     
     template<typename... Args>
+    void debugF(const char* format, Args&&... args);
+    
+    template<typename... Args>
     void infoF(const char* format, Args&&... args);
     
     template<typename... Args>
@@ -167,12 +171,15 @@ private:
 
 // Simple snprintf-style formatter (avoids dependency on fmt library)
 template<typename... Args>
-inline void formatTo(std::string& output, const char* format, Args&&... args);
+inline void formatTo(std::string& output, const char* format, Args&&... args) {
+    std::ostringstream oss;
+    (oss << ... << std::forward<Args>(args));
+    output += oss.str();
+}
 
 template<typename... Args>
 inline std::string formatString(const char* format, Args&&... args) {
     std::string result;
-    result.reserve(256);
     formatTo(result, format, std::forward<Args>(args)...);
     return result;
 }
@@ -180,6 +187,11 @@ inline std::string formatString(const char* format, Args&&... args) {
 template<typename... Args>
 inline void Logger::logF(LogLevel level, const char* format, Args&&... args) {
     log(level, formatString(format, std::forward<Args>(args)...));
+}
+
+template<typename... Args>
+inline void Logger::debugF(const char* format, Args&&... args) {
+    debug(formatString(format, std::forward<Args>(args)...));
 }
 
 template<typename... Args>

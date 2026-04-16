@@ -4,6 +4,16 @@
 #include <chrono>
 #include <iostream>
 
+// Debug logging
+#define DEBUG_SERVER 1
+#if DEBUG_SERVER
+#define SERVER_DEBUG(msg) do { \
+    std::cerr << "[HttpServer] " << msg << std::endl; \
+} while(0)
+#else
+#define SERVER_DEBUG(msg) do {} while(0)
+#endif
+
 namespace OmniNet::HTTP {
 
 // ============================================================================
@@ -23,9 +33,13 @@ Server::~Server() {
 void Server::start() {
     if (m_running) return;
     
+    SERVER_DEBUG("Starting server on " << m_config.address << ":" << m_config.port);
+    
     // Create server socket
     m_serverSocket->setReuseAddr(m_config.reuseAddress);
     m_serverSocket->bindAndListen(m_config.port, m_config.address);
+    
+    SERVER_DEBUG("Socket bound and listening");
     
     m_running = true;
     m_stopping = false;
@@ -37,9 +51,13 @@ void Server::start() {
         if (workers == 0) workers = 4;
     }
     
+    SERVER_DEBUG("Starting " << workers << " worker threads");
+    
     for (size_t i = 0; i < workers; ++i) {
         m_workers.emplace_back([this] { workerLoop(); });
     }
+    
+    SERVER_DEBUG("Worker threads started, entering accept loop");
     
     // Accept loop
     runAcceptLoop();
@@ -167,21 +185,34 @@ std::string Server::address() const {
 }
 
 void Server::runAcceptLoop() {
+    SERVER_DEBUG("Accept loop started");
     while (m_running) {
+        SERVER_DEBUG("Waiting for connection...");
         auto client = m_serverSocket->accept();
         if (client) {
+            SERVER_DEBUG("Connection accepted! Spawning handler thread");
             ++m_stats.connectionsTotal;
             handleConnection(std::move(client));
+        } else {
+            SERVER_DEBUG("accept() returned null (no connection or timeout)");
         }
     }
+    SERVER_DEBUG("Accept loop ended");
 }
 
 void Server::handleConnection(std::unique_ptr<Socket> socket) {
+    SERVER_DEBUG("handleConnection called, socket fd=" << socket->fd());
+    
     // Spawn a new thread to handle this connection
     // This allows the accept loop to immediately continue accepting new connections
     std::thread([this, socket = std::move(socket)]() mutable {
+        SERVER_DEBUG("Connection thread started, socket fd=" << socket->fd());
+        
         Connection conn(std::move(socket));
+        
         conn.setHandler([this](const Request& req, Response& resp) {
+            SERVER_DEBUG("Handler called - Method: " << req.methodString() << ", Path: " << req.path());
+            
             // Add CORS headers if enabled
             if (m_corsEnabled) {
                 resp.setAccessControlAllowOrigin(m_corsAllowedOrigins);
@@ -190,10 +221,13 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
             }
             
             // Let router handle the request
+            SERVER_DEBUG("Calling router.handle()");
             m_router.handle(req, resp);
+            SERVER_DEBUG("Router.handle() returned, response status=" << static_cast<int>(resp.status()));
         });
         
-        conn.setErrorHandler([this](const Request& req, Response& resp, std::exception_ptr) {
+        conn.setErrorHandler([this](const Request& req, Response& resp, std::exception_ptr e) {
+            SERVER_DEBUG("Error handler called");
             if (m_errorHandler) {
                 m_errorHandler(req, resp);
             } else {
@@ -205,10 +239,12 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
         conn.setKeepAliveTimeout(m_config.keepAliveTimeout);
         conn.setMaxRequestSize(m_config.maxRequestSize);
         
+        SERVER_DEBUG("Calling conn.processRequests()");
         ++m_stats.requestsActive;
         conn.processRequests();
         --m_stats.requestsActive;
         ++m_stats.requestsTotal;
+        SERVER_DEBUG("processRequests() returned, connection thread ending");
     }).detach();
 }
 

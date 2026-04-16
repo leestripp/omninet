@@ -1,6 +1,18 @@
 // OmniNet - HTTP Connection Implementation
 #include "HttpConnection.h"
 
+#include <iostream>
+
+// Debug logging
+#define DEBUG_CONNECTION 1
+#if DEBUG_CONNECTION
+#define CONN_DEBUG(msg) do { \
+    std::cerr << "[HttpConnection] " << msg << std::endl; \
+} while(0)
+#else
+#define CONN_DEBUG(msg) do {} while(0)
+#endif
+
 namespace OmniNet::HTTP {
 
 // ============================================================================
@@ -13,24 +25,33 @@ Connection::Connection(std::unique_ptr<Socket> socket)
 Connection::~Connection() = default;
 
 bool Connection::handleNextRequest() {
+    CONN_DEBUG("handleNextRequest() called");
+    
     // Read request
     if (!readRequest()) {
+        CONN_DEBUG("readRequest() returned false - no request data");
         return false;
     }
     
+    CONN_DEBUG("readRequest() succeeded - path: " << m_currentRequest.path());
+    
     // Find handler and execute
     if (m_handler) {
+        CONN_DEBUG("Calling handler for path: " << m_currentRequest.path());
         Response resp;
         try {
             m_handler(m_currentRequest, resp);
         } catch (const std::exception& e) {
+            CONN_DEBUG("Handler threw exception: " << e.what());
             handleError(std::current_exception());
         }
         
+        CONN_DEBUG("Sending response, status=" << static_cast<int>(resp.status()));
         // Send response
         return sendResponse(resp);
     }
     
+    CONN_DEBUG("No handler set!");
     return false;
 }
 
@@ -87,6 +108,8 @@ const Connection::Stats& Connection::stats() const {
 }
 
 bool Connection::readRequest() {
+    CONN_DEBUG("readRequest() starting");
+    
     // Read until we have complete headers (double CRLF)
     // Then optionally read body based on Content-Length
     std::vector<uint8_t> buffer;
@@ -98,16 +121,23 @@ bool Connection::readRequest() {
     bool haveSeenDoubleCrlf = false;
     
     while (m_socket->isOpen()) {
+        CONN_DEBUG("  Reading chunk, buffer size=" << buffer.size());
+        
         // Read available data
         std::vector<uint8_t> chunk = m_socket->recvAll(65536);
+        
         if (chunk.empty()) {
+            CONN_DEBUG("  recvAll returned empty - connection closed or timeout");
             // Connection closed or timeout
             if (buffer.empty()) {
+                CONN_DEBUG("  Buffer empty, returning false");
                 return false;
             }
+            CONN_DEBUG("  Have partial data, breaking");
             break;
         }
         
+        CONN_DEBUG("  Received " << chunk.size() << " bytes");
         buffer.insert(buffer.end(), chunk.begin(), chunk.end());
         
         // Check if we have complete headers
@@ -117,6 +147,7 @@ bool Connection::readRequest() {
                 if (buffer[i] == '\r' && buffer[i+1] == '\n' && 
                     buffer[i+2] == '\r' && buffer[i+3] == '\n') {
                     haveSeenDoubleCrlf = true;
+                    CONN_DEBUG("  Found double CRLF at position " << i);
                     break;
                 }
             }
@@ -132,30 +163,40 @@ bool Connection::readRequest() {
                     }
                 }
                 
+                CONN_DEBUG("  Header end at position " << headerEnd);
+                
                 // Parse headers
                 std::string headerStr(buffer.begin(), buffer.begin() + headerEnd);
+                CONN_DEBUG("  Parsing headers: " << headerStr.size() << " bytes");
                 size_t consumed = m_currentRequest.parse(headerStr);
+                CONN_DEBUG("  Parse consumed " << consumed << " bytes");
                 (void)consumed; // May not equal headerEnd due to parsing
                 
                 // Get content length
                 contentLength = m_currentRequest.contentLength();
+                CONN_DEBUG("  Content-Length: " << contentLength);
                 
                 // Remove headers from buffer
                 buffer.erase(buffer.begin(), buffer.begin() + headerEnd);
                 
                 if (contentLength > 0) {
                     state = State::READING_BODY;
+                    CONN_DEBUG("  Need to read " << contentLength << " bytes of body");
                 } else {
                     // No body, we're done
                     m_stats.bytesReceived += buffer.size() + headerEnd;
                     ++m_stats.requestsReceived;
+                    CONN_DEBUG("  No body needed, returning true");
                     return true;
                 }
+            } else {
+                CONN_DEBUG("  No double CRLF found yet, buffer size=" << buffer.size());
             }
         }
         
         // Read body if needed
         if (state == State::READING_BODY && buffer.size() >= contentLength) {
+            CONN_DEBUG("  Body complete, setting body of " << buffer.size() << " bytes");
             m_currentRequest.setBody(std::move(buffer));
             m_stats.bytesReceived += m_currentRequest.contentLength();
             ++m_stats.requestsReceived;
@@ -164,28 +205,48 @@ bool Connection::readRequest() {
         
         // Limit buffer size to prevent memory exhaustion
         if (buffer.size() > m_maxRequestSize) {
+            CONN_DEBUG("  Buffer too large, returning false");
             return false;
         }
     }
     
     // Handle case where we have partial data
     if (!buffer.empty()) {
+        CONN_DEBUG("  Partial data, parsing " << buffer.size() << " bytes");
         m_stats.bytesReceived += buffer.size();
         ++m_stats.requestsReceived;
         m_currentRequest.parse(buffer);
         return true;
     }
     
+    CONN_DEBUG("  Returning false (no data)");
     return false;
 }
 
 bool Connection::sendResponse(const Response& resp) {
+    CONN_DEBUG("sendResponse() called, status=" << static_cast<int>(resp.status()));
+    
     auto data = resp.buildFull();
+    CONN_DEBUG("buildFull returned " << data.size() << " bytes");
+    
     if (data.empty()) {
+        CONN_DEBUG("buildFull returned empty data!");
         return false;
     }
     
-    m_socket->sendAll(data);
+    // Print first few bytes of response for debugging
+    std::string preview(data.begin(), data.begin() + std::min(size_t(200), data.size()));
+    CONN_DEBUG("Response preview: " << preview);
+    
+    CONN_DEBUG("Calling socket->sendAll()");
+    try {
+        m_socket->sendAll(data);
+        CONN_DEBUG("sendAll() succeeded");
+    } catch (const std::exception& e) {
+        CONN_DEBUG("sendAll() failed: " << e.what());
+        return false;
+    }
+    
     m_stats.bytesSent += data.size();
     ++m_stats.requestsProcessed;
     
@@ -193,8 +254,10 @@ bool Connection::sendResponse(const Response& resp) {
     m_keepAlive = m_currentRequest.keepAlive();
     if (resp.header("Connection") == "close") {
         m_keepAlive = false;
+        CONN_DEBUG("Response has Connection: close, setting keepAlive=false");
     }
     
+    CONN_DEBUG("sendResponse() returning " << m_keepAlive << ", keepAlive=" << m_keepAlive);
     return m_keepAlive;
 }
 

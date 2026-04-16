@@ -287,24 +287,4 @@ void formatValue(std::string& output, std::string_view value) {
 
 } // anonymous namespace
 
-template<typename... Args>
-void formatTo(std::string& output, const char* format, Args&&... args) {
-    std::array<std::string, sizeof...(args)> values = {
-        std::string([] (auto v) -> std::string {
-            std::ostringstream oss;
-            oss << v;
-            return oss.str();
-        }(std::forward<Args>(args)))...
-    };
-    
-    while (*format) {
-        if (*format == '{') {
-            output += values[output.size()];
-        } else {
-            output += *format;
-        }
-        ++format;
-    }
-}
-
 } // namespace OmniNet

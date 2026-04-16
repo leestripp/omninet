@@ -16,6 +16,9 @@ int main() {
     // Initialize OmniNet
     OmniNet::init();
     
+    // Enable debug logging for StaticHandler
+    OmniNet::Logger::instance().setLevel(OmniNet::LogLevel::DEBUG);
+    
     // Determine static files directory
     std::string staticDir = "static";
     if (!std::filesystem::exists(staticDir)) {
@@ -39,23 +42,20 @@ int main() {
     StaticHandler staticHandler(staticDir);
     staticHandler.setDefaultFile("index.html");
     
-    // Mount static file handler for root and static paths
-    server.router().get("/", [&staticHandler](const Request& req, Response& resp) {
-        staticHandler.handle(req, resp);
-    });
-    
-    server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
-        staticHandler.handle(req, resp);
-    });
+    // IMPORTANT: Register API routes FIRST so they are matched before static catch-all
+    // The router checks routes in order of registration
     
     // API endpoints
+    std::cerr << "[Demo] Registering route: GET /api/hello" << std::endl;
     server.router().get("/api/hello", [](const Request& req, Response& resp) {
+        std::cerr << "[Demo] Handler called for /api/hello" << std::endl;
         (void)req;
         resp.setStatus(StatusCode::OK);
         resp.setContentType("application/json");
         resp.setBody(R"({"message": "Hello, World!"})");
     });
     
+    std::cerr << "[Demo] Registering route: GET /api/time" << std::endl;
     server.router().get("/api/time", [](const Request& req, Response& resp) {
         (void)req;
         auto now = std::chrono::system_clock::now();
@@ -66,6 +66,7 @@ int main() {
         resp.setBody("{\"timestamp\": " + std::to_string(timestamp) + "}");
     });
     
+    std::cerr << "[Demo] Registering route: GET /api/health" << std::endl;
     server.router().get("/api/health", [](const Request& req, Response& resp) {
         (void)req;
         resp.setStatus(StatusCode::OK);
@@ -74,10 +75,37 @@ int main() {
     });
     
     // POST endpoint
+    std::cerr << "[Demo] Registering route: POST /api/echo" << std::endl;
     server.router().post("/api/echo", [](const Request& req, Response& resp) {
         resp.setStatus(StatusCode::OK);
         resp.setContentType("application/json");
         resp.setBody(R"({"echo": ")" + std::string(req.bodyAsString()) + R"("})");
+    });
+    
+    // Now register static routes AFTER API routes
+    // The router checks routes in order - first match wins!
+    std::cerr << "[Demo] Registering static route: GET /" << std::endl;
+    server.router().get("/", [&staticHandler](const Request& req, Response& resp) {
+        std::cerr << "[Demo] Static handler for /" << std::endl;
+        staticHandler.handle(req, resp);
+    });
+    
+    // Use a more restrictive pattern for static files (only match paths without more segments)
+    // Actually, let's use a conditional approach - check if path starts with /api
+    // For now, just don't register /* at all, let unmatched routes fall through
+    // or register it last so it catches things not caught by API routes
+    
+    std::cerr << "[Demo] Registering static route: GET /* (catch-all)" << std::endl;
+    server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
+        std::cerr << "[Demo] Static handler for /*" << std::endl;
+        // Only serve static files if not an API path
+        std::string path(req.path());
+        if (path.rfind("/api/", 0) == 0) {
+            std::cerr << "[Demo] Skipping static handler for API path: " << path << std::endl;
+            resp = Response::notFound();
+            return;
+        }
+        staticHandler.handle(req, resp);
     });
     
     // Start server in background

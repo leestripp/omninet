@@ -170,32 +170,17 @@ size_t Socket::recv(std::span<uint8_t> buffer) {
 
 std::vector<uint8_t> Socket::recvAll(size_t maxSize) {
     std::vector<uint8_t> buffer(std::min(maxSize, size_t(65536)));
-    std::vector<uint8_t> result;
-    result.reserve(4096);
     
-    while (result.size() < maxSize) {
-        size_t available = buffer.size();
-        if (result.size() + available > maxSize) {
-            available = maxSize - result.size();
-        }
-        
-        size_t received = recv(std::span<uint8_t>(buffer.data(), available));
-        if (received == 0) {
-            break;
-        }
-        
-        result.insert(result.end(), buffer.begin(), buffer.begin() + received);
-        
-        if (received < available) {
-            break;
-        }
-        
-        if (result.size() >= maxSize) {
-            break;
-        }
+    // Just do a single recv() - don't loop
+    // The caller should handle partial reads and looping
+    size_t received = recv(std::span<uint8_t>(buffer.data(), buffer.size()));
+    
+    if (received == 0) {
+        // Connection closed or no data
+        return {};
     }
     
-    return result;
+    return std::vector<uint8_t>(buffer.begin(), buffer.begin() + received);
 }
 
 std::vector<uint8_t> Socket::recvExactly(size_t n) {

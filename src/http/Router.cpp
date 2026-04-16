@@ -2,6 +2,17 @@
 #include "Router.h"
 
 #include <algorithm>
+#include <iostream>
+
+// Debug logging
+#define DEBUG_ROUTER 1
+#if DEBUG_ROUTER
+#define ROUTER_DEBUG(msg) do { \
+    std::cerr << "[Router] " << msg << std::endl; \
+} while(0)
+#else
+#define ROUTER_DEBUG(msg) do {} while(0)
+#endif
 
 namespace OmniNet::HTTP {
 
@@ -72,13 +83,22 @@ void Router::use(std::string pathPrefix, Middleware middleware) {
 std::optional<Router::Match> Router::match(Method method, std::string_view path) {
     std::string pathStr(path);
     
+    ROUTER_DEBUG("match() - Trying to match " << pathStr << " with method " << toString(method));
+    
     for (const auto& route : m_routes) {
+        ROUTER_DEBUG("  Checking route: " << toString(route.method) << " " << route.pattern);
+        
         if (route.method != method && route.method != Method::UNKNOWN) {
+            ROUTER_DEBUG("    Method mismatch, skipping");
             continue;
         }
         
+        ROUTER_DEBUG("    Method matches, testing regex...");
         std::smatch match;
-        if (std::regex_match(pathStr, match, route.regex)) {
+        bool matched = std::regex_match(pathStr, match, route.regex);
+        ROUTER_DEBUG("    regex_match result: " << (matched ? "MATCH" : "NO MATCH"));
+        
+        if (matched) {
             Match result;
             result.handler = route.handler;
             
@@ -87,10 +107,12 @@ std::optional<Router::Match> Router::match(Method method, std::string_view path)
                 result.captures.push_back(match[i].str());
             }
             
+            ROUTER_DEBUG("    MATCHED! captures=" << result.captures.size());
             return result;
         }
     }
     
+    ROUTER_DEBUG("match() - No route matched");
     return std::nullopt;
 }
 
@@ -126,26 +148,44 @@ Handler Router::errorHandler() {
 }
 
 void Router::handle(const Request& req, Response& resp) {
+    ROUTER_DEBUG("handle() called - Method: " << toString(req.method()) << ", Path: " << req.path());
+    
+    // List all registered routes
+    ROUTER_DEBUG("Registered routes: " << m_routes.size());
+    for (const auto& r : m_routes) {
+        ROUTER_DEBUG("  " << toString(r.method) << " " << r.pattern);
+    }
+    
     // Run middleware
     for (const auto& mw : m_middleware) {
+        ROUTER_DEBUG("Running middleware...");
         if (!mw(req, resp)) {
+            ROUTER_DEBUG("Middleware returned false, stopping");
             return;
         }
     }
     
     // Find matching route
+    ROUTER_DEBUG("Looking for matching route...");
     auto matchResult = match(req.method(), req.path());
     if (matchResult) {
+        ROUTER_DEBUG("Route MATCHED! Calling handler");
         // Set path params
         Request& mutableReq = const_cast<Request&>(req);
         mutableReq.setPathParams(matchResult->captures);
         
         // Call handler
         matchResult->handler(req, resp);
-    } else if (m_notFoundHandler) {
-        m_notFoundHandler(req, resp);
+        ROUTER_DEBUG("Handler returned, response status=" << static_cast<int>(resp.status()));
     } else {
-        resp = Response::notFound();
+        ROUTER_DEBUG("Route NOT MATCHED");
+        if (m_notFoundHandler) {
+            ROUTER_DEBUG("Calling notFoundHandler");
+            m_notFoundHandler(req, resp);
+        } else {
+            ROUTER_DEBUG("No notFoundHandler, returning 404");
+            resp = Response::notFound();
+        }
     }
 }
 
@@ -184,6 +224,8 @@ std::string Router::patternToRegex(std::string pattern, std::vector<std::string>
                 ++i;
             }
         } else if (pattern[i] == '*') {
+            // Wildcard * matches everything (greedy) - used for catch-all routes
+            // This should be registered AFTER specific routes in the router
             regex += ".*";
             ++i;
         } else {

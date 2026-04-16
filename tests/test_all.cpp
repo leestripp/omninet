@@ -7,6 +7,7 @@
 #include "utils/Logger.h"
 #include "utils/Exception.h"
 #include "utils/Utils.h"
+#include "net/Buffer.h"
 #include "db/Database.h"
 #include "http/HttpRequest.h"
 #include "http/HttpResponse.h"
@@ -30,6 +31,7 @@ int testsSkipped = 0;
 #define ASSERT_EQ(a, b) do { auto _a = (a); auto _b = (b); if (_a != _b) { std::cout << "FAIL: " << #a << " (" << _a << ") != " << #b; testsFailed++; } } while(0)
 #define ASSERT_NE(a, b) do { auto _a = (a); auto _b = (b); if (_a == _b) { std::cout << "FAIL: " << #a << " == " << #b; testsFailed++; } } while(0)
 #define ASSERT_GT(a, b) do { if ((a) <= (b)) { std::cout << "FAIL: " << #a << " <= " << #b; testsFailed++; } } while(0)
+#define ASSERT_GE(a, b) do { if ((a) < (b)) { std::cout << "FAIL: " << #a << " < " << #b; testsFailed++; } } while(0)
 #define ASSERT_STR_CONTAINS(str, substr) do { if ((str).find(substr) == std::string::npos) { std::cout << "FAIL: '" << str << "' does not contain '" << substr << "'"; testsFailed++; } } while(0)
 
 // ============================================================================
@@ -1015,6 +1017,177 @@ TEST(crypto_passwordDifferentHashes) {
 }
 
 // ============================================================================
+// Buffer Tests
+// ============================================================================
+TEST(buffer_basic) {
+    OmniNet::ByteBuffer buf;
+    ASSERT_EQ(buf.size(), size_t(0));
+    ASSERT_GT(buf.capacity(), size_t(0));  // Should have some capacity
+    ASSERT_TRUE(buf.empty());
+}
+
+TEST(buffer_write_read) {
+    OmniNet::ByteBuffer buf;
+    
+    // Write some data
+    const char* testData = "Hello, World!";
+    buf.write(testData, strlen(testData));
+    
+    ASSERT_EQ(buf.size(), strlen(testData));
+    ASSERT_FALSE(buf.empty());
+    
+    // Read and verify
+    char readData[100];
+    buf.read(readData, strlen(testData));
+    ASSERT_EQ(strncmp(readData, testData, strlen(testData)), 0);
+    ASSERT_TRUE(buf.empty());
+}
+
+TEST(buffer_growth) {
+    OmniNet::ByteBuffer buf(16);  // Start with tiny capacity
+    
+    // Write enough to force growth
+    std::string largeData(1000, 'X');
+    buf.write(largeData.data(), largeData.size());
+    
+    ASSERT_EQ(buf.size(), size_t(1000));
+    ASSERT_GT(buf.capacity(), size_t(1000));  // Should have grown
+}
+
+TEST(buffer_clear) {
+    OmniNet::ByteBuffer buf;
+    buf.write("test", 4);
+    ASSERT_EQ(buf.size(), size_t(4));
+    
+    buf.clear();
+    ASSERT_EQ(buf.size(), size_t(0));
+    ASSERT_TRUE(buf.empty());
+    // Capacity should remain
+    ASSERT_GT(buf.capacity(), size_t(0));
+}
+
+TEST(buffer_find) {
+    OmniNet::ByteBuffer buf;
+    buf.write("GET /api/test HTTP/1.1\r\nHost: localhost\r\n\r\n", 45);
+    
+    // Find CRLF
+    auto crlfPos = buf.findCrlf();
+    ASSERT_TRUE(crlfPos.has_value());
+    // "GET /api/test HTTP/1.1" = 22 chars (0-21), then \r\n starts at position 22
+    ASSERT_EQ(crlfPos.value(), size_t(22));  // Index of \r in first CRLF
+    
+    // Find double CRLF
+    auto doubleCrlfPos = buf.findDoubleCrlf();
+    ASSERT_TRUE(doubleCrlfPos.has_value());
+    // Should find the first \r in the double CRLF sequence (\r\n\r\n)
+    ASSERT_GE(doubleCrlfPos.value(), size_t(38));  // Should be near end
+}
+
+TEST(buffer_remove) {
+    OmniNet::ByteBuffer buf;
+    buf.write("ABCDEF", 6);
+    
+    buf.remove(3);  // Remove "ABC"
+    ASSERT_EQ(buf.size(), size_t(3));
+    
+    char data[10];
+    buf.read(data, 3);
+    ASSERT_EQ(strncmp(data, "DEF", 3), 0);
+}
+
+TEST(buffer_peek) {
+    OmniNet::ByteBuffer buf;
+    buf.write("ABCDEF", 6);
+    
+    auto peeked = buf.peek(3);
+    ASSERT_EQ(peeked.size(), size_t(3));
+    ASSERT_EQ(buf.size(), size_t(6));  // Peek doesn't remove
+    
+    // Verify content
+    ASSERT_EQ(memcmp(peeked.data(), "ABC", 3), 0);
+}
+
+TEST(buffer_clone) {
+    OmniNet::ByteBuffer buf;
+    buf.write("Hello", 5);
+    
+    auto clone = buf.clone();
+    ASSERT_EQ(clone.size(), size_t(5));
+    ASSERT_EQ(memcmp(clone.data(), "Hello", 5), 0);
+}
+
+TEST(buffer_stats) {
+    OmniNet::ByteBuffer buf(1024);
+    buf.write("Test", 4);
+    
+    auto stats = buf.stats();
+    ASSERT_EQ(stats.size, size_t(4));
+    ASSERT_GT(stats.capacity, size_t(0));  // Should have capacity
+    ASSERT_TRUE(stats.utilizationPercent < 100);  // Less than 100%
+}
+
+TEST(buffer_writeByte) {
+    OmniNet::ByteBuffer buf;
+    buf.writeByte('A');
+    buf.writeByte('B');
+    buf.writeByte('C');
+    
+    ASSERT_EQ(buf.size(), size_t(3));
+    ASSERT_EQ(buf.toString(), "ABC");
+}
+
+TEST(buffer_stringView) {
+    OmniNet::ByteBuffer buf;
+    buf.write("Hello", 5);
+    
+    auto sv = buf.toStringView();
+    ASSERT_EQ(sv, "Hello");
+}
+
+TEST(buffer_isValid) {
+    OmniNet::ByteBuffer buf;
+    ASSERT_TRUE(buf.isValid());
+    
+    buf.write("test", 4);
+    ASSERT_TRUE(buf.isValid());
+}
+
+TEST(buffer_toPrintable) {
+    OmniNet::ByteBuffer buf;
+    buf.write("Hello\x01World", 11);
+    
+    auto str = OmniNet::BufferUtil::toPrintableString(buf);
+    ASSERT_STR_CONTAINS(str, "Hello");
+    ASSERT_STR_CONTAINS(str, "World");
+}
+
+TEST(buffer_isTextual) {
+    OmniNet::ByteBuffer buf;
+    buf.write("Hello, World!", 13);
+    
+    ASSERT_TRUE(OmniNet::BufferUtil::isTextual(buf));
+    
+    buf.write("\x00", 1);  // Add null byte
+    ASSERT_FALSE(OmniNet::BufferUtil::isTextual(buf, 14));
+}
+
+TEST(buffer_chunks) {
+    OmniNet::ByteBuffer buf;
+    
+    // Write in chunks
+    buf.write("ABC", 3);
+    ASSERT_EQ(buf.size(), size_t(3));
+    
+    buf.write("DEF", 3);
+    ASSERT_EQ(buf.size(), size_t(6));
+    
+    buf.write("GHI", 3);
+    ASSERT_EQ(buf.size(), size_t(9));
+    
+    ASSERT_EQ(buf.toString(), "ABCDEFGHI");
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 int main() {
@@ -1156,6 +1329,23 @@ int main() {
     RUN(crypto_passwordVerify);
     RUN(crypto_passwordVerify_wrong);
     RUN(crypto_passwordDifferentHashes);
+    
+    std::cout << "\nBuffer Tests:\n";
+    RUN(buffer_basic);
+    RUN(buffer_write_read);
+    RUN(buffer_growth);
+    RUN(buffer_clear);
+    RUN(buffer_find);
+    RUN(buffer_remove);
+    RUN(buffer_peek);
+    RUN(buffer_clone);
+    RUN(buffer_stats);
+    RUN(buffer_writeByte);
+    RUN(buffer_stringView);
+    RUN(buffer_isValid);
+    RUN(buffer_toPrintable);
+    RUN(buffer_isTextual);
+    RUN(buffer_chunks);
     
     std::cout << "\n========================================\n";
     std::cout << "Results: " << testsPassed << " passed, " << testsFailed << " failed, " << testsSkipped << " skipped\n";

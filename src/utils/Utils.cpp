@@ -466,8 +466,9 @@ std::string normalizePath(std::string_view path) {
         }
     }
     
-    std::string out = "/" + join(result, "/");
-    if (path.starts_with("/") && !out.starts_with("/")) {
+    std::string out = join(result, "/");
+    // Preserve whether path was relative or absolute
+    if (path.starts_with("/")) {
         out = "/" + out;
     }
     

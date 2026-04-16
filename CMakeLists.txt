@@ -28,6 +28,7 @@ target_sources(OmniNet PRIVATE
     # Networking
     src/net/Socket.cpp
     src/net/TLSSocket.cpp
+    src/net/Buffer.cpp
     
     # HTTP
     src/http/HttpRequest.cpp
@@ -61,6 +62,7 @@ target_sources(OmniNet PRIVATE
 # Include directories
 target_include_directories(OmniNet PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 # Find OpenSSL
