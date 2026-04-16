@@ -5,14 +5,19 @@
 #include <chrono>
 #include <string>
 #include <optional>
+#include <vector>
 #include <filesystem>
+#include <functional>
 
 #include "utils/Logger.h"
+#include <nlohmann/json.hpp>
 
-namespace OmniNet::Config {
+using json = nlohmann::json;
+
+namespace OmniNet {
 
 // ============================================================================
-// Global Configuration
+// Global Configuration (inside OmniNet namespace)
 // ============================================================================
 
 class Config {
@@ -28,6 +33,9 @@ public:
     // Get/set data directory (~/.omninet by default)
     const std::filesystem::path& dataDir() const;
     void setDataDir(const std::filesystem::path& path);
+    
+    // Config file path (~/.omninet/config.json)
+    std::filesystem::path configFile() const;
     
     // Resolve path relative to data directory
     std::filesystem::path resolve(const std::string& filename) const;
@@ -74,17 +82,60 @@ public:
     const std::filesystem::path& databasePath() const;
     void setDatabasePath(const std::filesystem::path& path);
     
-    // --- Environment ---
+    // --- Loading ---
     
     // Load config from environment variables
     void loadFromEnvironment();
     
-    // Load config from file (JSON or env-format)
+    // Load config from file (JSON)
     void loadFromFile(const std::string& path);
+    
+    // Load from default config file (~/.omninet/config.json)
+    // Creates with defaults if file doesn't exist
+    void load();
+    
+    // --- Validation ---
+    
+    // Validate all configuration values
+    bool validate() const;
+    std::vector<std::string> validationErrors() const;
+    
+    // --- Hot Reload ---
+    
+    // Reload configuration from file
+    bool reload();
+    
+    // Watch config file for changes and auto-reload
+    void startFileWatcher();
+    void stopFileWatcher();
+    
+    // Register callback for config change notifications
+    using ChangeCallback = std::function<void(const std::string& path)>;
+    void onChange(ChangeCallback callback);
+    
+    // --- Serialization ---
+    
+    // Dump current config as JSON string
+    std::string toJson() const;
+    
+    // Save current config to file
+    bool save(const std::string& path = "");
+    
+    // Create default config file
+    void createDefaultConfig();
     
 private:
     Config();
-    ~Config() = default;
+    ~Config();
+    
+    // File watcher thread function
+    void fileWatcherLoop();
+    
+    // Internal load from JSON
+    void loadFromJson(const json& j);
+    
+    // Convert current state to JSON
+    json toJsonInternal() const;
     
     std::filesystem::path m_dataDir;
     std::optional<std::string> m_logFile;
@@ -95,6 +146,15 @@ private:
     std::optional<std::string> m_defaultTlsCert;
     std::optional<std::string> m_defaultTlsKey;
     std::filesystem::path m_databasePath;
+    
+    // Hot reload
+    std::thread m_watcherThread;
+    std::atomic<bool> m_watcherRunning{false};
+    std::vector<ChangeCallback> m_changeCallbacks;
+    std::filesystem::file_time_type m_configLastModified;
+    
+    mutable std::mutex m_mutex;
+    mutable std::vector<std::string> m_validationErrors;
 };
 
 // ============================================================================
@@ -121,6 +181,10 @@ struct ServerConfig {
     std::string corsAllowedMethods;
     std::string corsAllowedHeaders;
     std::chrono::seconds corsMaxAge{86400};
+    
+    // Serialization
+    json toJson() const;
+    static ServerConfig fromJson(const json& j);
 };
 
 // ============================================================================
@@ -135,6 +199,10 @@ struct WebSocketConfig {
     size_t maxConnections = 1024;
     bool autoFragment = true;
     size_t fragmentSize = 4096;
+    
+    // Serialization
+    json toJson() const;
+    static WebSocketConfig fromJson(const json& j);
 };
 
 // ============================================================================
@@ -147,6 +215,10 @@ struct DatabaseConfig {
     bool foreignKeysEnabled = true;
     bool WALModeEnabled = true;
     size_t cacheSizeKb = 2000;
+    
+    // Serialization
+    json toJson() const;
+    static DatabaseConfig fromJson(const json& j);
 };
 
 // ============================================================================
@@ -162,6 +234,10 @@ struct DashboardConfig {
     int sessionTtlSeconds = 3600;
     int maxLoginAttempts = 5;
     std::chrono::seconds lockoutDuration{300};
+    
+    // Serialization
+    json toJson() const;
+    static DashboardConfig fromJson(const json& j);
 };
 
 // ============================================================================
@@ -175,8 +251,29 @@ struct IntrusionConfig {
     size_t maxFailedAttempts = 10;
     std::chrono::minutes attemptWindow{15};
     size_t maxLogEntries = 10000;
+    
+    // Serialization
+    json toJson() const;
+    static IntrusionConfig fromJson(const json& j);
 };
 
-} // namespace OmniNet::Config
+// ============================================================================
+// Logging Configuration
+// ============================================================================
+
+struct LoggingConfig {
+    std::string level = "INFO";
+    std::string file = "omninet.log";
+    bool toConsole = true;
+    bool toFile = true;
+    size_t maxSizeMb = 10;
+    size_t maxFiles = 5;
+    
+    // Serialization
+    json toJson() const;
+    static LoggingConfig fromJson(const json& j);
+};
+
+} // namespace OmniNet
 
 #endif // OMNINET_CONFIG_H

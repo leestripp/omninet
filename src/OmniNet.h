@@ -98,15 +98,11 @@
 
 namespace OmniNet {
 
-// Global initialization (call once at program start)
-inline void init() {
-    Crypto::initialize();
-}
+// Global initialization (defined in OmniNet.cpp)
+void init();
 
-// Global cleanup (call once at program end)
-inline void cleanup() {
-    Crypto::cleanup();
-}
+// Global cleanup (defined in OmniNet.cpp)
+void cleanup();
 
 } // namespace OmniNet
 

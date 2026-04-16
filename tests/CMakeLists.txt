@@ -13,6 +13,11 @@ add_executable(omnet_test
     test_all.cpp
 )
 
+# Config-specific test executable
+add_executable(test_config
+    test_config.cpp
+)
+
 # Link with OmniNet and dependencies
 target_link_libraries(omnet_test PRIVATE
     OmniNet
@@ -20,11 +25,21 @@ target_link_libraries(omnet_test PRIVATE
     pthread
 )
 
+target_link_libraries(test_config PRIVATE
+    OmniNet
+    pthread
+)
+
 # Enable C++20
 target_compile_features(omnet_test PRIVATE cxx_std_20)
+target_compile_features(test_config PRIVATE cxx_std_20)
 
 # Include directories - use parent source dir
 target_include_directories(omnet_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_include_directories(test_config PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
@@ -36,3 +51,4 @@ endif()
 # Register tests
 enable_testing()
 add_test(NAME OmniNetTests COMMAND omnet_test)
+add_test(NAME ConfigTests COMMAND test_config)

@@ -76,6 +76,17 @@ target_link_libraries(OmniNet PUBLIC SQLite3::SQLite3)
 # Platform-specific sockets (usually part of libc)
 target_link_libraries(OmniNet PUBLIC pthread)
 
+# Fetch nlohmann/json for config parsing (header-only)
+include(FetchContent)
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.11.3
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
+target_link_libraries(OmniNet PUBLIC nlohmann_json::nlohmann_json)
+
 # Define version macro
 target_compile_definitions(OmniNet PUBLIC
     OMNINET_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
