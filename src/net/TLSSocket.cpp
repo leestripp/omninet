@@ -117,7 +117,36 @@ void TLSSocket::connect(const std::string& host, uint16_t port) {
 }
 
 void TLSSocket::performHandshake() {
-    doHandshake();
+    // Keep trying until handshake completes or fails
+    int iterations = 0;
+    const int maxIterations = 100; // 100 * 10ms = 1 second timeout
+    
+    while (!m_handshakeDone && iterations < maxIterations) {
+        iterations++;
+        
+        // Use select() to wait for socket to be ready
+        fd_set readFds, writeFds;
+        FD_ZERO(&readFds);
+        FD_ZERO(&writeFds);
+        FD_SET(m_fd, &readFds);
+        FD_SET(m_fd, &writeFds);
+        
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 10000; // 10ms timeout
+        
+        int selectResult = select(m_fd + 1, &readFds, &writeFds, nullptr, &tv);
+        if (selectResult < 0) {
+            throw TLSException(std::string("select() failed during TLS handshake: ") + strerror(errno), errno);
+        }
+        
+        // Now try the handshake
+        doHandshake();
+    }
+    
+    if (!m_handshakeDone) {
+        throw TLSException(std::string("TLS handshake timed out"), -1);
+    }
 }
 
 bool TLSSocket::shutdown() {
@@ -163,23 +192,20 @@ size_t TLSSocket::recv(std::span<uint8_t> buffer) {
         return static_cast<size_t>(ret);
     }
     
-    if (ret == 0) {
-        // Check if there's data pending in the SSL buffer
-        int pending = SSL_pending(m_ssl);
-        if (pending > 0) {
-            // Data is pending but not yet readable - retry
+    if (ret <= 0) {
+        int err = SSL_get_error(m_ssl, ret);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            // Would block, caller should retry when socket is readable
             return 0;
         }
+        if (err == SSL_ERROR_ZERO_RETURN) {
+            // Connection closed gracefully
+            return 0;
+        }
+        // Other error
+        return 0;
     }
     
-    // Check error
-    int err = SSL_get_error(m_ssl, ret);
-    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-        return 0;
-    }
-    if (err == SSL_ERROR_ZERO_RETURN) {
-        return 0;
-    }
     return 0;
 }
 
@@ -188,9 +214,45 @@ std::vector<uint8_t> TLSSocket::recvAll(size_t maxSize) {
     result.reserve(4096);
     
     std::vector<uint8_t> buffer(4096);
-    while (result.size() < maxSize) {
+    int iterations = 0;
+    const int maxIterations = 200; // 200 * 10ms = 2 second timeout
+    
+    while (result.size() < maxSize && iterations < maxIterations) {
+        iterations++;
+        
+        // Check if there's pending SSL data first
+        if (m_ssl) {
+            int pending = SSL_pending(m_ssl);
+            if (pending > 0) {
+                size_t bytes = recv(buffer);
+                if (bytes > 0) {
+                    result.insert(result.end(), buffer.begin(), buffer.begin() + bytes);
+                    continue;
+                }
+            }
+        }
+        
+        // Use select to wait for data
+        fd_set readFds;
+        FD_ZERO(&readFds);
+        FD_SET(m_fd, &readFds);
+        
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 10000; // 10ms
+        
+        int selectResult = select(m_fd + 1, &readFds, nullptr, nullptr, &tv);
+        if (selectResult <= 0) {
+            if (result.empty()) {
+                continue; // No data yet, keep waiting
+            }
+            break; // We have some data, return it
+        }
+        
         size_t bytes = recv(buffer);
-        if (bytes == 0) break;
+        if (bytes == 0) {
+            break;
+        }
         result.insert(result.end(), buffer.begin(), buffer.begin() + bytes);
     }
     
