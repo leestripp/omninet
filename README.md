@@ -1,4 +1,4 @@
-![OmniNet Banner](resources/banner.png)
+![OmniNet Banner](docs/resources/banner.png)
 
 # OmniNet
 
