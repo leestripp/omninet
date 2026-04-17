@@ -1,0 +1,30 @@
+**High Priority (Start Here):**
+1. **omnet-status** - All-in-one system diagnostic (config, DB, certs, servers, logs)
+2. **omnet-health** - HTTP health check for running servers
+3. **omnet-log** - Log viewer with filtering, tail, and grep
+
+**Security Focus:**
+4. **omnet-firewall** - Manage blocked IPs, view intrusion logs, whitelist management
+
+**Process Management:**
+5. **omnet-ctl** - Start/stop/restart server instances with PID tracking
+6. **omnet-mon** - Real-time terminal monitor for server statistics
+
+**User & Data Management:**
+7. **omnet-users** - Dashboard user CRUD, session management
+8. **omnet-db** - SQLite database inspection, backup/restore
+
+**Certificate & Setup:**
+9. **omnet-certs** - TLS certificate management, expiry checking
+10. **omnet-init** - First-time setup wizard
+
+All tools will read `~/.omninet/` files (config.json, omninet.db, logs) and can monitor the various server components (HTTP stats, WebSocket, SSE, intrusion detection, rate limiting).
+
+The full analysis is in CodeMax.md with detailed feature lists and implementation notes.
+
+Please use the full name of omninet at the start of each tool.
+e.g. omninet-*
+Update CodeMax.md
+
+Create a Plan to implement these new tools, put them in the tools/ folder, code that is.
+once the Plan is created in CodeMax.md file start on the plan.

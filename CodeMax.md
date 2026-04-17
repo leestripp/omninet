@@ -1,242 +1,209 @@
-# OmniNet - Project Documentation
+# OmniNet Sysadmin CLI Tools - Implementation Plan
 
 ## System Information
 | Component | Value |
 |-----------|-------|
-| Kernel | Linux 6.8.0 |
-| OS | Ubuntu 24.04 |
+| Kernel | Linux 6.18.16 |
+| OS | Arch Linux |
+| Container | podman (archlinux:latest) |
+| Display | Wayland, GNOME |
 | Architecture | x86_64 |
 
-## Project Info
-- **Build System**: CMake with C++20
-- **Dependencies**: OpenSSL, SQLite3, pthread
-- **Test Framework**: Custom test macros (GTest optional)
+## Project Overview
 
----
+OmniNet is a modern C++20 web framework providing:
+- HTTP/HTTPS server with routing
+- WebSocket support
+- Server-Sent Events (SSE)
+- SQLite database integration
+- User authentication & sessions
+- Intrusion detection
+- Dashboard web interface
+- Rate limiting
+- TLS/SSL support
 
-## TODO: Robust Configuration System
+## Configuration Files (`~/.omninet/`)
 
-### Tasks
+| File/Directory | Purpose |
+|----------------|---------|
+| `config.json` | Main configuration (server defaults, CORS, TLS paths, logging) |
+| `omninet.db` | SQLite database (users, sessions, intrusion logs) |
+| `omninet.log` | Application log file |
+| `certs/` | TLS certificates and keys |
 
-#### 1. Implement JSON Config File Loading ✅ DONE
-- [x] **File**: `src/config/Config.cpp`
-- Implement `loadFromFile()` to parse JSON config files
-- Support standard JSON structure with all config sections
-- Add validation for required fields and value ranges
-- Create default config file at `~/.omninet/config.json` if none exists
+## CLI Tools Implemented
 
-#### 2. Add Configuration Validation ✅ DONE
-- [x] **File**: `src/config/Config.cpp`
-- Add `validate()` method to check config values are sensible
-- Port numbers: 1-65535
-- Timeouts: 1s - 3600s
-- File paths: must exist or be creatable
-- Worker count: 1-256 or 0 for auto
+All tools are named with underscores (e.g., `omninet_status`) for compatibility:
 
-#### 3. Implement Config File Auto-Creation ✅ DONE
-- [x] **File**: `src/config/Config.cpp`
-- On first run, create default `~/.omninet/config.json`
-- Include all config sections with sensible defaults
-- Include comments explaining each option
-- Support migration from older config formats
+### 1. **omninet_status** - Overall System Status
+```
+omninet_status [--verbose] [--json] [--report]
+```
+Features: Config validity, database health, certificate status, blocked IPs count, recent logs
 
-#### 4. Add Hot Reload Support ✅ DONE
-- [x] **File**: `src/config/Config.cpp`
-- Add `reload()` method to re-read config file
-- File system watcher for automatic reload on change
-- Thread-safe reloading without service interruption
-- Callback system for components to react to config changes
+### 2. **omninet_health** - Health Check Tool
+```
+omninet_health <server-url> [endpoints...] [--all] [--expected TEXT] [--timeout N]
+```
+Features: HTTP health check, response time measurement, JSON output
 
-#### 5. Extend Environment Variable Support ✅ DONE
-- [x] **File**: `src/config/Config.cpp`
-- Full coverage of all config options via env vars
-- Prefix: `OMNINET_` for global, `OMNINET_SERVER_`, etc. for sections
-- Support arrays/lists via comma-separated values
-- Boolean support: true/false, 1/0, yes/no
+### 3. **omninet_log** - Log Viewer & Analyzer
+```
+omninet_log [--follow] [--tail] [--level LEVEL] [--grep PATTERN] [--stats]
+```
+Features: Real-time tail, log filtering, grep pattern search, statistics
 
-#### 6. Add Config CLI/Debug Tools ✅ DONE
-- [x] **File**: `src/config/Config.cpp`
-- `config dump` - print current config as JSON (via `toJson()`)
-- `config validate` - check config file syntax (via `validate()`)
-- `config init` - create default config file (via `createDefaultConfig()`)
-- Pretty-print output for debugging
+### 4. **omninet_firewall** - Intrusion Detection CLI
+```
+omninet_firewall list|block|unblock|logs [--duration] [--all]
+```
+Features: Manage blocked IPs, view intrusion logs
 
-#### 7. Add Comprehensive Tests ✅ DONE
-- [x] **File**: `tests/test_config.cpp`
-- Test JSON parsing (valid and invalid files) ✅
-- Test validation logic ✅
-- Test environment variable overrides ✅
-- Test hot reload functionality ✅
-- Test default value handling ✅
-- **14 new tests passing**
+### 5. **omninet_users** - User Management CLI
+```
+omninet_users list|add|remove|show|sessions|revoke [--role]
+```
+Features: User CRUD, session management
 
-### Default Config Structure (`~/.omninet/config.json`)
+### 6. **omninet_db** - Database CLI
+```
+omninet_db info|tables|query|vacuum|backup|restore
+```
+Features: SQLite inspection, query execution, backup/restore
 
-```json
-{
-  "version": "1.0",
-  "server": {
-    "address": "0.0.0.0",
-    "port": 8080,
-    "workers": 0,
-    "requestTimeout": 30,
-    "keepAliveTimeout": 5,
-    "maxRequestSize": 1048576
-  },
-  "tls": {
-    "enabled": false,
-    "certFile": "",
-    "keyFile": "",
-    "verifyClient": false
-  },
-  "cors": {
-    "enabled": false,
-    "allowedOrigins": "*",
-    "allowedMethods": "GET,POST,PUT,DELETE",
-    "allowedHeaders": "Content-Type,Authorization",
-    "maxAge": 86400
-  },
-  "websocket": {
-    "pingInterval": 30,
-    "pongTimeout": 10,
-    "maxMessageSize": 1048576,
-    "maxConnections": 1024
-  },
-  "database": {
-    "path": "omninet.db",
-    "busyTimeoutMs": 5000,
-    "foreignKeys": true,
-    "walMode": true
-  },
-  "dashboard": {
-    "enabled": true,
-    "urlPath": "/omninet",
-    "apiPath": "/omninet/api",
-    "sessionTtl": 3600,
-    "maxLoginAttempts": 5,
-    "lockoutDuration": 300
-  },
-  "intrusion": {
-    "enabled": true,
-    "autoBlock": true,
-    "blockDuration": 30,
-    "maxFailedAttempts": 10,
-    "attemptWindow": 15
-  },
-  "logging": {
-    "level": "INFO",
-    "file": "omninet.log",
-    "toConsole": true,
-    "toFile": true,
-    "maxSizeMb": 10,
-    "maxFiles": 5
-  }
-}
+### 7. **omninet_certs** - Certificate Manager
+```
+omninet_certs list|info|check|generate [--days N]
+```
+Features: Certificate listing, expiry checking, info display
+
+### 8. **omninet_ctl** - Server Process Manager
+```
+omninet_ctl list|status|start|stop|restart
+```
+Features: PID file management, process control
+
+### 9. **omninet_mon** - Real-time Server Monitor
+```
+omninet_mon [--url URL] [--interval N]
+```
+Features: Real-time statistics display
+
+### 10. **omninet_init** - Initial Setup Tool
+```
+omninet_init [--force] [--non-interactive] [--port N] [--address]
+```
+Features: Create ~/.omninet structure, default config
+
+## Common CLI Options
+
+All tools support:
+```
+--help, -h           # Show help
+--version, -v        # Show version
+--json, -j           # JSON output
+--quiet, -q          # Suppress output
+--verbose, -v        # Verbose output
 ```
 
-### Environment Variable Mapping
+## Directory Structure
 
-| Config Path | Environment Variable |
-|-------------|---------------------|
-| server.port | OMNINET_PORT |
-| server.workers | OMNINET_WORKERS |
-| server.requestTimeout | OMNINET_TIMEOUT |
-| server.keepAliveTimeout | OMNINET_KEEPALIVE_TIMEOUT |
-| server.maxRequestSize | OMNINET_MAX_REQUEST_SIZE |
-| logging.level | OMNINET_LOG_LEVEL |
-| tls.certFile | OMNINET_TLS_CERT |
-| tls.keyFile | OMNINET_TLS_KEY |
-| database.path | OMNINET_DATABASE |
-| cors.enabled | OMNINET_CORS_ENABLED |
-| cors.allowedOrigins | OMNINET_CORS_ORIGINS |
-| cors.allowedMethods | OMNINET_CORS_METHODS |
-| cors.allowedHeaders | OMNINET_CORS_HEADERS |
+```
+tools/
+├── CMakeLists.txt
+├── tools_common/
+│   ├── CMakeLists.txt
+│   ├── common.h/cpp       # Paths, time, file helpers
+│   ├── colors.h/cpp       # Terminal colors, ANSI formatting
+│   ├── table.h/cpp         # Table, key-value, progress bars
+│   ├── config.h/cpp        # Config reading
+│   ├── database.h/cpp     # DB access, intrusion, user stores
+│   └── http.h/cpp         # HTTP client, health checker
+├── omninet_status/
+│   └── main.cpp
+├── omninet_health/
+│   └── main.cpp
+├── omninet_log/
+│   └── main.cpp
+├── omninet_firewall/
+│   └── main.cpp
+├── omninet_users/
+│   └── main.cpp
+├── omninet_db/
+│   └── main.cpp
+├── omninet_certs/
+│   └── main.cpp
+├── omninet_ctl/
+│   └── main.cpp
+├── omninet_mon/
+│   └── main.cpp
+└── omninet_init/
+    └── main.cpp
+```
 
----
+## Build System
 
-## Bugs Found and Fixed
-
-### 1. HTTP keepAlive() Logic Bug ✅ FIXED
-- **File**: `src/http/HttpRequest.cpp`
-- **Issue**: `Connection: close` header was ignored for HTTP/1.1 (always returned true)
-- **Fix**: Check for explicit 'close' header first before falling back to HTTP version default
-
-### 2. Connection Handler Blocking ✅ FIXED
-- **File**: `src/http/HttpServer.cpp`
-- **Issue**: `handleConnection()` processed connections synchronously, blocking the accept loop
-- **Fix**: Spawn a new thread for each connection with `detach()` so accept loop can continue
-
-### 3. Request Reading - recvAll() Blocking ✅ FIXED  
-- **File**: `src/http/HttpConnection.cpp`
-- **Issue**: `recvAll()` reads until EOF, blocking forever on keep-alive connections
-- **Fix**: Rewrite `readRequest()` to read headers first (until double CRLF), then body if Content-Length > 0
-
-## Test Results: 124 passed, 0 failed
-
-| Category | Tests | Status |
-|----------|-------|--------|
-| Logger | 1 | ✅ Pass |
-| Exception | 1 | ✅ Pass |
-| Utils String | 10 | ✅ Pass |
-| Utils URL Encoding | 4 | ✅ Pass |
-| Utils UTF-8/Emoji | 4 | ✅ Pass |
-| Utils Base64 | 4 | ✅ Pass |
-| Utils Path (Security) | 5 | ✅ Pass |
-| Utils MIME | 2 | ✅ Pass |
-| Utils IP | 2 | ✅ Pass |
-| Utils HTML (XSS) | 2 | ✅ Pass |
-| Utils HMAC | 3 | ✅ Pass |
-| Database | 3 | ✅ Pass |
-| HTTP Request (basic) | 6 | ✅ Pass |
-| HTTP Request Headers | 24 | ✅ Pass |
-| HTTP Request UTF-8 | 3 | ✅ Pass |
-| HTTP Response | 4 | ✅ Pass |
-| Router | 5 | ✅ Pass |
-| Rate Limiter | 3 | ✅ Pass |
-| Crypto | 4 | ✅ Pass |
-| Password Hasher | 4 | ✅ Pass |
-| Buffer | 15 | ✅ Pass |
-| **Config System** | **14** | ✅ **NEW** |
-
-## Build & Run
+Tools are built via CMake when `tools/CMakeLists.txt` is included:
 
 ```bash
-# Build
-cmake -S . -B build
 cmake --build build -j$(nproc)
-
-# Run tests
-./build/tests/omnet_test
-
-# Run demo (test with curl)
-./build/demos/http_server_demo &
-sleep 2
-curl http://localhost:8080/api/hello
-curl http://localhost:8080/api/health
 ```
 
-## Data Storage Design
+Executables are placed in `build/tools/`:
+- `omninet_status`
+- `omninet_health`
+- `omninet_log`
+- `omninet_firewall`
+- `omninet_users`
+- `omninet_db`
+- `omninet_certs`
+- `omninet_ctl`
+- `omninet_mon`
+- `omninet_init`
 
-OmniNet stores files in two locations:
+## Progress
 
-### User Config Directory: `~/.omninet/`
-```
-~/.omninet/
-├── config.json        # Main configuration file
-├── omninet.db        # SQLite database (if not changed)
-├── omninet.log       # Application logs (if file logging enabled)
-└── certificates/     # TLS certificates (user-managed)
+### ✅ Phase 1: Shared Library
+- [x] Create directory structure (tools/tools_common/)
+- [x] Implement common.h - paths, time, file helpers
+- [x] Implement colors.h - terminal colors, ANSI formatting
+- [x] Implement table.h - table, key-value, progress bars
+- [x] Implement config.h - config reading
+- [x] Implement database.h - DB access, intrusion, user stores
+- [x] Implement http.h - HTTP client, health checker
+
+### ✅ Phase 2: Core Tools
+- [x] omninet_status
+- [x] omninet_health
+- [x] omninet_log
+- [x] omninet_firewall
+- [x] omninet_users
+- [x] omninet_db
+- [x] omninet_certs
+- [x] omninet_ctl
+- [x] omninet_mon
+- [x] omninet_init
+
+### ✅ Phase 3: Build System
+- [x] tools/CMakeLists.txt
+- [x] Updated root CMakeLists.txt
+- [x] Build verified successfully
+
+## Known Issues / TODO
+
+1. **omninet_init hangs** - May have an issue with interactive input
+2. **omninet_certs generate** - Certificate generation requires full OpenSSL integration
+3. **File includes** - Need to create symlinks or wrapper scripts for `omninet-*` (dash) versions
+
+## Installation
+
+After building, binaries are in `build/tools/`. To install system-wide:
+```bash
+sudo cp build/tools/omninet_* /usr/local/bin/
 ```
 
-### Project/Relative Paths (resolved to data dir):
+Or create symlinks without underscores:
+```bash
+cd build/tools
+for f in omninet_*; do sudo ln -sf "$PWD/$f" "/usr/local/bin/${f//_/-}"; done
 ```
-project_root/
-├── static/           # Web assets (CSS, JS, images)
-├── logs/             # Application logs
-└── certificates/     # TLS certificates
-```
-
-### Config Loading Priority (highest to lowest):
-1. Environment variables (`OMNINET_PORT`, `OMNINET_LOG_LEVEL`, etc.)
-2. `~/.omninet/config.json` (user config)
-3. Default values (hardcoded in code)

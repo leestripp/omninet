@@ -170,3 +170,6 @@ endif()
 
 # Build demos
 add_subdirectory(demos)
+
+# Build CLI tools
+add_subdirectory(tools)
