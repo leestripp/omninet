@@ -31,8 +31,13 @@ int main() {
     config.address = "127.0.0.1";
     config.port = 8443;
     config.tlsEnabled = true;
-    config.tlsCertFile = "server.crt";
-    config.tlsKeyFile = "server.key";
+    
+    // Look for certs in ~/.omninet/certs/ (standard OmniNet location)
+    std::string homeDir = std::getenv("HOME") ? std::getenv("HOME") : ".";
+    std::string certsDir = homeDir + "/.omninet/certs";
+    config.tlsCertFile = certsDir + "/omninet.crt";
+    config.tlsKeyFile = certsDir + "/omninet.key";
+    
     config.corsEnabled = true;
     config.corsAllowedOrigins = "*";
     
