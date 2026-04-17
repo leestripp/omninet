@@ -1,5 +1,5 @@
 // OmniNet - Byte Buffer Implementation
-#include "net/Buffer.h"
+#include "Buffer.h"
 
 #include <iomanip>
 #include <sstream>
