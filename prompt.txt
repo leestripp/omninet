@@ -16,97 +16,29 @@ Try:
 Note: Accept the self-signed certificate in your browser
 [HttpServer] Connection accepted! Spawning handler thread
 [HttpServer] handleConnection called, socket fd=4
+[HttpServer] TLS enabled, wrapping socket with TLSSocket
 [HttpServer] Waiting for connection...
 [HttpServer] Connection thread started, socket fd=4
 [HttpServer] Calling conn.processRequests()
 [HttpConnection] handleNextRequest() called
 [HttpConnection] readRequest() starting
 [HttpConnection]   Reading chunk, buffer size=0
-[HttpConnection]   Received 1894 bytes
-[HttpConnection]   No double CRLF found yet, buffer size=1894
-[HttpConnection]   Reading chunk, buffer size=1894
 [HttpConnection]   recvAll returned empty - connection closed or timeout
-[HttpConnection]   Have partial data, breaking
-[HttpConnection]   Partial data, parsing 1894 bytes
-[HttpConnection] readRequest() succeeded - path: ��׹��J����e�(O~
-                                                                8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
-                                                                                               	localhost��
-                                                                                                           #
-                                                                                                            hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
-       !
-        �y;␦����
-[HttpConnection] Calling handler for path: ��׹��J����e�(O~
-                                                          8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
-                                                                                       	localhost��
-                                                                                                   #
-                                                                                                    hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
-                                                                                                                                                                                             !
-                                                                                                                                                                                             �y;␦����
-[HttpServer] Handler called - Method: UNKNOWN, Path: ��׹��J����e�(O~
-                                                                    8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
-                                                                                                       	localhost��
-                                                                                                                   #
-                                                                                                                    hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
-               !
-                �y;␦����
-[HttpServer] Calling router.handle()
-[Router] handle() called - Method: UNKNOWN, Path: ��׹��J����e�(O~
-                                                                 8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
-                                                                                               	localhost��
-                                                                                                           #
-                                                                                                            hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
-       !
-        �y;␦����
-[Router] Registered routes: 4
-[Router]   GET /api/hello
-[Router]   GET /api/health
-[Router]   GET /
-[Router]   GET /*
-[Router] Looking for matching route...
-[Router] match() - Trying to match ��׹��J����e�(O~
-                                                  8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
-                                                                               	localhost��
-                                                                                           #
-                                                                                            hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
-                                                                                                                                                                                     !
-                                                                                                                                                                                      �y;␦���� with method UNKNOWN
-[Router]   Checking route: GET /api/hello
-[Router]     Method mismatch, skipping
-[Router]   Checking route: GET /api/health
-[Router]     Method mismatch, skipping
-[Router]   Checking route: GET /
-[Router]     Method mismatch, skipping
-[Router]   Checking route: GET /*
-[Router]     Method mismatch, skipping
-[Router] match() - No route matched
-[Router] Route NOT MATCHED
-[Router] No notFoundHandler, returning 404
-[HttpServer] Router.handle() returned, response status=404
-[HttpConnection] Sending response, status=404
-[HttpConnection] sendResponse() called, status=404
-[HttpConnection] buildFull returned 80 bytes
-[HttpConnection] Response preview: HTTP/1.1 404 Not Found
-Content-Type: text/plain
-Content-Length: 9
-
-Not Found
-[HttpConnection] Calling socket->sendAll()
-[HttpConnection] sendAll() succeeded
-[HttpConnection] sendResponse() returning 0, keepAlive=0
+[HttpConnection]   Buffer empty, returning false
+[HttpConnection] readRequest() returned false - no request data
 [HttpServer] processRequests() returned, connection thread ending
 [HttpServer] Connection accepted! Spawning handler thread
 [HttpServer] handleConnection called, socket fd=5
+[HttpServer] TLS enabled, wrapping socket with TLSSocket
 [HttpServer] Waiting for connection...
 [HttpServer] Connection thread started, socket fd=5
 [HttpServer] Calling conn.processRequests()
 [HttpConnection] handleNextRequest() called
 [HttpConnection] readRequest() starting
 [HttpConnection]   Reading chunk, buffer size=0
-[HttpConnection]   Received 1894 bytes
-[HttpConnection]   No double CRLF found yet, buffer size=1894
-[HttpConnection]   Reading chunk, buffer size=1894
 [HttpConnection]   recvAll returned empty - connection closed or timeout
-[HttpConnection]   Have partial data, breaking
-[HttpConnection]   Partial data, parsing 1894 bytes
+[HttpConnection]   Buffer empty, returning false
+[HttpConnection] readRequest() returned false - no request data
+[HttpServer] processRequests() returned, connection thread ending
 ^C
 📦[lee@devel OmniNet]$ 

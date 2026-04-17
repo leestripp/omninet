@@ -205,12 +205,18 @@ void Server::runAcceptLoop() {
 void Server::handleConnection(std::unique_ptr<Socket> socket) {
     SERVER_DEBUG("handleConnection called, socket fd=" << socket->fd());
     
-    // If TLS is enabled, wrap the socket in a TLSSocket
+    // If TLS is enabled, wrap the socket in a TLSSocket and perform handshake
     if (m_config.tlsEnabled) {
         SERVER_DEBUG("TLS enabled, wrapping socket with TLSSocket");
         auto tlsSocket = std::make_unique<TLSSocket>(std::move(socket));
         tlsSocket->setCertFile(m_config.tlsCertFile);
         tlsSocket->setKeyFile(m_config.tlsKeyFile);
+        
+        // Perform TLS handshake synchronously before spawning thread
+        SERVER_DEBUG("Performing TLS handshake...");
+        tlsSocket->performHandshake();
+        SERVER_DEBUG("TLS handshake complete, cipher: " << tlsSocket->getCipher());
+        
         socket = std::move(tlsSocket);
     }
     

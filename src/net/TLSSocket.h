@@ -138,6 +138,9 @@ private:
     bool m_serverMode = false;
     bool m_handshakeDone = false;
     
+    // Keep underlying socket alive so fd isn't closed
+    std::unique_ptr<Socket> m_underlyingSocket;
+    
     // Configuration paths
     std::string m_certFile;
     std::string m_keyFile;

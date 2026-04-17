@@ -17,7 +17,7 @@ TLSSocket::TLSSocket() : m_serverMode(false), m_handshakeDone(false) {
 }
 
 TLSSocket::TLSSocket(std::unique_ptr<Socket> socket) 
-    : Socket(socket->fd()), m_serverMode(true), m_handshakeDone(false) {
+    : Socket(socket->fd()), m_serverMode(true), m_handshakeDone(false), m_underlyingSocket(std::move(socket)) {
     initContext(TLSMode::SERVER);
 }
 
@@ -133,6 +133,7 @@ bool TLSSocket::shutdown() {
 
 size_t TLSSocket::send(std::span<const uint8_t> data) {
     if (!m_ssl) return 0;
+    
     int ret = SSL_write(m_ssl, data.data(), static_cast<int>(data.size()));
     if (ret > 0) return static_cast<size_t>(ret);
     return 0;
@@ -156,8 +157,29 @@ void TLSSocket::sendAll(std::span<const uint8_t> data) {
 
 size_t TLSSocket::recv(std::span<uint8_t> buffer) {
     if (!m_ssl) return 0;
+    
     int ret = SSL_read(m_ssl, buffer.data(), static_cast<int>(buffer.size()));
-    if (ret > 0) return static_cast<size_t>(ret);
+    if (ret > 0) {
+        return static_cast<size_t>(ret);
+    }
+    
+    if (ret == 0) {
+        // Check if there's data pending in the SSL buffer
+        int pending = SSL_pending(m_ssl);
+        if (pending > 0) {
+            // Data is pending but not yet readable - retry
+            return 0;
+        }
+    }
+    
+    // Check error
+    int err = SSL_get_error(m_ssl, ret);
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+        return 0;
+    }
+    if (err == SSL_ERROR_ZERO_RETURN) {
+        return 0;
+    }
     return 0;
 }
 

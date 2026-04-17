@@ -194,6 +194,7 @@ Executables are placed in `build/tools/`:
 ## Known Issues / TODO
 
 1. ~~**omninet-init hangs**~~ - Fixed with 5-second select() timeouts on all prompts
+2. ~~**HTTPS server not reading data**~~ - Fixed by storing underlying socket in TLSSocket, performing handshake synchronously
 
 All CLI tools are complete and working!
 
