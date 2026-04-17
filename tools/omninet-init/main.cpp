@@ -31,7 +31,9 @@ struct Options {
     bool nonInteractive = false;
     bool skipCerts = false;
     bool skipAdmin = false;
+    bool enableTls = false;
     std::string port = "8080";
+    std::string httpsPort = "8443";
     std::string address = "0.0.0.0";
     std::string dataDir;
     std::string adminPassword;
@@ -160,6 +162,8 @@ Options parseArgs(int argc, char* argv[]) {
             std::cout << "  -f, --force         Force reinitialization\n";
             std::cout << "  -y, --yes           Non-interactive mode (skip prompts)\n";
             std::cout << "  -p, --port          Default port (default: 8080)\n";
+            std::cout << "  --https-port        HTTPS port (default: 8443)\n";
+            std::cout << "  --enable-tls         Enable TLS/HTTPS\n";
             std::cout << "  -a, --address       Default address (default: 0.0.0.0)\n";
             std::cout << "  -d, --data-dir      Data directory path\n";
             std::cout << "  --skip-certs        Skip certificate generation\n";
@@ -192,6 +196,14 @@ Options parseArgs(int argc, char* argv[]) {
             if (i + 1 < argc) {
                 opts.port = argv[++i];
             }
+        }
+        else if (arg == "--https-port") {
+            if (i + 1 < argc) {
+                opts.httpsPort = argv[++i];
+            }
+        }
+        else if (arg == "--enable-tls") {
+            opts.enableTls = true;
         }
         else if (arg == "-a" || arg == "--address") {
             if (i + 1 < argc) {
@@ -253,7 +265,9 @@ bool setupConfig(const Options& opts, Formatter& out) {
     out.info("Creating: " + configPath.string());
     
     std::string port = opts.port;
+    std::string httpsPort = opts.httpsPort;
     std::string address = opts.address;
+    bool enableTls = opts.enableTls;
     
     if (!opts.nonInteractive) {
         auto input = ask("Default port", port);
@@ -261,13 +275,23 @@ bool setupConfig(const Options& opts, Formatter& out) {
         
         input = ask("Default address", address);
         if (!input.empty()) address = input;
+        
+        input = ask("HTTPS port", httpsPort);
+        if (!input.empty()) httpsPort = input;
+        
+        if (confirm("Enable TLS/HTTPS?", false)) {
+            enableTls = true;
+        }
     }
+    
+    std::string tlsEnabled = enableTls ? "true" : "false";
     
     std::string config = R"({
     "version": "1.0",
     "server": {
         "address": ")" + address + R"(",
         "port": )" + port + R"(,
+        "httpsPort": )" + httpsPort + R"(,
         "workers": 0,
         "timeout": 30
     },
@@ -292,9 +316,9 @@ bool setupConfig(const Options& opts, Formatter& out) {
         "headers": "Content-Type,Authorization"
     },
     "tls": {
-        "enabled": false,
-        "certFile": "",
-        "keyFile": ""
+        "enabled": )" + tlsEnabled + R"(,
+        "certFile": "certs/omninet.crt",
+        "keyFile": "certs/omninet.key"
     },
     "dashboard": {
         "enabled": true,
