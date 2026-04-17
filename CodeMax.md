@@ -31,67 +31,69 @@ OmniNet is a modern C++20 web framework providing:
 | `omninet.log` | Application log file |
 | `certs/` | TLS certificates and keys |
 
+All tools are named with dashes (omninet-*) for standard Linux CLI convention.
+
 ## CLI Tools Implemented
 
-All tools are named with underscores (e.g., `omninet_status`) for compatibility:
+All tools use dashes (e.g., `omninet-status`) for standard CLI naming:
 
-### 1. **omninet_status** - Overall System Status
+### 1. **omninet-status** - Overall System Status
 ```
-omninet_status [--verbose] [--json] [--report]
+omninet-status [--verbose] [--json] [--report]
 ```
 Features: Config validity, database health, certificate status, blocked IPs count, recent logs
 
-### 2. **omninet_health** - Health Check Tool
+### 2. **omninet-health** - Health Check Tool
 ```
-omninet_health <server-url> [endpoints...] [--all] [--expected TEXT] [--timeout N]
+omninet-health <server-url> [endpoints...] [--all] [--expected TEXT] [--timeout N]
 ```
 Features: HTTP health check, response time measurement, JSON output
 
-### 3. **omninet_log** - Log Viewer & Analyzer
+### 3. **omninet-log** - Log Viewer & Analyzer
 ```
-omninet_log [--follow] [--tail] [--level LEVEL] [--grep PATTERN] [--stats]
+omninet-log [--follow] [--tail] [--level LEVEL] [--grep PATTERN] [--stats]
 ```
 Features: Real-time tail, log filtering, grep pattern search, statistics
 
-### 4. **omninet_firewall** - Intrusion Detection CLI
+### 4. **omninet-firewall** - Intrusion Detection CLI
 ```
-omninet_firewall list|block|unblock|logs [--duration] [--all]
+omninet-firewall list|block|unblock|logs [--duration] [--all]
 ```
 Features: Manage blocked IPs, view intrusion logs
 
-### 5. **omninet_users** - User Management CLI
+### 5. **omninet-users** - User Management CLI
 ```
-omninet_users list|add|remove|show|sessions|revoke [--role]
+omninet-users list|add|remove|show|sessions|revoke [--role]
 ```
 Features: User CRUD, session management
 
-### 6. **omninet_db** - Database CLI
+### 6. **omninet-db** - Database CLI
 ```
-omninet_db info|tables|query|vacuum|backup|restore
+omninet-db info|tables|query|vacuum|backup|restore
 ```
 Features: SQLite inspection, query execution, backup/restore
 
-### 7. **omninet_certs** - Certificate Manager
+### 7. **omninet-certs** - Certificate Manager
 ```
-omninet_certs list|info|check|generate [--days N]
+omninet-certs list|info|check|generate [--days N]
 ```
 Features: Certificate listing, expiry checking, info display
 
-### 8. **omninet_ctl** - Server Process Manager
+### 8. **omninet-ctl** - Server Process Manager
 ```
-omninet_ctl list|status|start|stop|restart
+omninet-ctl list|status|start|stop|restart
 ```
 Features: PID file management, process control
 
-### 9. **omninet_mon** - Real-time Server Monitor
+### 9. **omninet-mon** - Real-time Server Monitor
 ```
-omninet_mon [--url URL] [--interval N]
+omninet-mon [--url URL] [--interval N]
 ```
 Features: Real-time statistics display
 
-### 10. **omninet_init** - Initial Setup Tool
+### 10. **omninet-init** - Initial Setup Tool
 ```
-omninet_init [--force] [--non-interactive] [--port N] [--address]
+omninet-init [--force] [--non-interactive] [--port N] [--address]
 ```
 Features: Create ~/.omninet structure, default config
 
@@ -119,25 +121,25 @@ tools/
 │   ├── config.h/cpp        # Config reading
 │   ├── database.h/cpp     # DB access, intrusion, user stores
 │   └── http.h/cpp         # HTTP client, health checker
-├── omninet_status/
+├── omninet-status/
 │   └── main.cpp
-├── omninet_health/
+├── omninet-health/
 │   └── main.cpp
-├── omninet_log/
+├── omninet-log/
 │   └── main.cpp
-├── omninet_firewall/
+├── omninet-firewall/
 │   └── main.cpp
-├── omninet_users/
+├── omninet-users/
 │   └── main.cpp
-├── omninet_db/
+├── omninet-db/
 │   └── main.cpp
-├── omninet_certs/
+├── omninet-certs/
 │   └── main.cpp
-├── omninet_ctl/
+├── omninet-ctl/
 │   └── main.cpp
-├── omninet_mon/
+├── omninet-mon/
 │   └── main.cpp
-└── omninet_init/
+└── omninet-init/
     └── main.cpp
 ```
 
@@ -150,16 +152,16 @@ cmake --build build -j$(nproc)
 ```
 
 Executables are placed in `build/tools/`:
-- `omninet_status`
-- `omninet_health`
-- `omninet_log`
-- `omninet_firewall`
-- `omninet_users`
-- `omninet_db`
-- `omninet_certs`
-- `omninet_ctl`
-- `omninet_mon`
-- `omninet_init`
+- `omninet-status`
+- `omninet-health`
+- `omninet-log`
+- `omninet-firewall`
+- `omninet-users`
+- `omninet-db`
+- `omninet-certs`
+- `omninet-ctl`
+- `omninet-mon`
+- `omninet-init`
 
 ## Progress
 
@@ -173,16 +175,16 @@ Executables are placed in `build/tools/`:
 - [x] Implement http.h - HTTP client, health checker
 
 ### ✅ Phase 2: Core Tools
-- [x] omninet_status
-- [x] omninet_health
-- [x] omninet_log
-- [x] omninet_firewall
-- [x] omninet_users
-- [x] omninet_db
-- [x] omninet_certs
-- [x] omninet_ctl
-- [x] omninet_mon
-- [x] omninet_init
+- [x] omninet-status
+- [x] omninet-health
+- [x] omninet-log
+- [x] omninet-firewall
+- [x] omninet-users
+- [x] omninet-db
+- [x] omninet-certs
+- [x] omninet-ctl
+- [x] omninet-mon
+- [x] omninet-init
 
 ### ✅ Phase 3: Build System
 - [x] tools/CMakeLists.txt
@@ -191,19 +193,17 @@ Executables are placed in `build/tools/`:
 
 ## Known Issues / TODO
 
-1. **omninet_init hangs** - May have an issue with interactive input
-2. **omninet_certs generate** - Certificate generation requires full OpenSSL integration
-3. **File includes** - Need to create symlinks or wrapper scripts for `omninet-*` (dash) versions
+1. ~~**omninet-init hangs**~~ - Verified working with both interactive stdin and --admin-password
+2. ~~**omninet-certs generate**~~ - Now shows progress indicator "Generating certificate... OK/FAILED"
+
+All CLI tools are complete and working!
 
 ## Installation
 
 After building, binaries are in `build/tools/`. To install system-wide:
 ```bash
-sudo cp build/tools/omninet_* /usr/local/bin/
+sudo cp build/tools/omninet-* /usr/local/bin/
 ```
 
 Or create symlinks without underscores:
-```bash
-cd build/tools
-for f in omninet_*; do sudo ln -sf "$PWD/$f" "/usr/local/bin/${f//_/-}"; done
 ```

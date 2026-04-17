@@ -156,3 +156,63 @@ void Formatter::flush() {
 }
 
 } // namespace OmniNet::Tools
+
+// ============================================================================
+// Spinner Implementation - Uses usleep to avoid std:: namespace conflicts
+// ============================================================================
+
+#include <thread>
+#include <atomic>
+#include <chrono>
+
+// Implement outside OmniNet namespace to avoid std:: conflicts
+::OmniNet::Tools::Spinner::Spinner(std::ostream& out, bool useColors, const std::string& message)
+    : m_out(out), m_useColors(useColors), m_message(message), m_running(true), m_active(true) {
+    m_thread = std::thread(&::OmniNet::Tools::Spinner::run, this);
+}
+
+::OmniNet::Tools::Spinner::~Spinner() {
+    stop();
+}
+
+void ::OmniNet::Tools::Spinner::run() {
+    static const char* frames[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+    size_t frame = 0;
+    
+    while (m_active) {
+        if (m_useColors) {
+            m_out << "\r" << m_message << " " << frames[frame] << " " << std::flush;
+        } else {
+            m_out << "\r" << m_message << "..." << std::flush;
+        }
+        frame = (frame + 1) % 10;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
+void ::OmniNet::Tools::Spinner::update(const std::string& message) {
+    m_message = message;
+}
+
+void ::OmniNet::Tools::Spinner::stop() {
+    m_active = false;
+    if (m_thread.joinable()) {
+        m_thread.join();
+    }
+    // Clear the spinner line
+    std::string spaces(m_message.length() + 15, ' ');
+    m_out << "\r" << spaces << "\r" << std::flush;
+    m_running = false;
+}
+
+void ::OmniNet::Tools::Spinner::stopWithSuccess(const std::string& message) {
+    stop();
+    std::string prefix = m_useColors ? "\033[1;32m[OK]\033[0m " : "[OK] ";
+    m_out << prefix << message << "\n";
+}
+
+void ::OmniNet::Tools::Spinner::stopWithError(const std::string& message) {
+    stop();
+    std::string prefix = m_useColors ? "\033[1;31m[ERROR]\033[0m " : "[ERROR] ";
+    m_out << prefix << message << "\n";
+}

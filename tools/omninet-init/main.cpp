@@ -354,8 +354,12 @@ bool setupCertificates(const Options& opts, Formatter& out) {
                      "\" -out \"" + certPath.string() + 
                      "\" -days 365 -nodes -subj \"/CN=" + commonName + "\" 2>&1";
     
+    // Show progress message while generating certificate
+    std::cout << "  Generating certificate... " << std::flush;
+    
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
+        std::cout << "FAILED\n";
         out.error("Failed to run OpenSSL");
         return false;
     }
@@ -369,12 +373,14 @@ bool setupCertificates(const Options& opts, Formatter& out) {
     int status = pclose(pipe);
     
     if (status == 0 && fs::exists(certPath) && fs::exists(keyPath)) {
+        std::cout << "OK\n";
         out.success("Certificate generated successfully!");
         out.kv("Certificate", certPath.string());
         out.kv("Private key", keyPath.string());
         out.info("Note: This is a self-signed certificate for development use only.");
         return true;
     } else {
+        std::cout << "FAILED\n";
         out.error("Certificate generation failed");
         if (!output.empty()) {
             out.text("OpenSSL output: " + output);

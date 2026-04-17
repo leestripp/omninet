@@ -4,6 +4,9 @@
 
 #include <string>
 #include <ostream>
+#include <thread>
+#include <atomic>
+#include <chrono>
 
 namespace OmniNet::Tools {
 
@@ -135,5 +138,31 @@ private:
 };
 
 } // namespace OmniNet::Tools
+
+// ============================================================================
+// Spinner - Progress indicator for long-running operations
+// ============================================================================
+
+namespace OmniNet { namespace Tools {
+
+class Spinner {
+public:
+    Spinner(std::ostream& out, bool useColors, const std::string& message);
+    ~Spinner();
+    void update(const std::string& message);
+    void stop();
+    void stopWithSuccess(const std::string& message);
+    void stopWithError(const std::string& message);
+private:
+    std::ostream& m_out;
+    bool m_useColors;
+    std::string m_message;
+    bool m_running = false;
+    std::thread m_thread;
+    std::atomic<bool> m_active{false};
+    void run();
+};
+
+}} // namespace OmniNet::Tools
 
 #endif // OMNINET_TOOLS_COLORS_H
