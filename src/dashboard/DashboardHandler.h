@@ -14,6 +14,7 @@
 #include "db/SessionStore.h"
 #include "db/UserStore.h"
 #include "dashboard/RateLimiter.h"
+#include "utils/LogReader.h"
 
 namespace OmniNet::Dashboard {
 
@@ -99,6 +100,7 @@ private:
     void handleChangePassword(const HTTP::Request& req, HTTP::Response& resp);
     void handleGetStats(const HTTP::Request& req, HTTP::Response& resp);
     void handleRecordStat(const HTTP::Request& req, HTTP::Response& resp);
+    void handleGetLogs(const HTTP::Request& req, HTTP::Response& resp);
     void serveDashboardPage(const HTTP::Request& req, HTTP::Response& resp);
     void serveLoginPage(const HTTP::Request& req, HTTP::Response& resp);
     
@@ -121,6 +123,9 @@ private:
     
     std::string m_customCSS;
     std::string m_customJS;
+    
+    // Log reader for /omninet/logs endpoint
+    std::unique_ptr<LogReader> m_logReader;
     
     // HTML templates
     std::string m_loginPage;

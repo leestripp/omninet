@@ -17,6 +17,7 @@
 #include "net/TLSSocket.h"
 #include "http/Router.h"
 #include "http/HttpConnection.h"
+#include "admin/AdminHandler.h"
 
 namespace OmniNet::HTTP {
 
@@ -146,6 +147,9 @@ public:
     
     const Stats& stats() const;
     
+    // Admin handler
+    Admin::Handler& adminHandler();
+    
     // --- Configuration Access ---
     
     const Config& config() const;
@@ -189,6 +193,9 @@ private:
     
     // Statistics
     Stats m_stats;
+    
+    // Admin handler
+    std::unique_ptr<Admin::Handler> m_adminHandler;
     
     // Connection factory
     std::unique_ptr<ConnectionFactory> m_connectionFactory;

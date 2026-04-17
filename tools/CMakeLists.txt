@@ -32,15 +32,6 @@ target_link_libraries(omninet-status PUBLIC
 )
 
 # ============================================================================
-# Tool: omninet-health
-# ============================================================================
-add_omninet_tool(omninet-health)
-target_link_libraries(omninet-health PRIVATE
-    omninet_tools_common
-    Threads::Threads
-)
-
-# ============================================================================
 # Tool: omninet-log
 # ============================================================================
 add_omninet_tool(omninet-log)
@@ -98,15 +89,6 @@ target_link_libraries(omninet-ctl PRIVATE
 )
 
 # ============================================================================
-# Tool: omninet-mon
-# ============================================================================
-add_omninet_tool(omninet-mon)
-target_link_libraries(omninet-mon PRIVATE
-    omninet_tools_common
-    Threads::Threads
-)
-
-# ============================================================================
 # Tool: omninet-init
 # ============================================================================
 add_omninet_tool(omninet-init)
@@ -118,20 +100,38 @@ target_link_libraries(omninet-init PRIVATE
 )
 
 # ============================================================================
+# Tool: omninet-health
+# ============================================================================
+add_omninet_tool(omninet-health)
+target_link_libraries(omninet-health PRIVATE
+    omninet_tools_common
+    Threads::Threads
+)
+
+# ============================================================================
+# Tool: omninet-mon
+# ============================================================================
+add_omninet_tool(omninet-mon)
+target_link_libraries(omninet-mon PRIVATE
+    omninet_tools_common
+    Threads::Threads
+)
+
+# ============================================================================
 # Group all tools
 # ============================================================================
 add_custom_target(tools ALL
     DEPENDS
         omninet-status
-        omninet-health
         omninet-log
         omninet-firewall
         omninet-users
         omninet-db
         omninet-certs
         omninet-ctl
-        omninet-mon
         omninet-init
+        omninet-health
+        omninet-mon
 )
 
 # ============================================================================
@@ -139,14 +139,14 @@ add_custom_target(tools ALL
 # ============================================================================
 install(TARGETS
     omninet-status
-    omninet-health
     omninet-log
     omninet-firewall
     omninet-users
     omninet-db
     omninet-certs
     omninet-ctl
-    omninet-mon
     omninet-init
+    omninet-health
+    omninet-mon
     RUNTIME DESTINATION bin
 )

@@ -1,209 +1,121 @@
-# OmniNet Sysadmin CLI Tools - Implementation Plan
+# OmniNet - Logger Implementation Plan
 
 ## System Information
+<!-- Place system_info output here -->
 | Component | Value |
 |-----------|-------|
-| Kernel | Linux 6.18.16 |
-| OS | Arch Linux |
-| Container | podman (archlinux:latest) |
-| Display | Wayland, GNOME |
+| Kernel | Linux 6.8.0 |
+| OS | Ubuntu 24.04 |
+| Container | docker (ubuntu:24.04) |
+| Display | X11, GNOME |
 | Architecture | x86_64 |
 
-## Project Overview
+## Project Info
+- **Type**: C++ Networking Library (HTTP/WebSocket server framework)
+- **Build System**: CMake
+- **Source**: src/ (http, net, utils, dashboard, database, config, security modules)
+- **Tests**: tests/ (GoogleTest-based)
+- **Dependencies**: OpenSSL, SQLite3
 
-OmniNet is a modern C++20 web framework providing:
-- HTTP/HTTPS server with routing
-- WebSocket support
-- Server-Sent Events (SSE)
-- SQLite database integration
-- User authentication & sessions
-- Intrusion detection
-- Dashboard web interface
-- Rate limiting
-- TLS/SSL support
+## Current State of Logger
 
-## Configuration Files (`~/.omninet/`)
+### Complete Implementation ✅
+The `Logger` class is now fully implemented at `src/utils/Logger.h` and `src/utils/Logger.cpp`:
+- **Log Levels**: DEBUG, INFO, WARN, ERROR, CRITICAL
+- **Console Output**: Yes (errors to stderr, others to stdout)
+- **File Output**: Yes (via `setLogFile()`)
+- **Async Mode**: Yes (with in-memory queue)
+- **Formatting**: `[LEVEL] [timestamp] [thread] message`
+- **Log Rotation**: Implemented (rotate() method with configurable max size/files)
+- **Config Integration**: `initFromConfig(const LoggingConfig&)` method
+- **ScopedLogger**: For RAII-style logging
 
-| File/Directory | Purpose |
-|----------------|---------|
-| `config.json` | Main configuration (server defaults, CORS, TLS paths, logging) |
-| `omninet.db` | SQLite database (users, sessions, intrusion logs) |
-| `omninet.log` | Application log file |
-| `certs/` | TLS certificates and keys |
+### LogReader Utility
+`LogReader` class at `src/utils/LogReader.h` and `src/utils/LogReader.cpp`:
+- Read last N lines, pagination support
+- Filter by log level and pattern
+- Tail mode for live log streaming
+- LogEntry struct with JSON serialization
 
-All tools are named with dashes (omninet-*) for standard Linux CLI convention.
+### Dashboard Integration
+`DashboardHandler` at `src/dashboard/DashboardHandler.cpp`:
+- `GET /omninet/api/logs` endpoint with JSON response
+- Dashboard UI with Logs tab
+- Filter by level, refresh, download functionality
 
-## CLI Tools Implemented
+## Tasks
 
-All tools use dashes (e.g., `omninet-status`) for standard CLI naming:
+### Task 1: Implement Log Rotation [DONE]
+**File**: `src/utils/Logger.cpp`
 
-### 1. **omninet-status** - Overall System Status
-```
-omninet-status [--verbose] [--json] [--report]
-```
-Features: Config validity, database health, certificate status, blocked IPs count, recent logs
+Implemented the `rotate()` method:
+- Renames current log to `.1`, `.2`, etc.
+- Deletes oldest files beyond `m_maxRotatedFiles`
+- Uses std::filesystem for portable file operations
+- Calls `performRotation()` after each write to check size limit
 
-### 2. **omninet-health** - Health Check Tool
-```
-omninet-health <server-url> [endpoints...] [--all] [--expected TEXT] [--timeout N]
-```
-Features: HTTP health check, response time measurement, JSON output
+### Task 2: Add Logger Initialization from Config [DONE]
+**File**: `src/utils/Logger.h` / `src/utils/Logger.cpp`
 
-### 3. **omninet-log** - Log Viewer & Analyzer
-```
-omninet-log [--follow] [--tail] [--level LEVEL] [--grep PATTERN] [--stats]
-```
-Features: Real-time tail, log filtering, grep pattern search, statistics
+Added `initFromConfig(const LoggingConfig&)` method:
+- Parses log level from config string
+- Enables file logging with rotation settings  
+- Converts MB to bytes for maxFileSize
+- Logs initialization message
 
-### 4. **omninet-firewall** - Intrusion Detection CLI
-```
-omninet-firewall list|block|unblock|logs [--duration] [--all]
-```
-Features: Manage blocked IPs, view intrusion logs
+### Task 3: Create Log Reader Utility [DONE]
+**File**: `src/utils/LogReader.h` / `src/utils/LogReader.cpp`
 
-### 5. **omninet-users** - User Management CLI
-```
-omninet-users list|add|remove|show|sessions|revoke [--role]
-```
-Features: User CRUD, session management
+Created LogReader class with:
+- Read last N lines, read from offset for pagination
+- Filter by log level and pattern matching
+- Tail mode with callback for live updates
+- File info methods (size, last modified, line count)
+- Static parseLine() for parsing individual log lines
+- LogEntry struct with JSON serialization
 
-### 6. **omninet-db** - Database CLI
-```
-omninet-db info|tables|query|vacuum|backup|restore
-```
-Features: SQLite inspection, query execution, backup/restore
+### Task 4: Add `/omninet/logs` API Endpoint [DONE]
+**File**: `src/dashboard/DashboardHandler.cpp`
 
-### 7. **omninet-certs** - Certificate Manager
-```
-omninet-certs list|info|check|generate [--days N]
-```
-Features: Certificate listing, expiry checking, info display
+Added endpoint:
+- `GET /omninet/api/logs` - List recent logs (JSON)
+- Query params: `limit`, `level`, `pattern`
+- Returns JSON with `logs` array and `count`
 
-### 8. **omninet-ctl** - Server Process Manager
-```
-omninet-ctl list|status|start|stop|restart
-```
-Features: PID file management, process control
+### Task 5: Add Log Viewer to Dashboard UI [DONE]
+**File**: `src/dashboard/DashboardHandler.cpp`
 
-### 9. **omninet-mon** - Real-time Server Monitor
-```
-omninet-mon [--url URL] [--interval N]
-```
-Features: Real-time statistics display
+Added Logs tab to dashboard HTML:
+- Tab navigation (Overview, Logs, Users, Settings)
+- Log table with Level, Timestamp, Message columns
+- Level filter dropdown (DEBUG, INFO, WARN, ERROR, CRITICAL)
+- Refresh and Download buttons
+- JavaScript for fetching and displaying logs from API
 
-### 10. **omninet-init** - Initial Setup Tool
-```
-omninet-init [--force] [--non-interactive] [--port N] [--address]
-```
-Features: Create ~/.omninet structure, default config
+### Task 6: Write Tests [DONE]
+**File**: `tests/test_logger_new.cpp`
 
-## Common CLI Options
+Added tests:
+- Logger basic functionality
+- Logger level filtering
+- Logger initFromConfig
+- Logger file output
+- LogReader basic functionality
+- LogReader level filtering
+- LogReader pattern filter
+- LogEntry JSON serialization
 
-All tools support:
-```
---help, -h           # Show help
---version, -v        # Show version
---json, -j           # JSON output
---quiet, -q          # Suppress output
---verbose, -v        # Verbose output
-```
+All 8 tests pass.
 
-## Directory Structure
+## Implementation Order
+1. Implement log rotation (core functionality)
+2. Create LogReader utility
+3. Add API endpoint to Dashboard
+4. Add UI components
+5. Wire up config initialization
+6. Write tests
 
-```
-tools/
-├── CMakeLists.txt
-├── tools_common/
-│   ├── CMakeLists.txt
-│   ├── common.h/cpp       # Paths, time, file helpers
-│   ├── colors.h/cpp       # Terminal colors, ANSI formatting
-│   ├── table.h/cpp         # Table, key-value, progress bars
-│   ├── config.h/cpp        # Config reading
-│   ├── database.h/cpp     # DB access, intrusion, user stores
-│   └── http.h/cpp         # HTTP client, health checker
-├── omninet-status/
-│   └── main.cpp
-├── omninet-health/
-│   └── main.cpp
-├── omninet-log/
-│   └── main.cpp
-├── omninet-firewall/
-│   └── main.cpp
-├── omninet-users/
-│   └── main.cpp
-├── omninet-db/
-│   └── main.cpp
-├── omninet-certs/
-│   └── main.cpp
-├── omninet-ctl/
-│   └── main.cpp
-├── omninet-mon/
-│   └── main.cpp
-└── omninet-init/
-    └── main.cpp
-```
-
-## Build System
-
-Tools are built via CMake when `tools/CMakeLists.txt` is included:
-
-```bash
-cmake --build build -j$(nproc)
-```
-
-Executables are placed in `build/tools/`:
-- `omninet-status`
-- `omninet-health`
-- `omninet-log`
-- `omninet-firewall`
-- `omninet-users`
-- `omninet-db`
-- `omninet-certs`
-- `omninet-ctl`
-- `omninet-mon`
-- `omninet-init`
-
-## Progress
-
-### ✅ Phase 1: Shared Library
-- [x] Create directory structure (tools/tools_common/)
-- [x] Implement common.h - paths, time, file helpers
-- [x] Implement colors.h - terminal colors, ANSI formatting
-- [x] Implement table.h - table, key-value, progress bars
-- [x] Implement config.h - config reading
-- [x] Implement database.h - DB access, intrusion, user stores
-- [x] Implement http.h - HTTP client, health checker
-
-### ✅ Phase 2: Core Tools
-- [x] omninet-status
-- [x] omninet-health
-- [x] omninet-log
-- [x] omninet-firewall
-- [x] omninet-users
-- [x] omninet-db
-- [x] omninet-certs
-- [x] omninet-ctl
-- [x] omninet-mon
-- [x] omninet-init
-
-### ✅ Phase 3: Build System
-- [x] tools/CMakeLists.txt
-- [x] Updated root CMakeLists.txt
-- [x] Build verified successfully
-
-## Known Issues / TODO
-
-1. ~~**omninet-init hangs**~~ - Fixed with 5-second select() timeouts on all prompts
-2. ~~**HTTPS server not reading data**~~ - Fixed by storing underlying socket in TLSSocket, performing handshake synchronously
-
-All CLI tools are complete and working!
-
-## Installation
-
-After building, binaries are in `build/tools/`. To install system-wide:
-```bash
-sudo cp build/tools/omninet-* /usr/local/bin/
-```
-
-Or create symlinks without underscores:
-```
+## CodeMax.md Maintenance
+- Mark tasks as `[DONE]` as completed
+- Remove completed task items (don't delete file)
+- Update todos as work progresses

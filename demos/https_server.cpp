@@ -67,6 +67,10 @@ int main() {
     StaticHandler staticHandler(staticDir);
     staticHandler.setDefaultFile("index.html");
     
+    // IMPORTANT: Register ADMIN routes FIRST so they are matched before catch-all
+    std::cerr << "[Demo] Mounting admin routes: /omninet/health, /omninet/stats" << std::endl;
+    server.adminHandler().mount(server);
+    
     // API endpoints
     server.router().get("/api/hello", [](const Request& req, Response& resp) {
         (void)req;
@@ -90,7 +94,7 @@ int main() {
     // Catch-all for other static files
     server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
         std::string path(req.path());
-        if (path.rfind("/api/", 0) == 0) {
+        if (path.rfind("/api/", 0) == 0 || path.rfind("/omninet/", 0) == 0) {
             resp = Response::notFound();
             return;
         }

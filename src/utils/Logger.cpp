@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
 #include <thread>
@@ -16,6 +17,14 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #endif
+
+// Forward declaration to avoid circular dependency
+namespace OmniNet {
+struct LoggingConfig;
+}
+
+// Need to include Config to get LoggingConfig definition
+#include "config/Config.h"
 
 namespace OmniNet {
 
@@ -202,6 +211,9 @@ void Logger::writeLog(LogLevel level, const std::string& formatted) {
             std::fprintf(f, "%s\n", formatted.c_str());
             std::fclose(f);
         }
+        
+        // Check if rotation is needed
+        performRotation();
     }
 }
 
@@ -213,7 +225,59 @@ void Logger::enqueueLog(AsyncLogEntry entry) {
 }
 
 void Logger::rotate() {
-    // TODO: Implement log rotation
+    if (!m_logFile) {
+        return;
+    }
+    
+    const std::string& logPath = *m_logFile;
+    size_t maxFiles = m_maxRotatedFiles.load();
+    
+    // If maxFiles is 0, don't rotate (disabled)
+    if (maxFiles == 0) {
+        return;
+    }
+    
+    namespace fs = std::filesystem;
+    
+    try {
+        // Close any existing file handles by flushing
+        flush();
+        
+        // Check if log file exists
+        if (!fs::exists(logPath)) {
+            return;
+        }
+        
+        // Delete the oldest file if it exists (highest number)
+        std::string oldestPath = logPath + "." + std::to_string(maxFiles);
+        if (fs::exists(oldestPath)) {
+            fs::remove(oldestPath);
+        }
+        
+        // Rename existing rotated files (n -> n+1)
+        for (size_t i = maxFiles - 1; i > 0; --i) {
+            std::string srcPath = logPath + "." + std::to_string(i);
+            std::string dstPath = logPath + "." + std::to_string(i + 1);
+            
+            if (fs::exists(srcPath)) {
+                fs::rename(srcPath, dstPath);
+            }
+        }
+        
+        // Rename current log file to .1
+        std::string rotatedPath = logPath + ".1";
+        if (fs::exists(rotatedPath)) {
+            fs::remove(rotatedPath);
+        }
+        fs::rename(logPath, rotatedPath);
+        
+        // Log that rotation occurred
+        std::string msg = "Log rotated: " + logPath + " -> " + rotatedPath;
+        std::fprintf(stderr, "%s\n", format(LogLevel::INFO, msg).c_str());
+        
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "Log rotation failed: %s\n", e.what());
+    }
 }
 
 void Logger::performRotation() {
@@ -237,6 +301,34 @@ void Logger::performRotation() {
         }
     }
 #endif
+}
+
+void Logger::initFromConfig(const LoggingConfig& config) {
+    // Set log level
+    if (config.level == "DEBUG") {
+        setLevel(LogLevel::DEBUG);
+    } else if (config.level == "INFO") {
+        setLevel(LogLevel::INFO);
+    } else if (config.level == "WARN") {
+        setLevel(LogLevel::WARN);
+    } else if (config.level == "ERROR") {
+        setLevel(LogLevel::ERROR);
+    } else if (config.level == "CRITICAL") {
+        setLevel(LogLevel::CRITICAL);
+    }
+    
+    // Set file logging if enabled
+    if (config.toFile && !config.file.empty()) {
+        setLogFile(config.file);
+        
+        // Set rotation parameters if maxSizeMb > 0
+        if (config.maxSizeMb > 0) {
+            setMaxFileSize(config.maxSizeMb * 1024 * 1024);  // Convert MB to bytes
+            setMaxRotatedFiles(config.maxFiles);
+        }
+    }
+    
+    info(std::string("Logger initialized from config"));
 }
 
 // ============================================================================

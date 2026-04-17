@@ -56,6 +56,11 @@ int main() {
     StaticHandler staticHandler(staticDir);
     staticHandler.setDefaultFile("index.html");
     
+    // IMPORTANT: Register ADMIN routes FIRST so they are matched before catch-all
+    // This ensures /omninet/* routes work correctly
+    std::cerr << "[Demo] Mounting admin routes: /omninet/health, /omninet/stats" << std::endl;
+    server.adminHandler().mount(server);
+    
     // IMPORTANT: Register API routes FIRST so they are matched before static catch-all
     // The router checks routes in order of registration
     
@@ -112,10 +117,10 @@ int main() {
     std::cerr << "[Demo] Registering static route: GET /* (catch-all)" << std::endl;
     server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
         std::cerr << "[Demo] Static handler for /*" << std::endl;
-        // Only serve static files if not an API path
+        // Only serve static files if not an API or admin path
         std::string path(req.path());
-        if (path.rfind("/api/", 0) == 0) {
-            std::cerr << "[Demo] Skipping static handler for API path: " << path << std::endl;
+        if (path.rfind("/api/", 0) == 0 || path.rfind("/omninet/", 0) == 0) {
+            std::cerr << "[Demo] Skipping static handler for reserved path: " << path << std::endl;
             resp = Response::notFound();
             return;
         }

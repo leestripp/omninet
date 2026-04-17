@@ -2,6 +2,7 @@
 #include "DashboardHandler.h"
 #include "utils/Utils.h"
 #include "utils/Exception.h"
+#include "config/Config.h"
 
 #include <filesystem>
 
@@ -42,6 +43,12 @@ Handler::Handler(const Config& config)
         config.maxLoginAttempts,
         std::chrono::minutes(15)
     );
+    
+    // Initialize log reader if log file is configured
+    auto& loggerConfig = OmniNet::Config::instance();
+    if (loggerConfig.logFile()) {
+        m_logReader = std::make_unique<LogReader>(*loggerConfig.logFile());
+    }
 }
 
 void Handler::mount(HTTP::Server& server) {
@@ -73,6 +80,10 @@ void Handler::mount(HTTP::Server& server) {
     
     server.get(m_config.apiPath + "/stats", [this](const HTTP::Request& req, HTTP::Response& resp) {
         handleGetStats(req, resp);
+    });
+    
+    server.get(m_config.apiPath + "/logs", [this](const HTTP::Request& req, HTTP::Response& resp) {
+        handleGetLogs(req, resp);
     });
 }
 
@@ -284,6 +295,71 @@ void Handler::handleGetStats(const HTTP::Request& req, HTTP::Response& resp) {
     resp.setBody("{}");
 }
 
+void Handler::handleGetLogs(const HTTP::Request& req, HTTP::Response& resp) {
+    // Check if log reader is available
+    if (!m_logReader) {
+        resp.setStatus(static_cast<HTTP::StatusCode>(503));
+        resp.setContentType("application/json");
+        resp.setBody(R"({"error": "Log file not configured"})");
+        return;
+    }
+    
+    // Parse query parameters
+    size_t limit = 100;
+    std::optional<LogLevel> minLevel;
+    std::string pattern;
+    
+    const auto& query = req.query();
+    auto limitParam = query.get("limit");
+    if (limitParam) {
+        try {
+            limit = std::stoul(std::string(*limitParam));
+            if (limit > 1000) limit = 1000;  // Cap at 1000
+        } catch (...) {}
+    }
+    
+    auto levelParam = query.get("level");
+    if (levelParam) {
+        std::string level = std::string(*levelParam);
+        if (level == "DEBUG") minLevel = LogLevel::DEBUG;
+        else if (level == "INFO") minLevel = LogLevel::INFO;
+        else if (level == "WARN") minLevel = LogLevel::WARN;
+        else if (level == "ERROR") minLevel = LogLevel::ERROR;
+        else if (level == "CRITICAL") minLevel = LogLevel::CRITICAL;
+    }
+    
+    auto patternParam = query.get("pattern");
+    if (patternParam) {
+        pattern = std::string(*patternParam);
+    }
+    
+    // Apply filters
+    if (minLevel) {
+        m_logReader->setMinLevel(*minLevel);
+    }
+    if (!pattern.empty()) {
+        m_logReader->setPattern(pattern);
+    }
+    
+    // Read log entries
+    auto entries = m_logReader->readLast(limit);
+    
+    // Build JSON response
+    std::ostringstream json;
+    json << "{\"logs\":[";
+    bool first = true;
+    for (const auto& entry : entries) {
+        if (!first) json << ",";
+        json << entry.toJson();
+        first = false;
+    }
+    json << "],\"count\":" << entries.size() << "}";
+    
+    resp.setStatus(HTTP::StatusCode::OK);
+    resp.setContentType("application/json");
+    resp.setBody(json.str());
+}
+
 void Handler::handleRecordStat(const HTTP::Request& req, HTTP::Response& resp) {
     resp.setStatus(HTTP::StatusCode::OK);
     resp.setContentType("application/json");
@@ -421,11 +497,15 @@ std::string Handler::renderDashboardPage(const DB::UserStore::User& user) {
 
     <main class="container">
         <div class="subnav">
-            <a href="#" class="subnav-item selected">Overview</a>
-            <a href="#" class="subnav-item">Users</a>
-            <a href="#" class="subnav-item">Settings</a>
+            <a href="#tab-overview" class="subnav-item selected" data-tab="overview">Overview</a>
+            <a href="#tab-logs" class="subnav-item" data-tab="logs">Logs</a>
+            <a href="#tab-users" class="subnav-item" data-tab="users">Users</a>
+            <a href="#tab-settings" class="subnav-item" data-tab="settings">Settings</a>
         </div>
-
+        
+        <!-- Overview Tab -->
+        <div id="tab-overview" class="tab-content active">
+        
         <div class="stats-grid">
             <div class="stat-card">
                 <span class="stat-value">)" << m_users->count() << R"(</span>
@@ -476,23 +556,25 @@ std::string Handler::renderDashboardPage(const DB::UserStore::User& user) {
         html << "<tr><td colspan=\"4\" class=\"text-center text-muted\">No users yet. Create your first user!</td></tr>";
     }
     
-    html << R"(</tbody>
+    html << R"(
+                </tbody>
                 </table>
             </div>
         </div>
-
-        <div class="Box">
-            <div class="Box-header">
-                <h2 class="Box-title">Quick Actions</h2>
-            </div>
-            <div class="Box-body">
-                <div class="d-flex gap-2">
-                    <a href="#" class="btn btn-secondary">View Logs</a>
-                    <a href="#" class="btn btn-secondary">System Info</a>
-                    <a href="#" class="btn btn-secondary">Restart Server</a>
+        </div><!-- End Users Tab -->
+        
+        <!-- Settings Tab -->
+        <div id="tab-settings" class="tab-content" style="display: none;">
+            <div class="Box">
+                <div class="Box-header">
+                    <h2 class="Box-title">Settings</h2>
+                </div>
+                <div class="Box-body">
+                    <p class="text-muted">Settings panel coming soon...</p>
                 </div>
             </div>
-        </div>
+        </div><!-- End Settings Tab -->
+        
     </main>
 
     <footer class="container" style="padding: 2rem 0; border-top: 1px solid var(--color-border-default); margin-top: 2rem;">
@@ -502,6 +584,84 @@ std::string Handler::renderDashboardPage(const DB::UserStore::User& user) {
     </footer>
 
     <script>)" << m_customJS << R"(
+        // Tab switching
+        document.querySelectorAll('.subnav-item').forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                const tabId = this.getAttribute('data-tab');
+                
+                // Update nav
+                document.querySelectorAll('.subnav-item').forEach(l => l.classList.remove('selected'));
+                this.classList.add('selected');
+                
+                // Update tabs
+                document.querySelectorAll('.tab-content').forEach(tab => {
+                    tab.style.display = 'none';
+                });
+                document.getElementById('tab-' + tabId).style.display = 'block';
+                
+                // Load logs when tab is shown
+                if (tabId === 'logs') {
+                    refreshLogs();
+                }
+            });
+        });
+        
+        // Log functions
+        async function refreshLogs() {
+            const level = document.getElementById('log-level').value;
+            const tbody = document.getElementById('logs-body');
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">Loading...</td></tr>';
+            
+            try {
+                let url = ')" << m_config.apiPath << R"(/logs?limit=100';
+                if (level) url += '&level=' + level;
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.logs && data.logs.length > 0) {
+                    tbody.innerHTML = data.logs.map(log => {
+                        const levelClass = getLevelClass(log.level);
+                        return '<tr>' +
+                            '<td><span class="label ' + levelClass + '">' + log.level + '</span></td>' +
+                            '<td class="text-muted" style="font-size: 12px;">' + log.timestamp + '</td>' +
+                            '<td style="word-break: break-all;">' + escapeHtml(log.message) + '</td>' +
+                            '</tr>';
+                    }).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">No logs found</td></tr>';
+                }
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted" style="color: red;">Failed to load logs</td></tr>';
+            }
+        }
+        
+        function getLevelClass(level) {
+            switch(level) {
+                case 'DEBUG': return 'label-secondary';
+                case 'INFO': return 'label-primary';
+                case 'WARN': return 'label-warning';
+                case 'ERROR': return 'label-danger';
+                case 'CRITICAL': return 'label-danger';
+                default: return 'label-secondary';
+            }
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function downloadLogs() {
+            const level = document.getElementById('log-level').value;
+            let url = ')" << m_config.apiPath << R"(/logs?limit=1000';
+            if (level) url += '&level=' + level;
+            
+            window.open(url, '_blank');
+        }
+        
         async function deleteUser(id) {
             if (confirm('Are you sure you want to delete this user?')) {
                 try {

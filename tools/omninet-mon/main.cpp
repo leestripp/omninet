@@ -171,11 +171,11 @@ ServerStats fetchStats(const std::string& baseUrl, int timeoutSeconds) {
     
     auto startTime = std::chrono::steady_clock::now();
     
-    // Try to get stats from dashboard API
+    // Get stats from built-in /omninet/stats endpoint
     HealthChecker checker(baseUrl);
     checker.timeout(std::chrono::seconds(timeoutSeconds));
     
-    auto health = checker.check("/api/stats");
+    auto health = checker.check("/omninet/stats");
     
     stats.responseTime = static_cast<int>(
         std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -184,12 +184,78 @@ ServerStats fetchStats(const std::string& baseUrl, int timeoutSeconds) {
     stats.healthy = health.healthy;
     
     if (health.healthy && !health.responseBody.empty()) {
-        // Parse JSON response if available
+        // Parse JSON response
         try {
-            // Simple JSON parsing (would use nlohmann::json in real implementation)
-            // For now, just mark as healthy if we got a response
+            // Simple JSON parsing - extract values from response body
+            // Format: {"requests": {"total": N, ...}, "connections": {...}, "bytes": {...}}
+            std::string body = health.responseBody;
+            
+            // Extract requests.total
+            size_t reqPos = body.find("\"requests\"");
+            if (reqPos != std::string::npos) {
+                size_t totalPos = body.find("\"total\"", reqPos);
+                if (totalPos != std::string::npos) {
+                    size_t colonPos = body.find(":", totalPos);
+                    if (colonPos != std::string::npos) {
+                        size_t endPos = body.find_first_of(",}", colonPos);
+                        std::string val = body.substr(colonPos + 1, endPos - colonPos - 1);
+                        stats.requestsTotal = std::stoll(val);
+                    }
+                }
+            }
+            
+            // Extract connections.active
+            size_t connPos = body.find("\"connections\"");
+            if (connPos != std::string::npos) {
+                size_t activePos = body.find("\"active\"", connPos);
+                if (activePos != std::string::npos) {
+                    size_t colonPos = body.find(":", activePos);
+                    if (colonPos != std::string::npos) {
+                        size_t endPos = body.find_first_of(",}", colonPos);
+                        std::string val = body.substr(colonPos + 1, endPos - colonPos - 1);
+                        stats.connectionsActive = std::stoll(val);
+                    }
+                }
+            }
+            
+            // Extract connections.total
+            if (connPos != std::string::npos) {
+                size_t totalPos = body.find("\"total\"", connPos);
+                if (totalPos != std::string::npos) {
+                    size_t colonPos = body.find(":", totalPos);
+                    if (colonPos != std::string::npos) {
+                        size_t endPos = body.find_first_of(",}", colonPos);
+                        std::string val = body.substr(colonPos + 1, endPos - colonPos - 1);
+                        stats.connectionsTotal = std::stoll(val);
+                    }
+                }
+            }
+            
+            // Extract bytes.received
+            size_t bytesPos = body.find("\"bytes\"");
+            if (bytesPos != std::string::npos) {
+                size_t recvPos = body.find("\"received\"", bytesPos);
+                if (recvPos != std::string::npos) {
+                    size_t colonPos = body.find(":", recvPos);
+                    if (colonPos != std::string::npos) {
+                        size_t endPos = body.find_first_of(",}", colonPos);
+                        std::string val = body.substr(colonPos + 1, endPos - colonPos - 1);
+                        stats.bytesReceived = std::stoll(val);
+                    }
+                }
+                
+                size_t sentPos = body.find("\"sent\"", bytesPos);
+                if (sentPos != std::string::npos) {
+                    size_t colonPos = body.find(":", sentPos);
+                    if (colonPos != std::string::npos) {
+                        size_t endPos = body.find_first_of(",}", colonPos);
+                        std::string val = body.substr(colonPos + 1, endPos - colonPos - 1);
+                        stats.bytesSent = std::stoll(val);
+                    }
+                }
+            }
         } catch (...) {
-            // Ignore parse errors
+            // Ignore parse errors - just show healthy status
         }
     }
     

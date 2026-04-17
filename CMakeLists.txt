@@ -66,6 +66,7 @@ target_sources(OmniNet PRIVATE
     src/OmniNet.cpp
     src/config/Config.cpp
     src/utils/Logger.cpp
+    src/utils/LogReader.cpp
     src/utils/Exception.cpp
     src/utils/Utils.cpp
     
@@ -94,6 +95,9 @@ target_sources(OmniNet PRIVATE
     # Dashboard
     src/dashboard/RateLimiter.cpp
     src/dashboard/DashboardHandler.cpp
+    
+    # Admin
+    src/admin/AdminHandler.cpp
     
     # Database
     src/db/Database.cpp

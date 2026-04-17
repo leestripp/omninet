@@ -99,7 +99,7 @@ public:
     
     std::string_view path() const;
     std::string_view queryString() const;
-    const QueryParams& query();
+    const QueryParams& query() const;
     
     Version version() const;
     

@@ -61,9 +61,9 @@ int main(int argc, char* argv[]) {
         opts.endpoints = HealthChecker::defaultEndpoints();
     }
     
-    // Add root endpoint if no endpoints specified
+    // Add built-in admin endpoint if no endpoints specified
     if (opts.endpoints.empty()) {
-        opts.endpoints.push_back("/");
+        opts.endpoints.push_back("/omninet/health");
     }
     
     bool useColors = isatty(STDOUT_FILENO);
@@ -177,7 +177,7 @@ Options parseArgs(int argc, char* argv[]) {
             std::cout << '\n';
             std::cout << "Examples:\n";
             std::cout << "  " << TOOL_NAME << " http://localhost:8080\n";
-            std::cout << "  " << TOOL_NAME << " http://localhost:8080 /api/health /ping\n";
+            std::cout << "  " << TOOL_NAME << " http://localhost:8080 /omninet/health\n";
             std::cout << "  " << TOOL_NAME << " --all http://localhost:8080\n";
             std::cout << "  " << TOOL_NAME << " -e '{\"status\":\"ok\"}' http://localhost:8080\n";
             exit(0);

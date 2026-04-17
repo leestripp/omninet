@@ -113,6 +113,12 @@ public:
     // Force rotation
     void rotate();
     
+    // --- Configuration ---
+    
+    // Initialize logger from LoggingConfig struct
+    // Enables file logging with rotation if configured
+    void initFromConfig(const struct LoggingConfig& config);
+    
     // --- Convenience for streams ---
     
     template<typename... Args>

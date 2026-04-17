@@ -26,6 +26,7 @@ Server::Server(Config config)
     : m_config(std::move(config)) {
     
     m_serverSocket = std::make_unique<ServerSocket>();
+    m_adminHandler = std::make_unique<Admin::Handler>();
 }
 
 Server::~Server() {
@@ -60,6 +61,9 @@ void Server::start() {
     }
     
     SERVER_DEBUG("Worker threads started, entering accept loop");
+    
+    // Note: Admin endpoints should be mounted by the application BEFORE start()
+    // The demo calls server.adminHandler().mount(server) to register /omninet/* routes
     
     // Accept loop
     runAcceptLoop();
@@ -172,6 +176,10 @@ void Server::disableCORS() {
 
 const Server::Stats& Server::stats() const {
     return m_stats;
+}
+
+Admin::Handler& Server::adminHandler() {
+    return *m_adminHandler;
 }
 
 const Server::Config& Server::config() const {

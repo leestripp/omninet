@@ -372,11 +372,7 @@ HealthReport HealthChecker::checkAll(const std::vector<std::string>& endpoints) 
 
 std::vector<std::string> HealthChecker::defaultEndpoints() {
     return {
-        "/",
-        "/health",
-        "/api/health",
-        "/api/ping",
-        "/ping"
+        "/omninet/health"
     };
 }
 

@@ -278,9 +278,9 @@ std::string_view Request::queryString() const {
     return m_queryString;
 }
 
-const QueryParams& Request::query() {
+const QueryParams& Request::query() const {
     if (!m_queryParsed) {
-        parseQueryString();
+        const_cast<Request*>(this)->parseQueryString();
     }
     return m_queryParams;
 }
