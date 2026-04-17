@@ -1,30 +1,27 @@
-**High Priority (Start Here):**
-1. **omnet-status** - All-in-one system diagnostic (config, DB, certs, servers, logs)
-2. **omnet-health** - HTTP health check for running servers
-3. **omnet-log** - Log viewer with filtering, tail, and grep
+./build/tools/omninet-init 
 
-**Security Focus:**
-4. **omnet-firewall** - Manage blocked IPs, view intrusion logs, whitelist management
 
-**Process Management:**
-5. **omnet-ctl** - Start/stop/restart server instances with PID tracking
-6. **omnet-mon** - Real-time terminal monitor for server statistics
+OmniNet Initialization
+======================
 
-**User & Data Management:**
-7. **omnet-users** - Dashboard user CRUD, session management
-8. **omnet-db** - SQLite database inspection, backup/restore
+[WARN] OmniNet is already initialized at: /home/lee/.omninet
+[INFO] Use --force to reinitialize
+📦[lee@devel OmniNet]$ ./build/tools/omninet-init 
 
-**Certificate & Setup:**
-9. **omnet-certs** - TLS certificate management, expiry checking
-10. **omnet-init** - First-time setup wizard
 
-All tools will read `~/.omninet/` files (config.json, omninet.db, logs) and can monitor the various server components (HTTP stats, WebSocket, SSE, intrusion detection, rate limiting).
+OmniNet Initialization
+======================
 
-The full analysis is in CodeMax.md with detailed feature lists and implementation notes.
+Creating Data Directory
+-----------------------
+[INFO] Creating: /home/lee/.omninet
+[OK] Data directory created
+Creating Configuration
+----------------------
+[INFO] Creating: /home/lee/.omninet/config.json
+Default port [8080]: 
 
-Please use the full name of omninet at the start of each tool.
-e.g. omninet-*
-Update CodeMax.md
+---
 
-Create a Plan to implement these new tools, put them in the tools/ folder, code that is.
-once the Plan is created in CodeMax.md file start on the plan.
+omninet-init
+Didn't create any files at all, in only created 2 folders that are empty. No TLS certs were created, no database, totally broken.

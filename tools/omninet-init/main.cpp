@@ -9,6 +9,8 @@
 #include <termios.h>
 #include <unistd.h>
 #include <regex>
+#include <sys/select.h>
+#include <sys/time.h>
 
 #include "tools_common/common.h"
 #include "tools_common/colors.h"
@@ -482,15 +484,22 @@ bool setupAdminUser(const Options& opts, Formatter& out) {
 // ============================================================================
 
 std::string ask(const std::string& prompt, const std::string& defaultValue) {
-    std::cout << prompt;
-    if (!defaultValue.empty()) {
-        std::cout << " [" << defaultValue << "]";
-    }
-    std::cout << ": ";
-    std::cout << std::flush;
+    std::cout << prompt << " [" << defaultValue << "]: " << std::flush;
+    
+    // Use select() with timeout to detect if user is typing or not
+    struct timeval tv;
+    tv.tv_sec = 5;  // 5 second timeout - if no input, use default
+    tv.tv_usec = 0;
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    
+    int ret = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
     
     std::string input;
-    std::getline(std::cin, input);
+    if (ret > 0) {
+        std::getline(std::cin, input);
+    }
     
     if (input.empty()) {
         return defaultValue;
@@ -503,8 +512,19 @@ bool confirm(const std::string& prompt, bool defaultValue) {
     std::string suffix = defaultValue ? " [Y/n]: " : " [y/N]: ";
     std::cout << prompt << suffix << std::flush;
     
+    struct timeval tv;
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    
+    int ret = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+    
     std::string input;
-    std::getline(std::cin, input);
+    if (ret > 0) {
+        std::getline(std::cin, input);
+    }
     
     if (input.empty()) {
         return defaultValue;
@@ -516,16 +536,24 @@ bool confirm(const std::string& prompt, bool defaultValue) {
 std::string getPassword(const std::string& prompt) {
     std::cout << prompt << ": " << std::flush;
     
-    struct termios oldt;
-    tcgetattr(STDIN_FILENO, &oldt);
-    struct termios newt = oldt;
-    newt.c_lflag &= ~ECHO;
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    // Check if there's any input waiting - if not, skip password prompt
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 100;
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
     
+    int ret = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+    
+    if (ret <= 0) {
+        std::cout << "(no input - skipping)\n";
+        return "";
+    }
+    
+    // Input is available, read it
     std::string password;
     std::getline(std::cin, password);
-    
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
     std::cout << '\n';
     
     return password;
