@@ -1,8 +1,10 @@
 // OmniNet HTTPS Server Demo
 #include "OmniNet.h"
+#include "http/StaticHandler.h"
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <filesystem>
 
 using namespace OmniNet;
 using namespace OmniNet::HTTP;
@@ -14,6 +16,16 @@ int main() {
     // Initialize OpenSSL
     OmniNet::init();
     
+    // Enable debug logging
+    OmniNet::Logger::instance().setLevel(OmniNet::LogLevel::DEBUG);
+    
+    // Determine static files directory
+    std::string staticDir = "static";
+    if (!std::filesystem::exists(staticDir)) {
+        std::cerr << "Warning: static/ directory not found, using root" << std::endl;
+        staticDir = ".";
+    }
+    
     // Create server config
     Server::Config config;
     config.address = "127.0.0.1";
@@ -21,32 +33,46 @@ int main() {
     config.tlsEnabled = true;
     config.tlsCertFile = "server.crt";
     config.tlsKeyFile = "server.key";
+    config.corsEnabled = true;
+    config.corsAllowedOrigins = "*";
     
     Server server(config);
     
-    server.router().get("/", [](const Request& req, Response& resp) {
-        (void)req;
-        resp.setStatus(StatusCode::OK);
-        resp.setContentType("text/html");
-        resp.setBody(R"(<!DOCTYPE html>
-<html>
-<head><title>OmniNet HTTPS</title></head>
-<body>
-    <h1>HTTPS Server</h1>
-    <p>This page was served over HTTPS!</p>
-</body>
-</html>)");
-    });
+    // Create static file handler
+    StaticHandler staticHandler(staticDir);
+    staticHandler.setDefaultFile("index.html");
     
-    server.router().get("/api/secure", [](const Request& req, Response& resp) {
+    // API endpoints
+    server.router().get("/api/hello", [](const Request& req, Response& resp) {
         (void)req;
         resp.setStatus(StatusCode::OK);
         resp.setContentType("application/json");
-        resp.setBody(R"({"secure": true, "message": "This connection is encrypted!"})");
+        resp.setBody(R"({"message": "Hello from HTTPS!"})");
     });
     
-    std::cout << "Starting HTTPS server on " << config.address << ":" << config.port << std::endl;
-    std::cout << "Note: Make sure to generate server.crt and server.key first" << std::endl;
+    server.router().get("/api/health", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setStatus(StatusCode::OK);
+        resp.setContentType("application/json");
+        resp.setBody(R"({"status": "healthy", "protocol": "https"})");
+    });
+    
+    // Static routes - serve index.html for root
+    server.router().get("/", [&staticHandler](const Request& req, Response& resp) {
+        staticHandler.handle(req, resp);
+    });
+    
+    // Catch-all for other static files
+    server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
+        std::string path(req.path());
+        if (path.rfind("/api/", 0) == 0) {
+            resp = Response::notFound();
+            return;
+        }
+        staticHandler.handle(req, resp);
+    });
+    
+    std::cerr << "Starting HTTPS server on " << config.address << ":" << config.port << std::endl;
     
     std::thread serverThread([&server]() {
         try {
@@ -59,7 +85,10 @@ int main() {
     std::this_thread::sleep_for(std::chrono::seconds(2));
     
     std::cout << "HTTPS Server started!" << std::endl;
-    std::cout << "Try: https://localhost:" << config.port << std::endl;
+    std::cout << "Serving static files from: " << std::filesystem::absolute(staticDir) << std::endl;
+    std::cout << "Try:" << std::endl;
+    std::cout << "  https://localhost:" << config.port << "/api/hello" << std::endl;
+    std::cout << "  https://localhost:" << config.port << "/api/health" << std::endl;
     std::cout << "Note: Accept the self-signed certificate in your browser" << std::endl;
     
     serverThread.join();

@@ -16,8 +16,16 @@ int main() {
     // Initialize OmniNet
     OmniNet::init();
     
-    // Enable debug logging for StaticHandler
+    // Enable debug logging
     OmniNet::Logger::instance().setLevel(OmniNet::LogLevel::DEBUG);
+    
+    // Set log file in ~/.omninet if it exists
+    std::string home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    std::string logPath = home + "/.omninet/omninet.log";
+    if (!home.empty() && std::filesystem::exists(home + "/.omninet")) {
+        OmniNet::Logger::instance().setLogFile(logPath);
+        std::cerr << "[Demo] Logging to: " << logPath << std::endl;
+    }
     
     // Determine static files directory
     std::string staticDir = "static";
