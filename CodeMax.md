@@ -193,8 +193,7 @@ Executables are placed in `build/tools/`:
 
 ## Known Issues / TODO
 
-1. ~~**omninet-init hangs**~~ - Verified working with both interactive stdin and --admin-password
-2. ~~**omninet-certs generate**~~ - Now shows progress indicator "Generating certificate... OK/FAILED"
+1. ~~**omninet-init hangs**~~ - Fixed with 5-second select() timeouts on all prompts
 
 All CLI tools are complete and working!
 
