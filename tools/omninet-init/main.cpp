@@ -13,6 +13,8 @@
 #include "tools_common/common.h"
 #include "tools_common/colors.h"
 #include "tools_common/config.h"
+#include "tools_common/database.h"
+#include "tools_common/password.h"
 
 namespace fs = std::filesystem;
 using namespace OmniNet::Tools;
@@ -26,9 +28,12 @@ constexpr const char* TOOL_NAME = "omninet-init";
 struct Options {
     bool force = false;
     bool nonInteractive = false;
+    bool skipCerts = false;
+    bool skipAdmin = false;
     std::string port = "8080";
     std::string address = "0.0.0.0";
     std::string dataDir;
+    std::string adminPassword;
 };
 
 Options parseArgs(int argc, char* argv[]);
@@ -37,9 +42,10 @@ Options parseArgs(int argc, char* argv[]);
 // Interactive Input
 // ============================================================================
 
+std::string getPassword(const std::string& prompt);
+
 std::string ask(const std::string& prompt, const std::string& defaultValue = {});
 bool confirm(const std::string& prompt, bool defaultValue = false);
-std::string getPassword(const std::string& prompt);
 
 // ============================================================================
 // Setup Functions
@@ -48,7 +54,7 @@ std::string getPassword(const std::string& prompt);
 bool setupDataDirectory(const Options& opts, Formatter& out);
 bool setupConfig(const Options& opts, Formatter& out);
 bool setupCertificates(const Options& opts, Formatter& out);
-bool setupAdminUser(Formatter& out);
+bool setupAdminUser(const Options& opts, Formatter& out);
 
 // ============================================================================
 // Main
@@ -89,13 +95,21 @@ int main(int argc, char* argv[]) {
     }
     
     // Step 3: Generate certificates
-    if (!setupCertificates(opts, out)) {
-        out.warning("Certificate generation skipped or failed");
+    if (!opts.skipCerts) {
+        if (!setupCertificates(opts, out)) {
+            out.warning("Certificate generation skipped or failed");
+        }
+    } else {
+        out.info("Skipping certificate generation (--skip-certs)");
     }
     
     // Step 4: Create admin user
-    if (!setupAdminUser(out)) {
-        out.warning("Admin user creation skipped");
+    if (!opts.skipAdmin) {
+        if (!setupAdminUser(opts, out)) {
+            out.warning("Admin user creation skipped");
+        }
+    } else {
+        out.info("Skipping admin user creation (--skip-admin)");
     }
     
     // Summary
@@ -142,10 +156,13 @@ Options parseArgs(int argc, char* argv[]) {
             std::cout << "  -h, --help          Show this help\n";
             std::cout << "  -V, --version       Show version information\n";
             std::cout << "  -f, --force         Force reinitialization\n";
-            std::cout << "  -y, --yes           Non-interactive mode\n";
+            std::cout << "  -y, --yes           Non-interactive mode (skip prompts)\n";
             std::cout << "  -p, --port          Default port (default: 8080)\n";
             std::cout << "  -a, --address       Default address (default: 0.0.0.0)\n";
             std::cout << "  -d, --data-dir      Data directory path\n";
+            std::cout << "  --skip-certs        Skip certificate generation\n";
+            std::cout << "  --skip-admin        Skip admin user creation\n";
+            std::cout << "  --admin-password    Set admin password (non-interactive)\n";
             exit(0);
         }
         else if (arg == "-V" || arg == "--version") {
@@ -157,6 +174,17 @@ Options parseArgs(int argc, char* argv[]) {
         }
         else if (arg == "-y" || arg == "--yes" || arg == "--non-interactive") {
             opts.nonInteractive = true;
+        }
+        else if (arg == "--skip-certs") {
+            opts.skipCerts = true;
+        }
+        else if (arg == "--skip-admin") {
+            opts.skipAdmin = true;
+        }
+        else if (arg == "--admin-password") {
+            if (i + 1 < argc) {
+                opts.adminPassword = argv[++i];
+            }
         }
         else if (arg == "-p" || arg == "--port") {
             if (i + 1 < argc) {
@@ -302,7 +330,7 @@ bool setupCertificates(const Options& opts, Formatter& out) {
     auto certPath = certsDir / "omninet.crt";
     auto keyPath = certsDir / "omninet.key";
     
-    if (fs::exists(certPath)) {
+    if (fs::exists(certPath) && fs::exists(keyPath)) {
         out.warning("Certificate already exists: " + certPath.string());
         
         if (!opts.nonInteractive && !confirm("Regenerate?", false)) {
@@ -311,35 +339,133 @@ bool setupCertificates(const Options& opts, Formatter& out) {
         }
     }
     
-    out.info("Generating self-signed certificate...");
-    out.info("Common name [localhost]: ");
-    
+    // Get common name
     std::string commonName = "localhost";
     if (!opts.nonInteractive) {
-        std::getline(std::cin, commonName);
-        if (commonName.empty()) commonName = "localhost";
+        auto input = ask("Common name for certificate", commonName);
+        if (!input.empty()) commonName = input;
     }
     
-    // Use OpenSSL to generate certificate
-    // This is a simplified version - full implementation would use OpenSSL API
+    out.info("Generating self-signed certificate for: " + commonName);
     
-    out.info("Certificate generation requires OpenSSL integration");
-    out.info("Use: openssl req -x509 -newkey rsa:4096 -keyout " + keyPath.string() + 
-           " -out " + certPath.string() + " -days 365 -nodes");
+    // Generate certificate using OpenSSL via command
+    // We'll create a shell command to generate the certificate
+    std::string cmd = "openssl req -x509 -newkey rsa:4096 -keyout \"" + keyPath.string() + 
+                     "\" -out \"" + certPath.string() + 
+                     "\" -days 365 -nodes -subj \"/CN=" + commonName + "\" 2>&1";
     
-    // For now, just create placeholder
-    out.warning("Please generate certificates manually or use scripts/generate-certs.sh");
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) {
+        out.error("Failed to run OpenSSL");
+        return false;
+    }
     
-    return false;
+    char buffer[256];
+    std::string output;
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+    
+    int status = pclose(pipe);
+    
+    if (status == 0 && fs::exists(certPath) && fs::exists(keyPath)) {
+        out.success("Certificate generated successfully!");
+        out.kv("Certificate", certPath.string());
+        out.kv("Private key", keyPath.string());
+        out.info("Note: This is a self-signed certificate for development use only.");
+        return true;
+    } else {
+        out.error("Certificate generation failed");
+        if (!output.empty()) {
+            out.text("OpenSSL output: " + output);
+        }
+        // Clean up partial files
+        if (fs::exists(certPath)) fs::remove(certPath);
+        if (fs::exists(keyPath)) fs::remove(keyPath);
+        return false;
+    }
 }
 
-bool setupAdminUser(Formatter& out) {
+bool setupAdminUser(const Options& opts, Formatter& out) {
     out.subheader("Creating Admin User");
     
-    out.info("Admin user creation requires database access");
-    out.info("Use the web dashboard at /omninet to create users");
+    // Ensure database exists
+    auto dbPath = Paths::databaseFile();
     
-    // TODO: Implement actual user creation with database
+    Database db;
+    if (!db.open(dbPath.string())) {
+        out.error("Failed to open database: " + db.lastError());
+        return false;
+    }
+    
+    // Ensure users table exists
+    UserStore store(db);
+    if (!store.ensureTables()) {
+        out.error("Failed to create user tables");
+        return false;
+    }
+    
+    // Check if admin user already exists
+    auto admin = store.getUserByUsername("admin");
+    if (admin) {
+        out.warning("Admin user already exists");
+        out.info("Use 'omninet-users' tool to manage users");
+        return true;
+    }
+    
+    // Get admin credentials
+    out.info("Creating admin user 'admin'");
+    std::cout << '\n';
+    
+    std::string password1;
+    
+    // Use provided password or prompt
+    if (!opts.adminPassword.empty()) {
+        password1 = opts.adminPassword;
+    } else if (opts.nonInteractive) {
+        out.warning("No admin password provided - skipping admin user creation");
+        out.info("Use --admin-password <password> to set a password");
+        return true;
+    } else {
+        password1 = getPassword("Enter password for admin user");
+    }
+    
+    if (password1.empty()) {
+        out.warning("Password cannot be empty - skipping admin user creation");
+        return true;
+    }
+    
+    std::string password2;
+    if (!opts.adminPassword.empty()) {
+        password2 = opts.adminPassword;
+    } else if (!opts.nonInteractive) {
+        password2 = getPassword("Confirm password");
+    } else {
+        password2 = password1;
+    }
+    
+    if (password1 != password2) {
+        out.error("Passwords do not match");
+        return false;
+    }
+    
+    // Hash password
+    std::string passwordHash = OmniNet::Tools::hashPassword(password1);
+    if (passwordHash.empty()) {
+        out.error("Failed to hash password");
+        return false;
+    }
+    
+    // Create user
+    if (!store.createUser("admin", passwordHash, "admin")) {
+        out.error("Failed to create admin user: " + db.lastError());
+        return false;
+    }
+    
+    out.success("Admin user created successfully!");
+    out.info("Username: admin");
+    out.info("Role: admin");
+    out.warning("Please change this password after first login!");
     
     return true;
 }

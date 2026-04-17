@@ -148,6 +148,7 @@ private:
 struct User {
     int64_t id = 0;
     std::string username;
+    std::string passwordHash;  // Only populated when needed
     std::string role;
     std::chrono::system_clock::time_point created;
     std::optional<std::chrono::system_clock::time_point> lastLogin;
@@ -170,11 +171,21 @@ public:
     std::optional<User> getUserByUsername(const std::string& username);
     size_t userCount() const;
     
+    // Create/Delete users (for omninet-init and omninet-users)
+    bool createUser(const std::string& username, const std::string& passwordHash, const std::string& role = "user");
+    bool deleteUser(int64_t userId);
+    bool deleteUser(const std::string& username);
+    bool updatePassword(int64_t userId, const std::string& passwordHash);
+    bool updateLastLogin(int64_t userId);
+    
     // Session operations
     std::vector<Session> getSessionsForUser(int64_t userId);
     std::vector<Session> getActiveSessions();
     bool revokeSession(const std::string& sessionId);
     bool revokeAllSessions(int64_t userId);
+    
+    // Ensure tables exist (called automatically if needed)
+    bool ensureTables();
     
     // Statistics
     struct Stats {

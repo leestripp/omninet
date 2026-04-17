@@ -14,6 +14,7 @@
 #include "tools_common/colors.h"
 #include "tools_common/table.h"
 #include "tools_common/database.h"
+#include "tools_common/password.h"
 
 using namespace OmniNet::Tools;
 
@@ -132,10 +133,25 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         
-        // Create user (Note: actual password hashing would be done by UserStore)
-        // For now, just verify database has users table
-        out.info("User creation requires password hashing support");
-        out.info("Use the dashboard web interface for user management");
+        // Hash password and create user
+        std::string passwordHash = OmniNet::Tools::hashPassword(password1);
+        if (passwordHash.empty()) {
+            std::cerr << "Error: Failed to hash password\n";
+            return 1;
+        }
+        
+        std::string role = opts.role.empty() ? "user" : opts.role;
+        if (role != "user" && role != "admin") {
+            std::cerr << "Error: Role must be 'user' or 'admin'\n";
+            return 1;
+        }
+        
+        if (!store.createUser(opts.username, passwordHash, role)) {
+            std::cerr << "Error: Failed to create user\n";
+            return 1;
+        }
+        
+        out.success("User '" + opts.username + "' created with role '" + role + "'");
         
     } else if (opts.action == "remove") {
         if (opts.username.empty()) {
@@ -155,9 +171,11 @@ int main(int argc, char* argv[]) {
         std::cin >> confirm;
         
         if (confirm == 'y' || confirm == 'Y') {
-            store.revokeAllSessions(user->id);
-            // Would need to add deleteUser to UserStore
-            out.success("User '" + opts.username + "' removed");
+            if (store.deleteUser(user->id)) {
+                out.success("User '" + opts.username + "' removed");
+            } else {
+                out.error("Failed to remove user");
+            }
         } else {
             out.info("Operation cancelled");
         }

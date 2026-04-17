@@ -12,6 +12,7 @@ set(COMMON_SOURCES
     database.cpp
     http.cpp
     version.cpp
+    password.cpp
 )
 
 # Create static library
@@ -29,10 +30,15 @@ target_include_directories(omninet_tools_common PUBLIC
     ${CMAKE_BINARY_DIR}/_deps/nlohmann_json-src/include
 )
 
+# Find OpenSSL for password hashing
+find_package(OpenSSL REQUIRED)
+
 # Link dependencies
 target_link_libraries(omninet_tools_common PRIVATE
     sqlite3
     Threads::Threads
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
 
 # Platform-specific

@@ -491,6 +491,66 @@ bool UserStore::revokeAllSessions(int64_t userId) {
     return m_db.execute("DELETE FROM sessions WHERE user_id = " + std::to_string(userId));
 }
 
+bool UserStore::createUser(const std::string& username, const std::string& passwordHash, const std::string& role) {
+    auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    auto sql = "INSERT INTO users (username, password_hash, role, created) VALUES ('" +
+              username + "', '" + passwordHash + "', '" + role + "', " + std::to_string(now) + ")";
+    return m_db.execute(sql);
+}
+
+bool UserStore::deleteUser(int64_t userId) {
+    // First revoke sessions
+    revokeAllSessions(userId);
+    // Then delete user
+    return m_db.execute("DELETE FROM users WHERE id = " + std::to_string(userId));
+}
+
+bool UserStore::deleteUser(const std::string& username) {
+    auto user = getUserByUsername(username);
+    if (!user) return false;
+    return deleteUser(user->id);
+}
+
+bool UserStore::updatePassword(int64_t userId, const std::string& passwordHash) {
+    auto sql = "UPDATE users SET password_hash = '" + passwordHash + "' WHERE id = " + std::to_string(userId);
+    return m_db.execute(sql);
+}
+
+bool UserStore::updateLastLogin(int64_t userId) {
+    auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    auto sql = "UPDATE users SET last_login = " + std::to_string(now) + " WHERE id = " + std::to_string(userId);
+    return m_db.execute(sql);
+}
+
+bool UserStore::ensureTables() {
+    // Create users table if not exists
+    bool ok = m_db.execute(R"(
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            created INTEGER NOT NULL,
+            last_login INTEGER
+        )
+    )");
+    
+    if (!ok) return false;
+    
+    // Create sessions table if not exists
+    ok = m_db.execute(R"(
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created INTEGER NOT NULL,
+            expires INTEGER NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    )");
+    
+    return ok;
+}
+
 UserStore::Stats UserStore::stats() const {
     Stats s;
     s.userCount = userCount();
