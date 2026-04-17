@@ -26,17 +26,16 @@ int main() {
         staticDir = ".";
     }
     
-    // Create server config
+    // Create server config - use OmniNet config system for TLS settings
     Server::Config config;
     config.address = "127.0.0.1";
     config.port = 8443;
     config.tlsEnabled = true;
     
-    // Look for certs in ~/.omninet/certs/ (standard OmniNet location)
-    std::string homeDir = std::getenv("HOME") ? std::getenv("HOME") : ".";
-    std::string certsDir = homeDir + "/.omninet/certs";
-    config.tlsCertFile = certsDir + "/omninet.crt";
-    config.tlsKeyFile = certsDir + "/omninet.key";
+    // Get TLS cert/key from standard OmniNet config (~/.omninet/config.json)
+    auto& omninetConfig = OmniNet::Config::instance();
+    config.tlsCertFile = omninetConfig.defaultTlsCertPath().string();
+    config.tlsKeyFile = omninetConfig.defaultTlsKeyPath().string();
     
     config.corsEnabled = true;
     config.corsAllowedOrigins = "*";
