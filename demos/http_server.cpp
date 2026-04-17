@@ -27,11 +27,12 @@ int main() {
         OmniNet::LogLevel::INFO
     );
     
-    // Set log file from config
-    if (config.logFile()) {
-        OmniNet::Logger::instance().setLogFile(*config.logFile());
-        std::cerr << "[Demo] Logging to: " << *config.logFile() << std::endl;
-    }
+    // Set log file to ~/.omninet/logs/omninet.log
+    auto dataDir = config.dataDir();
+    std::filesystem::create_directories(dataDir / "logs");
+    auto logPath = (dataDir / "logs" / "omninet.log").string();
+    OmniNet::Logger::instance().setLogFile(logPath);
+    std::cerr << "[Demo] Logging to: " << logPath << std::endl;
     
     // Determine static files directory
     std::string staticDir = "static";

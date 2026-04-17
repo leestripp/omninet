@@ -716,7 +716,7 @@ void Config::createDefaultConfig() {
         }},
         {"logging", {
             {"level", "INFO"},
-            {"file", "omninet.log"},
+            {"file", ""},  // Empty = no file logging by default, use ~/.omninet/logs/omninet.log programmatically
             {"toConsole", true},
             {"toFile", true},
             {"maxSizeMb", 10},

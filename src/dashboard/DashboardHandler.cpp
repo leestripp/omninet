@@ -44,10 +44,11 @@ Handler::Handler(const Config& config)
         std::chrono::minutes(15)
     );
     
-    // Initialize log reader if log file is configured
-    auto& loggerConfig = OmniNet::Config::instance();
-    if (loggerConfig.logFile()) {
-        m_logReader = std::make_unique<LogReader>(*loggerConfig.logFile());
+    // Initialize log reader - use ~/.omninet/logs/omninet.log
+    auto dataDir = OmniNet::Config::instance().dataDir();
+    auto logPath = dataDir / "logs" / "omninet.log";
+    if (std::filesystem::exists(logPath)) {
+        m_logReader = std::make_unique<LogReader>(logPath.string());
     }
 }
 
