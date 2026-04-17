@@ -29,3 +29,7 @@ prompt.txt
 *.tmp
 *.swp
 *~
+
+# Demo certificates
+server.crt
+server.key
