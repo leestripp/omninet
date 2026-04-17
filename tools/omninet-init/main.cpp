@@ -72,8 +72,9 @@ int main(int argc, char* argv[]) {
     
     // Check if already initialized
     auto dataDir = Paths::dataDir();
+    auto configPath = Paths::configFile();
     
-    if (fs::exists(dataDir)) {
+    if (fs::exists(configPath)) {
         if (!opts.force) {
             out.warning("OmniNet is already initialized at: " + dataDir.string());
             out.info("Use --force to reinitialize");
