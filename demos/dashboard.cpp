@@ -18,28 +18,33 @@ int main() {
     // Initialize OmniNet
     OmniNet::init();
     
+    // Load config from ~/.omninet/config.json
+    auto& config = OmniNet::Config::instance();
+    
     // Determine static files directory
     std::string staticDir = "static";
     if (!std::filesystem::exists(staticDir)) {
         std::cout << "Warning: static/ directory not found" << std::endl;
     }
     
-    // Create dashboard configuration
-    Dashboard::Handler::Config config;
-    config.urlPath = "/dashboard";
-    config.apiPath = "/api";
-    config.dbPath = "dashboard.db";
-    config.sessionTtlSeconds = 3600;
-    config.allowedIpPrefixes = {"127.", "::1"};
+    // Create dashboard configuration using config system
+    Dashboard::Handler::Config dashboardConfig;
+    dashboardConfig.urlPath = "/dashboard";
+    dashboardConfig.apiPath = "/api/dashboard";
+    dashboardConfig.dbPath = config.databasePath();  // Use config database path
+    dashboardConfig.sessionTtlSeconds = config.get("dashboard.sessionTtl", 3600);
+    dashboardConfig.allowedIpPrefixes = {"127.", "::1"};
     
     // Create dashboard handler
-    Dashboard::Handler dashboard(config);
+    Dashboard::Handler dashboard(dashboardConfig);
     
-    // Create HTTP server
+    // Create HTTP server using config settings
     Server::Config serverConfig;
-    serverConfig.address = "127.0.0.1";
-    serverConfig.port = 8080;
+    serverConfig.address = config.getString("server.address", "127.0.0.1");
+    serverConfig.port = static_cast<uint16_t>(config.get("server.port", 8080));
     serverConfig.workerCount = 4;
+    serverConfig.corsEnabled = config.get("cors.enabled", true);
+    serverConfig.corsAllowedOrigins = config.getString("cors.origins", "*");
     
     Server server(serverConfig);
     

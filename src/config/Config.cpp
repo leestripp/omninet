@@ -346,6 +346,9 @@ void Config::load() {
 }
 
 void Config::loadFromJson(const json& j) {
+    // Store the JSON for generic access
+    m_jsonConfig = j;
+    
     // Version
     if (j.contains("version")) {
         // Could add version migration logic here
@@ -727,9 +730,44 @@ void Config::createDefaultConfig() {
             file << defaultConfig.dump(2);
             file.close();
             m_configLastModified = std::filesystem::last_write_time(path);
+            m_jsonConfig = defaultConfig;  // Store for generic access
         }
     } catch (const std::exception& e) {
         Logger::instance().error("Config: Failed to create default config: " + std::string(e.what()));
+    }
+}
+
+// ============================================================================
+// Generic Config Access Implementation
+// ============================================================================
+
+std::string Config::getString(const std::string& path, const std::string& defaultValue) const {
+    return get<std::string>(path, defaultValue);
+}
+
+int Config::getInt(const std::string& path, int defaultValue) const {
+    return get<int>(path, defaultValue);
+}
+
+bool Config::getBool(const std::string& path, bool defaultValue) const {
+    return get<bool>(path, defaultValue);
+}
+
+bool Config::has(const std::string& path) const {
+    try {
+        const json* current = &m_jsonConfig;
+        std::stringstream ss(path);
+        std::string segment;
+        
+        while (std::getline(ss, segment, '.')) {
+            if (!current->contains(segment)) {
+                return false;
+            }
+            current = &((*current)[segment]);
+        }
+        return true;
+    } catch (...) {
+        return false;
     }
 }
 

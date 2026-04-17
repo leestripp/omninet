@@ -292,8 +292,11 @@ bool setupConfig(const Options& opts, Formatter& out) {
         "address": ")" + address + R"(",
         "port": )" + port + R"(,
         "httpsPort": )" + httpsPort + R"(,
-        "workers": 0,
-        "timeout": 30
+        "workers": 4,
+        "timeout": 30,
+        "maxConnections": 1000,
+        "keepAlive": true,
+        "keepAliveTimeout": 60
     },
     "logging": {
         "level": "INFO",
@@ -310,29 +313,45 @@ bool setupConfig(const Options& opts, Formatter& out) {
         "walMode": true
     },
     "cors": {
-        "enabled": false,
+        "enabled": true,
         "origins": "*",
-        "methods": "GET,POST,PUT,DELETE",
-        "headers": "Content-Type,Authorization"
+        "methods": "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+        "headers": "Content-Type,Authorization,X-Requested-With",
+        "credentials": true,
+        "maxAge": 86400
     },
     "tls": {
         "enabled": )" + tlsEnabled + R"(,
         "certFile": "certs/omninet.crt",
-        "keyFile": "certs/omninet.key"
+        "keyFile": "certs/omninet.key",
+        "minVersion": "1.2",
+        "preferServerCiphers": true
+    },
+    "security": {
+        "enableRateLimit": true,
+        "rateLimitRequests": 100,
+        "rateLimitWindow": 60,
+        "enableCsrf": true,
+        "enableXssProtection": true,
+        "enableClickjackingProtection": true,
+        "strictTransportSecurity": true,
+        "hstsMaxAge": 31536000
     },
     "dashboard": {
         "enabled": true,
         "urlPath": "/omninet",
-        "apiPath": "/omninet/api",
+        "apiPath": "/api/omninet",
         "sessionTtl": 3600,
-        "maxLoginAttempts": 5
+        "maxLoginAttempts": 5,
+        "lockoutDuration": 300
     },
     "intrusion": {
         "enabled": true,
         "autoBlock": true,
         "blockDuration": 30,
         "maxFailedAttempts": 10,
-        "attemptWindow": 15
+        "attemptWindow": 15,
+        "whitelist": ["127.0.0.1", "::1"]
     }
 })";
     

@@ -15,12 +15,19 @@ int main() {
     // Initialize OmniNet
     OmniNet::init();
     
-    // Create WebSocket server with HTTP config
-    OmniNet::HTTP::Server::Config config;
-    config.address = "127.0.0.1";
-    config.port = 8080;
+    // Load config from ~/.omninet/config.json
+    auto& config = OmniNet::Config::instance();
     
-    Server wsServer(config);
+    // Create WebSocket server with config settings
+    OmniNet::HTTP::Server::Config serverConfig;
+    serverConfig.address = config.getString("server.address", "127.0.0.1");
+    serverConfig.port = static_cast<uint16_t>(config.getInt("server.port", 8080));
+    serverConfig.workerCount = static_cast<size_t>(config.getInt("server.workers", 4));
+    serverConfig.requestTimeout = std::chrono::seconds(config.getInt("server.timeout", 30));
+    serverConfig.corsEnabled = config.getBool("cors.enabled", true);
+    serverConfig.corsAllowedOrigins = config.getString("cors.origins", "*");
+    
+    Server wsServer(serverConfig);
     
     // Register WebSocket endpoint - Echo
     wsServer.on("/echo", [](Connection& ws) {

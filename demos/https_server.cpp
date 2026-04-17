@@ -16,8 +16,21 @@ int main() {
     // Initialize OpenSSL
     OmniNet::init();
     
-    // Enable debug logging
-    OmniNet::Logger::instance().setLevel(OmniNet::LogLevel::DEBUG);
+    // Load config from ~/.omninet/config.json
+    auto& omninetConfig = OmniNet::Config::instance();
+    
+    // Enable logging (from config)
+    std::string logLevel = omninetConfig.getString("logging.level", "INFO");
+    OmniNet::Logger::instance().setLevel(
+        logLevel == "DEBUG" ? OmniNet::LogLevel::DEBUG :
+        logLevel == "WARN" ? OmniNet::LogLevel::WARN :
+        OmniNet::LogLevel::INFO
+    );
+    
+    // Set log file from config
+    if (omninetConfig.logFile()) {
+        OmniNet::Logger::instance().setLogFile(*omninetConfig.logFile());
+    }
     
     // Determine static files directory
     std::string staticDir = "static";
@@ -26,21 +39,29 @@ int main() {
         staticDir = ".";
     }
     
-    // Create server config - use OmniNet config system for TLS settings
-    Server::Config config;
-    config.address = "127.0.0.1";
-    config.port = 8443;
-    config.tlsEnabled = true;
+    // Create server config from OmniNet config system
+    Server::Config serverConfig;
+    serverConfig.address = omninetConfig.getString("server.address", "127.0.0.1");
+    serverConfig.port = static_cast<uint16_t>(omninetConfig.getInt("server.httpsPort", 8443));
+    serverConfig.workerCount = static_cast<size_t>(omninetConfig.getInt("server.workers", 4));
+    serverConfig.requestTimeout = std::chrono::seconds(omninetConfig.getInt("server.timeout", 30));
+    serverConfig.tlsEnabled = omninetConfig.getBool("tls.enabled", true);
     
-    // Get TLS cert/key from standard OmniNet config (~/.omninet/config.json)
-    auto& omninetConfig = OmniNet::Config::instance();
-    config.tlsCertFile = omninetConfig.defaultTlsCertPath().string();
-    config.tlsKeyFile = omninetConfig.defaultTlsKeyPath().string();
+    // Get TLS cert/key from OmniNet config
+    if (serverConfig.tlsEnabled) {
+        serverConfig.tlsCertFile = omninetConfig.defaultTlsCertPath().string();
+        serverConfig.tlsKeyFile = omninetConfig.defaultTlsKeyPath().string();
+        
+        if (serverConfig.tlsCertFile.empty()) {
+            std::cerr << "Warning: TLS certificate not found. Run 'omninet-init --enable-tls' first." << std::endl;
+            serverConfig.tlsEnabled = false;
+        }
+    }
     
-    config.corsEnabled = true;
-    config.corsAllowedOrigins = "*";
+    serverConfig.corsEnabled = omninetConfig.getBool("cors.enabled", true);
+    serverConfig.corsAllowedOrigins = omninetConfig.getString("cors.origins", "*");
     
-    Server server(config);
+    Server server(serverConfig);
     
     // Create static file handler
     StaticHandler staticHandler(staticDir);
@@ -76,7 +97,7 @@ int main() {
         staticHandler.handle(req, resp);
     });
     
-    std::cerr << "Starting HTTPS server on " << config.address << ":" << config.port << std::endl;
+    std::cerr << "Starting HTTPS server on " << serverConfig.address << ":" << serverConfig.port << std::endl;
     
     std::thread serverThread([&server]() {
         try {
@@ -91,8 +112,8 @@ int main() {
     std::cout << "HTTPS Server started!" << std::endl;
     std::cout << "Serving static files from: " << std::filesystem::absolute(staticDir) << std::endl;
     std::cout << "Try:" << std::endl;
-    std::cout << "  https://localhost:" << config.port << "/api/hello" << std::endl;
-    std::cout << "  https://localhost:" << config.port << "/api/health" << std::endl;
+    std::cout << "  https://localhost:" << serverConfig.port << "/api/hello" << std::endl;
+    std::cout << "  https://localhost:" << serverConfig.port << "/api/health" << std::endl;
     std::cout << "Note: Accept the self-signed certificate in your browser" << std::endl;
     
     serverThread.join();

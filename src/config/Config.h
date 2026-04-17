@@ -11,6 +11,7 @@
 
 #include "utils/Logger.h"
 #include <nlohmann/json.hpp>
+#include <sstream>
 
 using json = nlohmann::json;
 
@@ -161,6 +162,26 @@ public:
     // Create default config file
     void createDefaultConfig();
     
+    // --- Generic Access ---
+    
+    // Get a value from the JSON config by dot-notation path
+    // Examples: "server.port", "tls.enabled", "cors.origins"
+    // Returns defaultValue if path doesn't exist
+    template<typename T>
+    T get(const std::string& path, T defaultValue) const;
+    
+    // Get a string value from config
+    std::string getString(const std::string& path, const std::string& defaultValue = "") const;
+    
+    // Get an integer value from config
+    int getInt(const std::string& path, int defaultValue = 0) const;
+    
+    // Get a boolean value from config
+    bool getBool(const std::string& path, bool defaultValue = false) const;
+    
+    // Check if a path exists in config
+    bool has(const std::string& path) const;
+    
 private:
     Config();
     ~Config();
@@ -201,7 +222,34 @@ private:
     
     mutable std::mutex m_mutex;
     mutable std::vector<std::string> m_validationErrors;
+    
+    // JSON storage for generic config access
+    json m_jsonConfig;
 };
+
+// ============================================================================
+// Template Implementation
+// ============================================================================
+
+template<typename T>
+T Config::get(const std::string& path, T defaultValue) const {
+    try {
+        const json* current = &m_jsonConfig;
+        std::stringstream ss(path);
+        std::string segment;
+        
+        while (std::getline(ss, segment, '.')) {
+            if (!current->contains(segment)) {
+                return defaultValue;
+            }
+            current = &((*current)[segment]);
+        }
+        
+        return current->get<T>();
+    } catch (...) {
+        return defaultValue;
+    }
+}
 
 // ============================================================================
 // Server Configuration Structure

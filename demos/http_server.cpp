@@ -16,15 +16,21 @@ int main() {
     // Initialize OmniNet
     OmniNet::init();
     
-    // Enable debug logging
-    OmniNet::Logger::instance().setLevel(OmniNet::LogLevel::DEBUG);
+    // Load config from ~/.omninet/config.json
+    auto& config = OmniNet::Config::instance();
     
-    // Set log file in ~/.omninet if it exists
-    std::string home = std::getenv("HOME") ? std::getenv("HOME") : "";
-    std::string logPath = home + "/.omninet/omninet.log";
-    if (!home.empty() && std::filesystem::exists(home + "/.omninet")) {
-        OmniNet::Logger::instance().setLogFile(logPath);
-        std::cerr << "[Demo] Logging to: " << logPath << std::endl;
+    // Enable debug logging (from config)
+    std::string logLevel = config.getString("logging.level", "INFO");
+    OmniNet::Logger::instance().setLevel(
+        logLevel == "DEBUG" ? OmniNet::LogLevel::DEBUG :
+        logLevel == "WARN" ? OmniNet::LogLevel::WARN :
+        OmniNet::LogLevel::INFO
+    );
+    
+    // Set log file from config
+    if (config.logFile()) {
+        OmniNet::Logger::instance().setLogFile(*config.logFile());
+        std::cerr << "[Demo] Logging to: " << *config.logFile() << std::endl;
     }
     
     // Determine static files directory
@@ -34,17 +40,17 @@ int main() {
         staticDir = ".";
     }
     
-    // Create server configuration
-    Server::Config config;
-    config.address = "127.0.0.1";
-    config.port = 8080;
-    config.workerCount = 4;
-    config.requestTimeout = std::chrono::seconds(30);
-    config.corsEnabled = true;
-    config.corsAllowedOrigins = "*";
+    // Create server configuration from config system
+    Server::Config serverConfig;
+    serverConfig.address = config.getString("server.address", "127.0.0.1");
+    serverConfig.port = static_cast<uint16_t>(config.getInt("server.port", 8080));
+    serverConfig.workerCount = static_cast<size_t>(config.getInt("server.workers", 4));
+    serverConfig.requestTimeout = std::chrono::seconds(config.getInt("server.timeout", 30));
+    serverConfig.corsEnabled = config.getBool("cors.enabled", true);
+    serverConfig.corsAllowedOrigins = config.getString("cors.origins", "*");
     
     // Create server
-    Server server(config);
+    Server server(serverConfig);
     
     // Create static file handler
     StaticHandler staticHandler(staticDir);
@@ -117,7 +123,7 @@ int main() {
     });
     
     // Start server in background
-    std::cout << "Starting server on " << config.address << ":" << config.port << std::endl;
+    std::cout << "Starting server on " << serverConfig.address << ":" << serverConfig.port << std::endl;
     std::cout << "Serving static files from: " << std::filesystem::absolute(staticDir) << std::endl;
     
     std::thread serverThread([&server]() {
@@ -133,9 +139,9 @@ int main() {
     
     std::cout << "Server started!" << std::endl;
     std::cout << "Try these endpoints:" << std::endl;
-    std::cout << "  http://localhost:" << config.port << "/api/hello" << std::endl;
-    std::cout << "  http://localhost:" << config.port << "/api/health" << std::endl;
-    std::cout << "  http://localhost:" << config.port << "/api/time" << std::endl;
+    std::cout << "  http://localhost:" << serverConfig.port << "/api/hello" << std::endl;
+    std::cout << "  http://localhost:" << serverConfig.port << "/api/health" << std::endl;
+    std::cout << "  http://localhost:" << serverConfig.port << "/api/time" << std::endl;
     std::cout << std::endl;
     std::cout << "Press Ctrl+C to stop the server..." << std::endl;
     

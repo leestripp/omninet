@@ -17,6 +17,9 @@ int main(int argc, char* argv[]) {
     // Initialize OmniNet
     OmniNet::init();
     
+    // Load config from ~/.omninet/config.json
+    auto& config = OmniNet::Config::instance();
+    
     // Get root directory (default to current directory or argument)
     std::string rootDir = ".";
     if (argc > 1) {
@@ -37,11 +40,15 @@ int main(int argc, char* argv[]) {
     staticHandler.setIndexFiles({"index.html", "index.htm", "default.html"});
     staticHandler.allowDirectoryListing(true);
     
-    Server::Config config;
-    config.address = "127.0.0.1";
-    config.port = 8080;
+    // Create server config from config system
+    Server::Config serverConfig;
+    serverConfig.address = config.getString("server.address", "127.0.0.1");
+    serverConfig.port = static_cast<uint16_t>(config.getInt("server.port", 8080));
+    serverConfig.workerCount = static_cast<size_t>(config.getInt("server.workers", 4));
+    serverConfig.corsEnabled = config.getBool("cors.enabled", true);
+    serverConfig.corsAllowedOrigins = config.getString("cors.origins", "*");
     
-    Server server(config);
+    Server server(serverConfig);
     
     // Mount static files at root - use Router
     server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
