@@ -1,27 +1,112 @@
-./build/tools/omninet-init 
+./build/demos/https_server_demo 
+OmniNet HTTPS Server Demo
+=========================
+Starting HTTPS server on 127.0.0.1:8443
+[HttpServer] Starting server on 127.0.0.1:8443
+[HttpServer] Socket bound and listening
+[HttpServer] Starting 32 worker threads
+[HttpServer] Worker threads started, entering accept loop
+[HttpServer] Accept loop started
+[HttpServer] Waiting for connection...
+HTTPS Server started!
+Serving static files from: "/home/lee/projects/Programming/projects_C++/OmniNet/static"
+Try:
+  https://localhost:8443/api/hello
+  https://localhost:8443/api/health
+Note: Accept the self-signed certificate in your browser
+[HttpServer] Connection accepted! Spawning handler thread
+[HttpServer] handleConnection called, socket fd=4
+[HttpServer] Waiting for connection...
+[HttpServer] Connection thread started, socket fd=4
+[HttpServer] Calling conn.processRequests()
+[HttpConnection] handleNextRequest() called
+[HttpConnection] readRequest() starting
+[HttpConnection]   Reading chunk, buffer size=0
+[HttpConnection]   Received 1894 bytes
+[HttpConnection]   No double CRLF found yet, buffer size=1894
+[HttpConnection]   Reading chunk, buffer size=1894
+[HttpConnection]   recvAll returned empty - connection closed or timeout
+[HttpConnection]   Have partial data, breaking
+[HttpConnection]   Partial data, parsing 1894 bytes
+[HttpConnection] readRequest() succeeded - path: ��׹��J����e�(O~
+                                                                8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
+                                                                                               	localhost��
+                                                                                                           #
+                                                                                                            hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
+       !
+        �y;␦����
+[HttpConnection] Calling handler for path: ��׹��J����e�(O~
+                                                          8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
+                                                                                       	localhost��
+                                                                                                   #
+                                                                                                    hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
+                                                                                                                                                                                             !
+                                                                                                                                                                                             �y;␦����
+[HttpServer] Handler called - Method: UNKNOWN, Path: ��׹��J����e�(O~
+                                                                    8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
+                                                                                                       	localhost��
+                                                                                                                   #
+                                                                                                                    hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
+               !
+                �y;␦����
+[HttpServer] Calling router.handle()
+[Router] handle() called - Method: UNKNOWN, Path: ��׹��J����e�(O~
+                                                                 8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
+                                                                                               	localhost��
+                                                                                                           #
+                                                                                                            hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
+       !
+        �y;␦����
+[Router] Registered routes: 4
+[Router]   GET /api/hello
+[Router]   GET /api/health
+[Router]   GET /
+[Router]   GET /*
+[Router] Looking for matching route...
+[Router] match() - Trying to match ��׹��J����e�(O~
+                                                  8Z�͹�`���w"�+�/̨̩�,�0��	����/5�
+                                                                               	localhost��
+                                                                                           #
+                                                                                            hhttp/1.13/-��-�L�N��g��yH�!�w��h�XF��䄝�Y��n�}��i]�9�,�1�s�PgA���Ķ��zZd���|{�i���ok1B��
+                                                                                                                                                                                     !
+                                                                                                                                                                                      �y;␦���� with method UNKNOWN
+[Router]   Checking route: GET /api/hello
+[Router]     Method mismatch, skipping
+[Router]   Checking route: GET /api/health
+[Router]     Method mismatch, skipping
+[Router]   Checking route: GET /
+[Router]     Method mismatch, skipping
+[Router]   Checking route: GET /*
+[Router]     Method mismatch, skipping
+[Router] match() - No route matched
+[Router] Route NOT MATCHED
+[Router] No notFoundHandler, returning 404
+[HttpServer] Router.handle() returned, response status=404
+[HttpConnection] Sending response, status=404
+[HttpConnection] sendResponse() called, status=404
+[HttpConnection] buildFull returned 80 bytes
+[HttpConnection] Response preview: HTTP/1.1 404 Not Found
+Content-Type: text/plain
+Content-Length: 9
 
-
-OmniNet Initialization
-======================
-
-[WARN] OmniNet is already initialized at: /home/lee/.omninet
-[INFO] Use --force to reinitialize
-📦[lee@devel OmniNet]$ ./build/tools/omninet-init 
-
-
-OmniNet Initialization
-======================
-
-Creating Data Directory
------------------------
-[INFO] Creating: /home/lee/.omninet
-[OK] Data directory created
-Creating Configuration
-----------------------
-[INFO] Creating: /home/lee/.omninet/config.json
-Default port [8080]: 
-
----
-
-omninet-init
-Didn't create any files at all, in only created 2 folders that are empty. No TLS certs were created, no database, totally broken.
+Not Found
+[HttpConnection] Calling socket->sendAll()
+[HttpConnection] sendAll() succeeded
+[HttpConnection] sendResponse() returning 0, keepAlive=0
+[HttpServer] processRequests() returned, connection thread ending
+[HttpServer] Connection accepted! Spawning handler thread
+[HttpServer] handleConnection called, socket fd=5
+[HttpServer] Waiting for connection...
+[HttpServer] Connection thread started, socket fd=5
+[HttpServer] Calling conn.processRequests()
+[HttpConnection] handleNextRequest() called
+[HttpConnection] readRequest() starting
+[HttpConnection]   Reading chunk, buffer size=0
+[HttpConnection]   Received 1894 bytes
+[HttpConnection]   No double CRLF found yet, buffer size=1894
+[HttpConnection]   Reading chunk, buffer size=1894
+[HttpConnection]   recvAll returned empty - connection closed or timeout
+[HttpConnection]   Have partial data, breaking
+[HttpConnection]   Partial data, parsing 1894 bytes
+^C
+📦[lee@devel OmniNet]$ 

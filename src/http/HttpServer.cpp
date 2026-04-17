@@ -1,6 +1,8 @@
 // OmniNet - HTTP Server Implementation
 #include "HttpServer.h"
 
+#include "net/TLSSocket.h"
+
 #include <chrono>
 #include <iostream>
 
@@ -202,6 +204,15 @@ void Server::runAcceptLoop() {
 
 void Server::handleConnection(std::unique_ptr<Socket> socket) {
     SERVER_DEBUG("handleConnection called, socket fd=" << socket->fd());
+    
+    // If TLS is enabled, wrap the socket in a TLSSocket
+    if (m_config.tlsEnabled) {
+        SERVER_DEBUG("TLS enabled, wrapping socket with TLSSocket");
+        auto tlsSocket = std::make_unique<TLSSocket>(std::move(socket));
+        tlsSocket->setCertFile(m_config.tlsCertFile);
+        tlsSocket->setKeyFile(m_config.tlsKeyFile);
+        socket = std::move(tlsSocket);
+    }
     
     // Spawn a new thread to handle this connection
     // This allows the accept loop to immediately continue accepting new connections
