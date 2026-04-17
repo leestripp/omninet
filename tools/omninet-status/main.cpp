@@ -19,6 +19,8 @@ using namespace OmniNet::Tools;
 
 namespace fs = std::filesystem;
 
+constexpr const char* TOOL_NAME = "omninet-status";
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -111,13 +113,20 @@ Options parseArgs(int argc, char* argv[]) {
         std::string arg = argv[i];
         
         if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: omninet-status [OPTIONS]\n";
+            std::cout << TOOL_NAME << " - OmniNet System Status Tool\n";
+            std::cout << "Version: " << getVersionString() << "\n\n";
+            std::cout << "Usage: " << TOOL_NAME << " [OPTIONS]\n";
             std::cout << '\n';
             std::cout << "Options:\n";
             std::cout << "  -h, --help      Show this help message\n";
+            std::cout << "  -V, --version   Show version information\n";
             std::cout << "  -v, --verbose   Show detailed output\n";
             std::cout << "  -j, --json      Output as JSON\n";
             std::cout << "  -r, --report    Generate full diagnostic report\n";
+            exit(0);
+        }
+        else if (arg == "-V" || arg == "--version") {
+            printVersion(TOOL_NAME);
             exit(0);
         }
         else if (arg == "-v" || arg == "--verbose") {

@@ -19,6 +19,8 @@ using namespace OmniNet::Tools;
 
 namespace fs = std::filesystem;
 
+constexpr const char* TOOL_NAME = "omninet-users";
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -320,7 +322,9 @@ Options parseArgs(int argc, char* argv[]) {
         std::string arg = argv[i];
         
         if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: omninet-users <command> [options]\n";
+            std::cout << TOOL_NAME << " - OmniNet User Manager\n";
+            std::cout << "Version: " << getVersionString() << "\n\n";
+            std::cout << "Usage: " << TOOL_NAME << " <command> [options]\n";
             std::cout << '\n';
             std::cout << "User management for OmniNet dashboard.\n";
             std::cout << '\n';
@@ -334,9 +338,14 @@ Options parseArgs(int argc, char* argv[]) {
             std::cout << '\n';
             std::cout << "Options:\n";
             std::cout << "  -h, --help           Show this help\n";
+            std::cout << "  -V, --version        Show version information\n";
             std::cout << "  --role <role>        Set user role (user|admin)\n";
             std::cout << "  -j, --json           Output as JSON\n";
             std::cout << "  -v, --verbose        Verbose output\n";
+            exit(0);
+        }
+        else if (arg == "-V" || arg == "--version") {
+            printVersion(TOOL_NAME);
             exit(0);
         }
         else if (arg == "list" || arg == "add" || arg == "remove" ||

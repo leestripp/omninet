@@ -17,6 +17,8 @@
 
 using namespace OmniNet::Tools;
 
+constexpr const char* TOOL_NAME = "omninet-mon";
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -118,16 +120,23 @@ Options parseArgs(int argc, char* argv[]) {
         std::string arg = argv[i];
         
         if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: omninet-mon [options]\n";
+            std::cout << TOOL_NAME << " - OmniNet Server Monitor\n";
+            std::cout << "Version: " << getVersionString() << "\n\n";
+            std::cout << "Usage: " << TOOL_NAME << " [options]\n";
             std::cout << '\n';
             std::cout << "Real-time server monitoring for OmniNet.\n";
             std::cout << '\n';
             std::cout << "Options:\n";
             std::cout << "  -h, --help          Show this help\n";
+            std::cout << "  -V, --version       Show version information\n";
             std::cout << "  -u, --url           Server URL (default: http://localhost:8080)\n";
             std::cout << "  -i, --interval      Update interval in seconds (default: 2)\n";
             std::cout << "  -j, --json          Output as JSON\n";
             std::cout << "  -v, --verbose       Verbose output\n";
+            exit(0);
+        }
+        else if (arg == "-V" || arg == "--version") {
+            printVersion(TOOL_NAME);
             exit(0);
         }
         else if (arg == "-u" || arg == "--url") {

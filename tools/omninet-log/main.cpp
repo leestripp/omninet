@@ -21,6 +21,8 @@ using namespace OmniNet::Tools;
 
 namespace fs = std::filesystem;
 
+constexpr const char* TOOL_NAME = "omninet-log";
+
 // ============================================================================
 // Global state
 // ============================================================================
@@ -235,12 +237,15 @@ Options parseArgs(int argc, char* argv[]) {
         std::string arg = argv[i];
         
         if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: omninet-log [OPTIONS] [file]\n";
+            std::cout << TOOL_NAME << " - OmniNet Log Viewer\n";
+            std::cout << "Version: " << getVersionString() << "\n\n";
+            std::cout << "Usage: " << TOOL_NAME << " [OPTIONS] [file]\n";
             std::cout << '\n';
             std::cout << "View and analyze OmniNet logs.\n";
             std::cout << '\n';
             std::cout << "Options:\n";
             std::cout << "  -h, --help         Show this help\n";
+            std::cout << "  -V, --version      Show version information\n";
             std::cout << "  -f, --follow       Follow log file (like tail -f)\n";
             std::cout << "  -t, --tail         Show last N lines (default: 50)\n";
             std::cout << "  -n, --lines        Number of lines for tail (default: 50)\n";
@@ -252,12 +257,16 @@ Options parseArgs(int argc, char* argv[]) {
             std::cout << "  -v, --verbose      Verbose output\n";
             std::cout << '\n';
             std::cout << "Examples:\n";
-            std::cout << "  omninet-log\n";
-            std::cout << "  omninet-log --follow\n";
-            std::cout << "  omninet-log --tail\n";
-            std::cout << "  omninet-log --level ERROR\n";
-            std::cout << "  omninet-log --grep 'failed login'\n";
-            std::cout << "  omninet-log --stats\n";
+            std::cout << "  " << TOOL_NAME << "\n";
+            std::cout << "  " << TOOL_NAME << " --follow\n";
+            std::cout << "  " << TOOL_NAME << " --tail\n";
+            std::cout << "  " << TOOL_NAME << " --level ERROR\n";
+            std::cout << "  " << TOOL_NAME << " --grep 'failed login'\n";
+            std::cout << "  " << TOOL_NAME << " --stats\n";
+            exit(0);
+        }
+        else if (arg == "-V" || arg == "--version") {
+            printVersion(TOOL_NAME);
             exit(0);
         }
         else if (arg == "-f" || arg == "--follow") {

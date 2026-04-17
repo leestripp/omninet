@@ -11,6 +11,7 @@ set(COMMON_SOURCES
     config.cpp
     database.cpp
     http.cpp
+    version.cpp
 )
 
 # Create static library
@@ -41,3 +42,27 @@ if(WIN32)
         crypt32
     )
 endif()
+
+# Version definitions - passed from parent project or use defaults
+# These come from the root CMakeLists.txt if available
+if(DEFINED PROJECT_VERSION_MAJOR)
+    target_compile_definitions(omninet_tools_common PUBLIC
+        OMNINET_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+        OMNINET_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+        OMNINET_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    )
+endif()
+
+# Build type - always define as a string
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="debug")
+else()
+    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="release")
+endif()
+
+# Fallback version macros (in case PROJECT_VERSION_MAJOR not set)
+target_compile_definitions(omninet_tools_common PUBLIC
+    OMNINET_VERSION_MAJOR=${OMNINET_VERSION_MAJOR}
+    OMNINET_VERSION_MINOR=${OMNINET_VERSION_MINOR}
+    OMNINET_VERSION_PATCH=${OMNINET_VERSION_PATCH}
+)

@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <iostream>
 
 namespace fs = std::filesystem;
 
@@ -294,6 +295,32 @@ bool Initializer::setupAll() {
     if (!createServersDir()) return false;
     if (!createDefaultConfig()) return false;
     return true;
+}
+
+// ============================================================================
+// Version Helpers
+// ============================================================================
+
+void printVersion(const char* toolName) {
+    std::cout << toolName << " v" << OMNINET_TOOLS_VERSION_STRING << "\n";
+}
+
+void printFullVersion(const char* toolName) {
+    std::cout << toolName << " v" << OMNINET_TOOLS_VERSION_STRING << "\n";
+    std::cout << "  Build: " << OMNINET_BUILD_TYPE << "\n";
+    #ifdef OMNINET_GIT_COMMIT
+    std::cout << "  Git: " << OMNINET_GIT_COMMIT << "\n";
+    #endif
+}
+
+std::string getVersionString() {
+    return OMNINET_TOOLS_VERSION_STRING;
+}
+
+std::string getFullVersionString() {
+    std::string ver = OMNINET_TOOLS_VERSION_STRING;
+    ver += " [" + std::string(OMNINET_BUILD_TYPE) + "]";
+    return ver;
 }
 
 } // namespace OmniNet::Tools

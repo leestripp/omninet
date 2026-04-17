@@ -17,6 +17,8 @@
 namespace fs = std::filesystem;
 using namespace OmniNet::Tools;
 
+constexpr const char* TOOL_NAME = "omninet-init";
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -130,17 +132,24 @@ Options parseArgs(int argc, char* argv[]) {
         std::string arg = argv[i];
         
         if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: omninet-init [options]\n";
+            std::cout << TOOL_NAME << " - OmniNet Initialization Tool\n";
+            std::cout << "Version: " << getVersionString() << "\n\n";
+            std::cout << "Usage: " << TOOL_NAME << " [options]\n";
             std::cout << '\n';
             std::cout << "Initialize OmniNet for first-time use.\n";
             std::cout << '\n';
             std::cout << "Options:\n";
             std::cout << "  -h, --help          Show this help\n";
+            std::cout << "  -V, --version       Show version information\n";
             std::cout << "  -f, --force         Force reinitialization\n";
             std::cout << "  -y, --yes           Non-interactive mode\n";
             std::cout << "  -p, --port          Default port (default: 8080)\n";
             std::cout << "  -a, --address       Default address (default: 0.0.0.0)\n";
             std::cout << "  -d, --data-dir      Data directory path\n";
+            exit(0);
+        }
+        else if (arg == "-V" || arg == "--version") {
+            printVersion(TOOL_NAME);
             exit(0);
         }
         else if (arg == "-f" || arg == "--force") {

@@ -14,6 +14,8 @@
 
 using namespace OmniNet::Tools;
 
+constexpr const char* TOOL_NAME = "omninet-health";
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -154,7 +156,9 @@ Options parseArgs(int argc, char* argv[]) {
         std::string arg = argv[i];
         
         if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: omninet-health <server-url> [endpoints...]\n";
+            std::cout << TOOL_NAME << " - OmniNet Health Checker\n";
+            std::cout << "Version: " << getVersionString() << "\n\n";
+            std::cout << "Usage: " << TOOL_NAME << " <server-url> [endpoints...]\n";
             std::cout << '\n';
             std::cout << "Health check tool for OmniNet servers.\n";
             std::cout << '\n';
@@ -164,6 +168,7 @@ Options parseArgs(int argc, char* argv[]) {
             std::cout << '\n';
             std::cout << "Options:\n";
             std::cout << "  -h, --help          Show this help message\n";
+            std::cout << "  -V, --version      Show version information\n";
             std::cout << "  -a, --all           Check all default endpoints\n";
             std::cout << "  -e, --expected      Expected response body substring\n";
             std::cout << "  -t, --timeout       Request timeout in seconds (default: 10)\n";
@@ -171,10 +176,14 @@ Options parseArgs(int argc, char* argv[]) {
             std::cout << "  -v, --verbose       Show verbose output\n";
             std::cout << '\n';
             std::cout << "Examples:\n";
-            std::cout << "  omninet-health http://localhost:8080\n";
-            std::cout << "  omninet-health http://localhost:8080 /api/health /ping\n";
-            std::cout << "  omninet-health --all http://localhost:8080\n";
-            std::cout << "  omninet-health -e '{\"status\":\"ok\"}' http://localhost:8080\n";
+            std::cout << "  " << TOOL_NAME << " http://localhost:8080\n";
+            std::cout << "  " << TOOL_NAME << " http://localhost:8080 /api/health /ping\n";
+            std::cout << "  " << TOOL_NAME << " --all http://localhost:8080\n";
+            std::cout << "  " << TOOL_NAME << " -e '{\"status\":\"ok\"}' http://localhost:8080\n";
+            exit(0);
+        }
+        else if (arg == "-V" || arg == "--version") {
+            printVersion(TOOL_NAME);
             exit(0);
         }
         else if (arg == "-a" || arg == "--all") {

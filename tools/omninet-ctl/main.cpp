@@ -20,6 +20,8 @@
 namespace fs = std::filesystem;
 using namespace OmniNet::Tools;
 
+constexpr const char* TOOL_NAME = "omninet-ctl";
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -373,7 +375,9 @@ Options parseArgs(int argc, char* argv[]) {
         std::string arg = argv[i];
         
         if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: omninet-ctl <command> [options]\n";
+            std::cout << TOOL_NAME << " - OmniNet Server Controller\n";
+            std::cout << "Version: " << getVersionString() << "\n\n";
+            std::cout << "Usage: " << TOOL_NAME << " <command> [options]\n";
             std::cout << '\n';
             std::cout << "Server process management for OmniNet.\n";
             std::cout << '\n';
@@ -388,9 +392,14 @@ Options parseArgs(int argc, char* argv[]) {
             std::cout << '\n';
             std::cout << "Options:\n";
             std::cout << "  -h, --help           Show this help\n";
+            std::cout << "  -V, --version        Show version information\n";
             std::cout << "  -c, --config         Config file path\n";
             std::cout << "  -j, --json           Output as JSON\n";
             std::cout << "  -v, --verbose        Verbose output\n";
+            exit(0);
+        }
+        else if (arg == "-V" || arg == "--version") {
+            printVersion(TOOL_NAME);
             exit(0);
         }
         else if (arg == "list" || arg == "status" ||

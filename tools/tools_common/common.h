@@ -8,14 +8,17 @@
 #include <filesystem>
 #include <variant>
 
+// Include version information (version.h provides CMake-defined macros)
+#include "version.h"
+
 namespace OmniNet::Tools {
 
 // ============================================================================
-// Version
+// Version Convenience Accessors
 // ============================================================================
 
-constexpr const char* VERSION = "0.1.0";
-constexpr const char* TOOL_NAME = "omninet-tools";
+// Use macros from version.h
+// These are defined by CMake compile definitions if available
 
 // ============================================================================
 // Exit Codes
@@ -155,6 +158,22 @@ public:
 private:
     std::filesystem::path m_path;
 };
+
+// ============================================================================
+// Version Helpers
+// ============================================================================
+
+// Print version: "toolname vX.Y.Z"
+void printVersion(const char* toolName);
+
+// Print full version with build info
+void printFullVersion(const char* toolName);
+
+// Get version string
+std::string getVersionString();
+
+// Get full version string with build type
+std::string getFullVersionString();
 
 // ============================================================================
 // Initializer (for setting up ~/.omninet)

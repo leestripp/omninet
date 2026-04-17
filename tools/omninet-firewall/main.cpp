@@ -17,6 +17,8 @@ using namespace OmniNet::Tools;
 
 namespace fs = std::filesystem;
 
+constexpr const char* TOOL_NAME = "omninet-firewall";
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -241,7 +243,9 @@ Options parseArgs(int argc, char* argv[]) {
         std::string arg = argv[i];
         
         if (arg == "-h" || arg == "--help") {
-            std::cout << "Usage: omninet-firewall <command> [options]\n";
+            std::cout << TOOL_NAME << " - OmniNet Intrusion Manager\n";
+            std::cout << "Version: " << getVersionString() << "\n\n";
+            std::cout << "Usage: " << TOOL_NAME << " <command> [options]\n";
             std::cout << '\n';
             std::cout << "Intrusion detection management for OmniNet.\n";
             std::cout << '\n';
@@ -255,18 +259,23 @@ Options parseArgs(int argc, char* argv[]) {
             std::cout << '\n';
             std::cout << "Options:\n";
             std::cout << "  -h, --help          Show this help\n";
+            std::cout << "  -V, --version       Show version information\n";
             std::cout << "  -d, --duration      Block duration (e.g., 30m, 1h, 1d)\n";
             std::cout << "  -s, --since         Show logs since timestamp\n";
             std::cout << "  -j, --json          Output as JSON\n";
             std::cout << "  -v, --verbose       Verbose output\n";
             std::cout << '\n';
             std::cout << "Examples:\n";
-            std::cout << "  omninet-firewall list\n";
-            std::cout << "  omninet-firewall block 192.168.1.100\n";
-            std::cout << "  omninet-firewall block 192.168.1.100 --duration 1h\n";
-            std::cout << "  omninet-firewall unblock 192.168.1.100\n";
-            std::cout << "  omninet-firewall unblock --all\n";
-            std::cout << "  omninet-firewall logs\n";
+            std::cout << "  " << TOOL_NAME << " list\n";
+            std::cout << "  " << TOOL_NAME << " block 192.168.1.100\n";
+            std::cout << "  " << TOOL_NAME << " block 192.168.1.100 --duration 1h\n";
+            std::cout << "  " << TOOL_NAME << " unblock 192.168.1.100\n";
+            std::cout << "  " << TOOL_NAME << " unblock --all\n";
+            std::cout << "  " << TOOL_NAME << " logs\n";
+            exit(0);
+        }
+        else if (arg == "-V" || arg == "--version") {
+            printVersion(TOOL_NAME);
             exit(0);
         }
         else if (arg == "list" || arg == "blocked" || 
