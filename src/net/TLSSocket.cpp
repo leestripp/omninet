@@ -1,10 +1,9 @@
-// OmniNet - TLS Socket Implementation
 #include "TLSSocket.h"
 #include "utils/Utils.h"
-
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509_vfy.h>
+#include <iostream>
 
 namespace OmniNet {
 
@@ -407,6 +406,16 @@ void TLSSocket::doHandshake() {
         int err = SSL_get_error(m_ssl, ret);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
             return;
+        }
+        // Log all pending OpenSSL errors
+        std::cerr << "[TLSSocket] OpenSSL error queue:" << std::endl;
+        unsigned long e;
+        while ((e = ERR_get_error()) != 0) {
+            char buf[256];
+            ERR_error_string_n(e, buf, sizeof(buf));
+            std::cerr << "  - " << buf << " (lib=" << ERR_lib_error_string(e) 
+                      << ", func=" << ERR_func_error_string(e) 
+                      << ", reason=" << ERR_reason_error_string(e) << ")" << std::endl;
         }
         throw TLSException(std::string("TLS handshake failed: ") + Crypto::lastError(), err);
     }
