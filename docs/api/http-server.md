@@ -7,13 +7,15 @@ The `OmniNet::HTTP::Server` class provides a high-performance HTTP server with s
 - TLS/HTTPS encryption
 - CORS (Cross-Origin Resource Sharing)
 - Static file serving
-- Middleware pipeline
-- Request routing
+- Request routing with parameters
+- Admin endpoints (`/omninet/*`)
+- Request/response statistics
 
 ## Quick Start
 
 ```cpp
 #include "OmniNet.h"
+#include "http/StaticHandler.h"
 
 using namespace OmniNet;
 using namespace OmniNet::HTTP;
@@ -21,18 +23,25 @@ using namespace OmniNet::HTTP;
 int main() {
     OmniNet::init();
     
-    // Create server
-    Server server;
-    server.address("127.0.0.1").port(8080);
+    // Create server with config
+    Server::Config config;
+    config.address = "127.0.0.1";
+    config.port = 8080;
+    config.workerCount = 4;
+    
+    Server server(config);
     
     // Register routes
     server.get("/api/hello", [](const Request& req, Response& resp) {
+        (void)req;
         resp.setStatus(StatusCode::OK);
         resp.setContentType("application/json");
         resp.setBody(R"({"message": "Hello!"})");
     });
     
-    // Start server
+    // Mount admin handler for /omninet/* endpoints
+    server.adminHandler().mount(server);
+    
     server.start();
 }
 ```
@@ -42,11 +51,10 @@ int main() {
 ### Basic Setup
 
 ```cpp
-// Using Config struct
 Server::Config config;
 config.address = "0.0.0.0";
 config.port = 8080;
-config.workerCount = 4;
+config.workerCount = 4;  // 0 = auto-detect
 config.requestTimeout = std::chrono::seconds(30);
 config.keepAliveTimeout = std::chrono::seconds(5);
 config.maxRequestSize = 1024 * 1024;  // 1MB
@@ -54,7 +62,33 @@ config.maxRequestSize = 1024 * 1024;  // 1MB
 Server server(config);
 ```
 
-### Using Builder Pattern
+### TLS/HTTPS Setup
+
+```cpp
+Server::Config config;
+config.port = 8443;
+config.tlsEnabled = true;
+config.tlsCertFile = "/path/to/cert.pem";
+config.tlsKeyFile = "/path/to/key.pem";
+config.tlsVerifyClient = false;  // Don't require client cert
+
+Server server(config);
+```
+
+### CORS Setup
+
+```cpp
+Server::Config config;
+config.corsEnabled = true;
+config.corsAllowedOrigins = "*";  // Or specific origin
+config.corsAllowedMethods = "GET,POST,PUT,DELETE";
+config.corsAllowedHeaders = "Content-Type,Authorization";
+config.corsMaxAge = std::chrono::seconds(86400);
+
+Server server(config);
+```
+
+### Using Builder Pattern (Alternative)
 
 ```cpp
 auto server = ServerBuilder()
@@ -63,7 +97,6 @@ auto server = ServerBuilder()
     .workers(4)
     .requestTimeout(30s)
     .cors("*", "GET,POST", "Content-Type")
-    .tls("cert.pem", "key.pem")
     .build();
 ```
 
@@ -74,11 +107,11 @@ auto server = ServerBuilder()
 ```cpp
 server.get("/path", handler);           // GET requests
 server.post("/path", handler);          // POST requests
-server.put("/path", handler);           // PUT requests
-server.delete_("/path", handler);       // DELETE requests
+server.put("/path", handler);          // PUT requests
+server.delete_("/path", handler);      // DELETE requests
 server.patch("/path", handler);        // PATCH requests
-server.head("/path", handler);          // HEAD requests
-server.options("/path", handler);      // OPTIONS requests
+server.head("/path", handler);         // HEAD requests
+server.options("/path", handler);       // OPTIONS requests
 server.any("/path", handler);          // Any HTTP method
 ```
 
@@ -87,26 +120,94 @@ server.any("/path", handler);          // Any HTTP method
 ```cpp
 // Match /users/123
 server.get("/users/:id", [](const Request& req, Response& resp) {
-    std::string id = req.param("id");
+    std::string id(req.pathParam(0));  // First parameter
     resp.setBody("User ID: " + id);
 });
 
 // Match /posts/2024/03/15
 server.get("/posts/:year/:month/:day", [](const Request& req, Response& resp) {
-    std::string year = req.param("year");
-    std::string month = req.param("month");
-    std::string day = req.param("day");
+    std::string year(req.pathParam(0));
+    std::string month(req.pathParam(1));
+    std::string day(req.pathParam(2));
+    resp.setBody("Date: " + year + "-" + month + "-" + day);
+});
+
+// Named parameters
+server.get("/users/:id", [](const Request& req, Response& resp) {
+    std::string id(req.pathParam("id"));
+    resp.setBody("User: " + id);
 });
 ```
 
-### Wildcard Routes
+### Wildcards
 
 ```cpp
-// Match /files/a/b/c.txt
+// Match /files/*
 server.get("/files/*", [](const Request& req, Response& resp) {
-    std::string path = req.param("*");
-    // path = "a/b/c.txt"
+    std::string path(req.path());
+    resp.setBody("Requested: " + path);
 });
+
+// Serve static files
+StaticHandler staticHandler("./static");
+server.get("/*", [&staticHandler](const Request& req, Response& resp) {
+    staticHandler.handle(req, resp);
+});
+```
+
+### Route Priority
+
+Routes are matched in order of registration. First match wins:
+
+```cpp
+// Register specific routes FIRST
+server.get("/api/users", handleUsers);
+server.get("/api/posts", handlePosts);
+
+// Then catch-all
+server.get("/*", handleStatic);
+```
+
+## Admin Endpoints
+
+The admin handler provides built-in endpoints under `/omninet/*`:
+
+### Enable Admin Handler
+
+```cpp
+server.adminHandler().mount(server);
+```
+
+### Available Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/omninet` | GET | Admin dashboard HTML |
+| `/omninet/health` | GET | Health check (JSON) |
+| `/omninet/stats` | GET | Server statistics (JSON) |
+
+### Health Endpoint Response
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2024-01-01T12:00:00Z"
+}
+```
+
+### Stats Endpoint Response
+
+```json
+{
+  "uptime": 3600,
+  "requestsTotal": 10000,
+  "requestsSuccess": 9500,
+  "requestsError": 500,
+  "bytesReceived": 1048576,
+  "bytesSent": 2097152,
+  "connectionsTotal": 500,
+  "connectionsActive": 10
+}
 ```
 
 ## Request Object
@@ -114,99 +215,169 @@ server.get("/files/*", [](const Request& req, Response& resp) {
 ### Accessing Data
 
 ```cpp
-server.post("/api/data", [](const Request& req, Response& resp) {
-    // Path and method
-    std::string path = req.path();           // "/api/data"
-    std::string method = req.method();       // "POST"
+server.get("/api/example", [](const Request& req, Response& resp) {
+    // Path
+    std::string path(req.path());           // "/api/example"
     
     // Query parameters
-    std::string name = req.query("name");    // ?name=John
-    std::string age = req.query("age");       // ?age=25
-    
-    // URL parameters (from route pattern)
-    std::string id = req.param("id");
+    auto& query = req.query();
+    auto name = query.get("name");          // ?name=value
     
     // Headers
-    std::string auth = req.header("Authorization");
-    std::string contentType = req.header("Content-Type");
+    auto contentType = req.contentType();   // "application/json"
+    auto auth = req.header("Authorization");
     
     // Body
-    std::string body = req.body();
-    size_t bodySize = req.contentLength();
+    std::string body = req.bodyAsString();
     
-    // JSON body (parsed)
-    auto json = req.json();  // Returns nlohmann::json
-    std::string name = json.value("name", "");
-    
-    // Form data
-    auto form = req.form();
-    std::string email = form.value("email", "");
+    // Path parameters (for /users/:id)
+    std::string id(req.pathParam(0));
+    std::string name(req.pathParam("name"));
 });
 ```
 
 ### Request Properties
 
 ```cpp
-bool isJson = req.isJson();           // Content-Type is application/json
-bool isHtml = req.isHtml();           // Content-Type is text/html
-bool isSecure = req.isSecure();       // HTTPS/TLS connection
-std::string ip = req.remoteIp();      // Client IP address
-std::string ua = req.userAgent();     // User-Agent header
+// Method
+req.method();              // GET, POST, etc.
+
+ // Path
+req.path();                 // "/api/users/123"
+req.pathParam(0);          // "123" (first param)
+req.pathParam("id");       // "123" (named param)
+
+// Query string
+req.queryString();         // "page=1&limit=10"
+req.query();               // QueryParams object
+
+// Headers
+req.header("Content-Type");
+req.hasHeader("Authorization");
+
+// Body
+req.hasBody();             // true if body present
+req.contentLength();       // body size in bytes
+req.contentType();         // MIME type
+
+// Version
+req.version();             // HTTP::Version{1, 1}
 ```
 
 ## Response Object
 
-### Setting Response
+### Basic Response
 
 ```cpp
-server.get("/api", [](const Request& req, Response& resp) {
-    // Status code
-    resp.setStatus(StatusCode::OK);           // 200
-    resp.setStatus(StatusCode::CREATED);       // 201
-    resp.setStatus(StatusCode::NOT_FOUND);     // 404
-    resp.setStatus(StatusCode::INTERNAL_ERROR);// 500
-    
-    // Content type
-    resp.setContentType("application/json");
-    resp.setContentType("text/html");
-    resp.setContentType("text/plain");
-    
-    // Body
-    resp.setBody("Hello, World!");
-    resp.setBody(R"({"key": "value"})");
-    
-    // JSON response (convenience)
-    resp.json({{"message", "success"}});
-    
-    // Headers
-    resp.setHeader("X-Custom-Header", "value");
-    resp.setHeader("Cache-Control", "no-cache");
-    
-    // Cookies
-    resp.setCookie("session", "abc123", {
-        .maxAge = 3600,
-        .path = "/",
-        .httpOnly = true,
-        .secure = true
-    });
-});
+resp.setStatus(StatusCode::OK);
+resp.setContentType("application/json");
+resp.setBody(R"({"key": "value"})");
 ```
 
 ### Response Shortcuts
 
 ```cpp
-// Send JSON (sets content type and serializes)
-resp.json({{"result", 42}});
+// JSON response
+resp.setStatus(StatusCode::OK);
+resp.setContentType("application/json");
+resp.setBody("{\"message\": \"success\"}");
 
-// Send HTML file
-resp.sendFile("/path/to/file.html");
+// HTML response
+resp.setStatus(StatusCode::OK);
+resp.setContentType("text/html");
+resp.setBody("<html><body>Hello</body></html>");
 
-// Redirect
-resp.redirect("/new-location");
-resp.redirect("https://external.com", 302);
+// Empty response
+resp.setStatus(StatusCode::NoContent);
+```
 
-// Error response
-resp.error(StatusCode::UNAUTHORIZED, "Authentication required");
+### Setting Headers
+
+```cpp
+resp.setHeader("X-Custom-Header", "value");
+resp.setHeader("Cache-Control", "no-cache");
+
+// Remove header
+resp.removeHeader("X-Old-Header");
+```
+
+### CORS Headers
+
+When CORS is enabled, these headers are automatically added:
+- `Access-Control-Allow-Origin`
+- `Access-Control-Allow-Methods`
+- `Access-Control-Allow-Headers`
+- `Access-Control-Max-Age`
+
+### Error Responses
+
+```cpp
+// 400 Bad Request
+resp.setStatus(StatusCode::BadRequest);
+resp.setBody("{\"error\": \"Invalid request\"}");
+
+// 404 Not Found
+resp.setStatus(StatusCode::NotFound);
+resp.setBody("Not found");
+
+// 500 Internal Server Error
+resp.setStatus(StatusCode::InternalServerError);
+resp.setBody("Server error");
+```
+
+## Static File Serving
+
+### Basic Setup
+
+```cpp
+#include "http/StaticHandler.h"
+
+StaticHandler staticHandler("./static");
+staticHandler.setDefaultFile("index.html");
+
+// Register catch-all route
+server.get("/*", [&staticHandler](const Request& req, Response& resp) {
+    // Skip admin paths
+    std::string path(req.path());
+    if (path.rfind("/omninet/", 0) == 0) {
+        resp = Response::notFound();
+        return;
+    }
+    staticHandler.handle(req, resp);
+});
+```
+
+### Configuration
+
+```cpp
+StaticHandler handler("./static");
+handler.setDefaultFile("index.html");      // Default file for directories
+handler.setIndexFiles({"index.html", "index.htm"});
+handler.enableDirectoryListing(false);    // Disable directory browsing
+handler.addAlias("/assets", "/var/www/assets");  // Path aliasing
+```
+
+## Error Handling
+
+### Custom 404 Handler
+
+```cpp
+server.setNotFoundHandler([](const Request& req, Response& resp) {
+    (void)req;
+    resp.setStatus(StatusCode::NotFound);
+    resp.setContentType("text/html");
+    resp.setBody("<html><body><h1>404 Not Found</h1></body></html>");
+});
+```
+
+### Custom Error Handler
+
+```cpp
+server.setErrorHandler([](const Request& req, Response& resp) {
+    resp.setStatus(StatusCode::InternalServerError);
+    resp.setContentType("text/plain");
+    resp.setBody("Internal Server Error");
+});
 ```
 
 ## Middleware
@@ -214,150 +385,44 @@ resp.error(StatusCode::UNAUTHORIZED, "Authentication required");
 ### Global Middleware
 
 ```cpp
-// Logging middleware
 server.use([](const Request& req, Response& resp, auto next) {
-    std::cout << "Request: " << req.method() << " " << req.path() << std::endl;
-    next();
-    std::cout << "Response: " << static_cast<int>(resp.status()) << std::endl;
+    // Before handler
+    auto start = std::chrono::steady_clock::now();
+    
+    next();  // Call handler
+    
+    // After handler
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start
+    ).count();
+    std::cout << "Request took " << elapsed << "ms" << std::endl;
 });
-
-// Authentication middleware
-server.use([](const Request& req, Response& resp, auto next) {
-    std::string token = req.header("Authorization");
-    if (validateToken(token)) {
-        next();  // Continue to handler
-    } else {
-        resp.error(StatusCode::UNAUTHORIZED, "Invalid token");
-    }
-});
-```
-
-### Route-Specific Middleware
-
-```cpp
-// Apply middleware to specific route
-server.get("/admin/*", authMiddleware, [](const Request& req, Response& resp) {
-    // Admin-only route
-});
-```
-
-## CORS (Cross-Origin Resource Sharing)
-
-### Enable CORS
-
-```cpp
-// Simple setup
-server.enableCORS();
-
-// Custom configuration
-server.enableCORS(
-    "https://example.com",                           // Allowed origins
-    "GET, POST, PUT, DELETE",                        // Allowed methods
-    "Content-Type, Authorization, X-Request-ID",   // Allowed headers
-    std::chrono::seconds(86400)                     // Preflight cache duration
-);
-
-// Disable CORS
-server.disableCORS();
-```
-
-### Config Options
-
-```cpp
-Server::Config config;
-config.corsEnabled = true;
-config.corsAllowedOrigins = "*";  // Or specific: "https://example.com"
-config.corsAllowedMethods = "GET, POST, PUT, DELETE";
-config.corsAllowedHeaders = "Content-Type, Authorization";
-config.corsMaxAge = std::chrono::seconds(86400);
-```
-
-## TLS/HTTPS
-
-```cpp
-Server::Config config;
-config.tlsEnabled = true;
-config.tlsCertFile = "/path/to/certificate.pem";
-config.tlsKeyFile = "/path/to/private-key.pem";
-// config.tlsCaFile = "/path/to/ca-cert.pem";  // For client cert auth
-config.tlsVerifyClient = false;  // true for mutual TLS
-
-Server server(config);
-```
-
-## Static Files
-
-```cpp
-// Serve directory
-server.serveStatic("/static", "/var/www/html");
-
-// With file caching
-server.serveStatic("/assets", "./public", {
-    .maxAge = 3600,
-    .indexFile = "index.html"
-});
-```
-
-## Error Handling
-
-### Custom Error Handler
-
-```cpp
-server.setErrorHandler([](const Request& req, Response& resp, std::exception_ptr e) {
-    resp.setStatus(StatusCode::INTERNAL_ERROR);
-    resp.setContentType("application/json");
-    resp.setBody(R"({"error": "Something went wrong"})");
-});
-```
-
-### Not Found Handler
-
-```cpp
-server.setNotFoundHandler([](const Request& req, Response& resp) {
-    resp.setStatus(StatusCode::NOT_FOUND);
-    resp.setContentType("text/html");
-    resp.setBody("<h1>404 - Page Not Found</h1>");
-});
-```
-
-## Server Lifecycle
-
-```cpp
-Server server(config);
-
-// Blocking start
-server.start();
-
-// Non-blocking (background)
-server.startAsync();
-// ... do other work ...
-server.wait();  // Block until stopped
-
-// Stop gracefully
-server.stop();
-
-// Check status
-if (server.isRunning()) {
-    std::cout << "Server is running on port " << server.port() << std::endl;
-}
 ```
 
 ## Statistics
 
+### Access Server Stats
+
 ```cpp
 const auto& stats = server.stats();
 std::cout << "Total requests: " << stats.requestsTotal.load() << std::endl;
-std::cout << "Active requests: " << stats.requestsActive.load() << std::endl;
-std::cout << "Successful: " << stats.requestsSuccess.load() << std::endl;
-std::cout << "Errors: " << stats.requestsError.load() << std::endl;
-std::cout << "Bytes received: " << stats.bytesReceived.load() << std::endl;
+std::cout << "Active connections: " << stats.connectionsActive.load() << std::endl;
 std::cout << "Bytes sent: " << stats.bytesSent.load() << std::endl;
 ```
 
-## Complete Example
+### Admin Stats Endpoint
+
+```cpp
+// GET /omninet/stats
+auto adminStats = server.adminHandler().getStats();
+std::cout << "Uptime: " << adminStats.uptime.count() << "s" << std::endl;
+```
+
+## Full Example
 
 ```cpp
 #include "OmniNet.h"
+#include "http/StaticHandler.h"
 
 using namespace OmniNet;
 using namespace OmniNet::HTTP;
@@ -365,50 +430,87 @@ using namespace OmniNet::HTTP;
 int main() {
     OmniNet::init();
     
-    Server server({
-        .port = 8080,
-        .workerCount = 4,
-        .corsEnabled = true,
-        .corsAllowedOrigins = "*",
-        .requestTimeout = 30s,
-        .logRequests = true
+    // Configure server
+    Server::Config config;
+    config.address = "0.0.0.0";
+    config.port = 8080;
+    config.workerCount = 0;  // Auto-detect
+    config.corsEnabled = true;
+    
+    Server server(config);
+    
+    // API routes
+    server.get("/api/hello", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setContentType("application/json");
+        resp.setBody(R"({"message": "Hello, World!"})");
     });
     
-    // Health check
-    server.get("/health", [](const Request& req, Response& resp) {
-        resp.json({{"status", "healthy"}});
-    });
-    
-    // API with parameters
-    server.get("/users/:id", [](const Request& req, Response& resp) {
-        std::string id = req.param("id");
-        resp.json({
-            {"id", id},
-            {"name", "User " + id}
-        });
-    });
-    
-    // POST endpoint
-    server.post("/users", [](const Request& req, Response& resp) {
-        auto body = req.json();
-        std::string name = body.value("name", "");
+    server.get("/api/time", [](const Request& req, Response& resp) {
+        (void)req;
+        auto now = std::chrono::system_clock::now();
+        auto timestamp = std::chrono::system_clock::to_time_t(now);
         
-        // Create user...
-        
-        resp.setStatus(StatusCode::CREATED);
-        resp.json({{"id", "123"}, {"name", name}});
+        resp.setContentType("application/json");
+        resp.setBody("{\"timestamp\": " + std::to_string(timestamp) + "}");
     });
     
-    // Start server
-    std::cout << "Server starting on port 8080..." << std::endl;
+    server.post("/api/echo", [](const Request& req, Response& resp) {
+        resp.setContentType("application/json");
+        resp.setBody("{\"echo\": \"" + req.bodyAsString() + "\"}");
+    });
+    
+    // Mount admin handler
+    server.adminHandler().mount(server);
+    
+    // Static files
+    StaticHandler staticHandler("./static");
+    staticHandler.setDefaultFile("index.html");
+    
+    server.get("/*", [&staticHandler](const Request& req, Response& resp) {
+        std::string path(req.path());
+        if (path.rfind("/omninet/", 0) == 0) {
+            resp = Response::notFound();
+            return;
+        }
+        staticHandler.handle(req, resp);
+    });
+    
+    std::cout << "Server starting on port " << config.port << std::endl;
     server.start();
     
+    OmniNet::cleanup();
     return 0;
 }
 ```
 
-## See Also
+## Status Codes
 
-- [WebSocket API](websocket.md) - WebSocket connections
-- [Database API](database.md) - SQLite database access
-- [Config System](../config.md) - Configuration options
+Available `StatusCode` values:
+
+```cpp
+// 2xx Success
+StatusCode::OK = 200
+StatusCode::Created = 201
+StatusCode::NoContent = 204
+
+// 3xx Redirection
+StatusCode::Found = 302
+StatusCode::NotModified = 304
+
+// 4xx Client Error
+StatusCode::BadRequest = 400
+StatusCode::Unauthorized = 401
+StatusCode::Forbidden = 403
+StatusCode::NotFound = 404
+StatusCode::MethodNotAllowed = 405
+StatusCode::RequestTimeout = 408
+StatusCode::TooManyRequests = 429
+
+// 5xx Server Error
+StatusCode::InternalServerError = 500
+StatusCode::NotImplemented = 501
+StatusCode::BadGateway = 502
+StatusCode::ServiceUnavailable = 503
+StatusCode::GatewayTimeout = 504
+```

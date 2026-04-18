@@ -24,16 +24,17 @@ ctest --test-dir build
 
 ## TLS Certificates
 
-OmniNet includes a script to generate self-signed TLS certificates for development.
+OmniNet includes a CLI tool to generate self-signed TLS certificates for development.
 
 ### Generate Certificates
 
 ```bash
-# Generate certificates in default location (~/.omninet/certs/)
-./scripts/generate-certs.sh
+# Generate certificates using omninet-certs tool
+./build/tools/omninet-certs generate
 
-# Or specify custom location
-./scripts/generate-certs.sh --dir /path/to/certs
+# Or install tools first and use direct path
+cmake --build build --target omninet-certs
+./build/tools/omninet-certs generate
 ```
 
 ### Generated Files
@@ -46,37 +47,33 @@ OmniNet includes a script to generate self-signed TLS certificates for developme
 └── omninet.cnf   # OpenSSL config
 ```
 
-### Certificate Script Options
+### Certificate Tool Options
 
 ```bash
-./scripts/generate-certs.sh [OPTIONS]
+./build/tools/omninet-certs generate [OPTIONS]
 
 Options:
-  -d, --dir <path>     Output directory (default: ~/.omninet/certs/)
-  -n, --name <name>    Certificate name prefix (default: omninet)
-  -h, --host <host>    Server hostname (default: localhost)
-  -e, --email <email>  Email for certificate (default: admin@localhost)
-  --days <days>        Validity period (default: 365)
-  --force             Overwrite existing certificates
-  -q, --quiet         Suppress output
-  --help              Show this help message
+  --dir <path>     Output directory (default: ~/.omninet/certs/)
+  --name <name>    Certificate name prefix (default: omninet)
+  --days <days>    Validity period (default: 365)
+  --force          Overwrite existing certificates
 ```
 
 ### Example: Custom Certificate
 
 ```bash
-# Generate for specific hostname
-./scripts/generate-certs.sh --host myserver.local --days 730
+# Generate for specific directory
+./build/tools/omninet-certs generate --dir /path/to/certs
 
-# Generate with custom email
-./scripts/generate-certs.sh --email dev@example.com
+# Regenerate with force
+./build/tools/omninet-certs generate --force
 ```
 
 ---
 
 ## Demo 1: HTTP Server
 
-A basic HTTP server with API endpoints and static file serving.
+A basic HTTP server with API endpoints, admin routes, and static file serving.
 
 **Location:** `demos/http_server.cpp`
 
@@ -100,6 +97,10 @@ cmake --build build --target http_server_demo -j$(nproc)
 | POST | `/api/echo` | Echoes request body as JSON |
 | GET | `/` | Static index.html |
 | GET | `/*` | Static file serving |
+| GET | `/omninet` | Admin dashboard (HTML) |
+| GET | `/omninet/api/*` | Dashboard API endpoints |
+| GET | `/omninet/health` | System health (JSON) |
+| GET | `/omninet/stats` | System statistics (JSON) |
 
 ### Test with curl
 
@@ -117,13 +118,19 @@ curl http://localhost:8080/api/time
 curl -X POST http://localhost:8080/api/echo \
   -H "Content-Type: application/json" \
   -d '{"message": "Hello"}'
+
+# Admin health
+curl http://localhost:8080/omninet/health
+
+# Dashboard API
+curl http://localhost:8080/omninet/api/stats
 ```
 
 ---
 
 ## Demo 2: HTTPS Server
 
-An HTTPS/TLS encrypted server.
+An HTTPS/TLS encrypted server with secure endpoints.
 
 **Location:** `demos/https_server.cpp`
 
@@ -131,20 +138,10 @@ An HTTPS/TLS encrypted server.
 
 1. Generate TLS certificates:
    ```bash
-   # Use default location
-   ./scripts/generate-certs.sh
-   
-   # Or create in project directory
-   mkdir -p certs
-   ./scripts/generate-certs.sh --dir certs
+   ./build/tools/omninet-certs generate
    ```
 
-2. Update `demos/https_server.cpp` to point to your certificates:
-   ```cpp
-   config.tlsCertFile = "/home/user/.omninet/certs/omninet.crt";
-   config.tlsKeyFile = "/home/user/.omninet/certs/omninet.key";
-   ```
-   Or rebuild with correct paths, or use config file.
+2. Certificates are automatically loaded from `~/.omninet/certs/` by default.
 
 ### Build
 ```bash
@@ -166,7 +163,7 @@ curl -k https://localhost:8443/
 curl --cacert ~/.omninet/certs/omninet.crt https://localhost:8443/
 
 # Secure API endpoint
-curl -k https://localhost:8443/api/secure
+curl -k https://localhost:8443/api/hello
 ```
 
 ### Available Endpoints
@@ -174,7 +171,8 @@ curl -k https://localhost:8443/api/secure
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | HTTPS greeting page |
-| GET | `/api/secure` | JSON response over HTTPS |
+| GET | `/api/hello` | JSON greeting |
+| GET | `/api/health` | Health check |
 
 ---
 
@@ -204,15 +202,15 @@ cmake --build build --target static_files_demo -j$(nproc)
 
 ### Features
 
-- Directory browsing
 - MIME type detection
 - Index.html fallback
 - 404 for missing files
+- CORS headers
 
 ### Test
 
 ```bash
-# List files (if directory listing enabled)
+# List files
 curl http://localhost:8080/
 
 # Access specific file
@@ -241,7 +239,7 @@ cmake --build build --target websocket_echo_demo -j$(nproc)
 
 ```javascript
 // Open browser console and run:
-const ws = new WebSocket('ws://localhost:8080/echo');
+const ws = new WebSocket('ws://localhost:8080/ws');
 
 ws.onopen = () => {
     console.log('Connected!');
@@ -259,26 +257,18 @@ ws.onclose = () => console.log('Disconnected');
 
 ```bash
 # Install: npm install -g wscat
-wscat -c ws://localhost:8080/echo
+wscat -c ws://localhost:8080/ws
 
 # Type messages and see them echoed back
 > Hello
 < Hello
 ```
 
-### Test with curl (WebSocket upgrade)
-
-```bash
-# Note: curl doesn't support WebSocket natively, use websocat
-# Install: cargo install websocat
-websocat ws://localhost:8080/echo
-```
-
 ---
 
 ## Demo 5: Admin Dashboard
 
-Admin dashboard with user authentication and session management.
+Admin dashboard with user authentication, session management, and logs viewer.
 
 **Location:** `demos/dashboard.cpp`
 
@@ -294,30 +284,53 @@ cmake --build build --target dashboard_demo -j$(nproc)
 
 ### Access
 
-- **URL:** http://localhost:8080/dashboard
-- **API:** http://localhost:8080/api
+- **Dashboard:** http://localhost:8080/omninet
+- **API:** http://localhost:8080/omninet/api
 
-### Default Credentials
+### First-Time Setup
 
-On first run, you can create an admin user via the dashboard UI.
+On first run, initialize the admin user:
+```bash
+./build/tools/omninet-init --yes
+```
+
+Or use the dashboard UI to create a user.
 
 ### Features
 
 - User management (CRUD)
-- Session handling
-- Rate limiting
+- Session handling with TTL
+- Rate limiting (per IP)
 - IP-based access control
+- Logs viewer tab
+- System stats
+
+### Dashboard API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/omninet` | Dashboard HTML |
+| POST | `/omninet/api/login` | User login |
+| POST | `/omninet/api/logout` | User logout |
+| GET | `/omninet/api/users` | List users |
+| POST | `/omninet/api/users` | Create user |
+| DELETE | `/omninet/api/users/:id` | Delete user |
+| GET | `/omninet/api/stats` | System stats |
+| GET | `/omninet/api/logs` | Recent logs |
 
 ### Test
 
 ```bash
-# Login
-curl -X POST http://localhost:8080/api/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "yourpassword"}'
+# Initialize (creates default user)
+./build/tools/omninet-init --yes --admin-password mypassword
 
-# Access users (with session cookie)
-curl -b cookies.txt http://localhost:8080/api/users
+# Login via API
+curl -X POST http://localhost:8080/omninet/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "mypassword"}'
+
+# Access users (with X-Session-ID header from login)
+curl -H "X-Session-ID: <session-id>" http://localhost:8080/omninet/api/users
 ```
 
 ---
@@ -339,10 +352,7 @@ Each demo runs on a specific port. You can run multiple simultaneously:
 ./build/demos/http_server_demo &
 PID_HTTP=$!
 
-# Run WebSocket server on different port
-# (Edit websocket_echo.cpp to change port)
-
-# Run HTTPS server
+# Run HTTPS server in background
 ./build/demos/https_server_demo &
 
 # Check status
@@ -350,30 +360,6 @@ ps aux | grep demo
 
 # Stop all
 pkill -f demo
-```
-
----
-
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OMNINET_PORT` | Default HTTP port | 8080 |
-| `OMNINET_LOG_LEVEL` | Log level (DEBUG/INFO/WARN/ERROR) | INFO |
-| `OMNINET_WORKERS` | Number of worker threads | 0 (auto) |
-| `OMNINET_TIMEOUT` | Request timeout (seconds) | 30 |
-| `OMNINET_DATA_DIR` | Data directory | ~/.omninet |
-| `OMNINET_TLS_CERT` | TLS certificate path | (none) |
-| `OMNINET_TLS_KEY` | TLS private key path | (none) |
-
-### Example
-
-```bash
-# Run with custom settings
-OMNINET_PORT=9090 \
-OMNINET_LOG_LEVEL=DEBUG \
-OMNINET_WORKERS=8 \
-./build/demos/http_server_demo
 ```
 
 ---
@@ -392,14 +378,31 @@ OmniNet reads configuration from `~/.omninet/config.json`:
   },
   "tls": {
     "enabled": true,
-    "certFile": "/home/user/.omninet/certs/omninet.crt",
-    "keyFile": "/home/user/.omninet/certs/omninet.key"
+    "certFile": "",
+    "keyFile": ""
   },
   "logging": {
-    "level": "INFO",
-    "file": "omninet.log"
+    "level": "INFO"
+  },
+  "dashboard": {
+    "enabled": true,
+    "urlPath": "/omninet",
+    "apiPath": "/omninet/api"
   }
 }
+```
+
+### Log Files
+
+Logs are stored at: `~/.omninet/logs/omninet.log`
+
+- Main log: `~/.omninet/logs/omninet.log`
+- Rotated logs: `~/.omninet/logs/omninet.log.1`, `.2`, etc.
+
+View logs:
+```bash
+./build/tools/omninet-log tail
+./build/tools/omninet-log --level ERROR
 ```
 
 ---
@@ -410,28 +413,49 @@ OmniNet reads configuration from `~/.omninet/config.json`:
 
 ```cpp
 #include "OmniNet.h"
+#include "http/StaticHandler.h"
 
+using namespace OmniNet;
 using namespace OmniNet::HTTP;
 
 int main() {
     OmniNet::init();
     
-    Server server;
-    server.port(8080);
+    // Load config
+    auto& config = Config::instance();
+    
+    // Configure logging to ~/.omninet/logs/
+    auto dataDir = config.dataDir();
+    std::filesystem::create_directories(dataDir / "logs");
+    Logger::instance().setLogFile((dataDir / "logs" / "omninet.log").string());
+    Logger::instance().setLevel(LogLevel::INFO);
+    
+    // Create server
+    Server::Config serverConfig;
+    serverConfig.address = "127.0.0.1";
+    serverConfig.port = 8080;
+    Server server(serverConfig);
     
     // Route handlers
-    server.get("/api/hello", [](const Request& req, Response& resp) {
-        resp.json({{"message", "Hello, World!"}});
+    server.router().get("/api/hello", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setStatus(StatusCode::OK);
+        resp.setContentType("application/json");
+        resp.setBody(R"({"message": "Hello, World!"})");
     });
     
-    server.post("/api/echo", [](const Request& req, Response& resp) {
-        auto body = req.json();
-        resp.json({{"echo", body}});
+    // Mount admin handler
+    server.adminHandler().mount(server);
+    
+    // Static file serving
+    StaticHandler staticHandler("./static");
+    staticHandler.setDefaultFile("index.html");
+    server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
+        staticHandler.handle(req, resp);
     });
     
-    // Start server (blocking)
     server.start();
-    
+    OmniNet::cleanup();
     return 0;
 }
 ```
@@ -441,6 +465,7 @@ int main() {
 ```cpp
 #include "OmniNet.h"
 
+using namespace OmniNet;
 using namespace OmniNet::HTTP;
 
 int main() {
@@ -454,12 +479,15 @@ int main() {
     
     Server server(config);
     
-    server.get("/", [](const Request& req, Response& resp) {
-        resp.setBody(R"(<!DOCTYPE html>
-<html><body><h1>Secure Server</h1></body></html>)");
+    server.router().get("/", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setStatus(StatusCode::OK);
+        resp.setContentType("text/html");
+        resp.setBody("<!DOCTYPE html><html><body><h1>Secure Server</h1></body></html>");
     });
     
     server.start();
+    OmniNet::cleanup();
     return 0;
 }
 ```
@@ -467,14 +495,13 @@ int main() {
 ### Route with Parameters
 
 ```cpp
-server.get("/users/:id/posts/:postId", [](const Request& req, Response& resp) {
-    std::string userId = req.param("id");
-    std::string postId = req.param("postId");
+server.router().get("/users/:id/posts/:postId", [](const Request& req, Response& resp) {
+    std::string userId = std::string(req.pathParam(0));
+    std::string postId = std::string(req.pathParam(1));
     
-    resp.json({
-        {"userId", userId},
-        {"postId", postId}
-    });
+    resp.setStatus(StatusCode::OK);
+    resp.setContentType("application/json");
+    resp.setBody("{\"userId\": \"" + userId + "\", \"postId\": \"" + postId + "\"}");
 });
 ```
 
@@ -484,26 +511,32 @@ server.get("/users/:id/posts/:postId", [](const Request& req, Response& resp) {
 #include "OmniNet.h"
 #include "websocket/WebSocket.h"
 
+using namespace OmniNet::HTTP;
 using namespace OmniNet::WebSocket;
 
 int main() {
     OmniNet::init();
     
-    Server wsServer;
+    Server::Config config;
+    config.port = 8080;
+    Server server(config);
     
-    wsServer.on("/chat", [](Connection& conn) {
-        std::cout << "Client connected: " << conn.remoteAddress() << std::endl;
-        
-        while (conn.isOpen()) {
-            auto msg = conn.receiveText();
-            if (msg) {
-                std::cout << "Received: " << *msg << std::endl;
-                conn.sendText("Echo: " + *msg);
-            }
+    // WebSocket endpoint
+    server.router().get("/ws", [](const Request& req, Response& resp) {
+        auto ws = WebSocket::upgrade(req, resp);
+        if (ws) {
+            ws->onMessage([](WebSocket* ws, const std::string& msg) {
+                // Echo back
+                ws->send(msg);
+            });
+            ws->onClose([](WebSocket* ws) {
+                // Handle close
+            });
         }
     });
     
-    wsServer.start();
+    server.start();
+    OmniNet::cleanup();
     return 0;
 }
 ```
@@ -540,8 +573,47 @@ int main() {
     });
     
     db.close();
+    OmniNet::cleanup();
     return 0;
 }
+```
+
+---
+
+## CLI Tools
+
+OmniNet includes several CLI tools in `build/tools/`:
+
+| Tool | Description |
+|------|-------------|
+| `omninet-init` | Initialize OmniNet configuration |
+| `omninet-status` | Show system status |
+| `omninet-health` | Health check |
+| `omninet-users` | User management |
+| `omninet-certs` | TLS certificate management |
+| `omninet-db` | Database management |
+| `omninet-log` | Log viewer |
+| `omninet-firewall` | Firewall rules |
+| `omninet-ctl` | Server control |
+| `omninet-mon` | Monitoring |
+
+### Example Usage
+
+```bash
+# Initialize new installation
+./build/tools/omninet-init --yes
+
+# Check status
+./build/tools/omninet-status
+
+# View recent logs
+./build/tools/omninet-log tail --lines 50
+
+# List users
+./build/tools/omninet-users list
+
+# Generate certificates
+./build/tools/omninet-certs generate
 ```
 
 ---
@@ -562,9 +634,9 @@ kill $(lsof -t -i :8080)
 
 ```bash
 # Regenerate certificates
-./scripts/generate-certs.sh --force
+./build/tools/omninet-certs generate --force
 
-# Or check paths in config
+# Or check paths
 cat ~/.omninet/config.json | grep -A2 tls
 ```
 
@@ -583,18 +655,17 @@ cmake --build build -j$(nproc)
 # Run specific test
 ./build/tests/omnet_test
 
-# Run with verbose output
-./build/tests/test_config --verbose
+# Run config tests
+./build/tests/test_config
 ```
 
 ---
 
 ## Next Steps
 
-- Review [API Documentation](../api/index.md) for detailed usage
+- Review [API Documentation](api/index.md) for detailed usage
 - Check `tests/test_all.cpp` for more examples
 - Review `src/` for implementation details
-- Review [Config System](../config.md) for configuration options
 
 ---
 
@@ -608,17 +679,17 @@ cmake -S . -B build && cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
 
 # Generate TLS certificates
-./scripts/generate-certs.sh
+./build/tools/omninet-certs generate
 
-# Run HTTP demo
+# Initialize
+./build/tools/omninet-init --yes
+
+# Run demos
 ./build/demos/http_server_demo
-
-# Run HTTPS demo
 ./build/demos/https_server_demo
-
-# Run WebSocket demo
 ./build/demos/websocket_echo_demo
-
-# Run Dashboard demo
 ./build/demos/dashboard_demo
+
+# View logs
+./build/tools/omninet-log tail
 ```

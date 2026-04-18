@@ -3,16 +3,16 @@
 ## Overview
 
 The `OmniNet::DB` namespace provides a thread-safe SQLite3 wrapper with:
-- Synchronous and async operations
 - Prepared statements with parameter binding
-- Transaction support with automatic rollback
+- Transaction support (manual and automatic)
 - Schema migration system
-- Connection pooling (planned)
+- Thread-safe operations via mutex
 
 ## Quick Start
 
 ```cpp
 #include "OmniNet.h"
+#include "db/Database.h"
 
 using namespace OmniNet::DB;
 
@@ -24,7 +24,7 @@ int main() {
     
     // Create table
     db.execute(R"(
-        CREATE TABLE users (
+        CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
@@ -36,12 +36,13 @@ int main() {
     db.execute("INSERT INTO users (name, email) VALUES ('John', 'john@example.com')");
     
     // Query data
-    db.query("SELECT * FROM users", [](const std::vector<std::string>& row) {
-        std::cout << "ID: " << row[0] << ", Name: " << row[1] << std::endl;
-        return true;  // continue
+    db.query("SELECT id, name, email FROM users", [](const std::vector<std::string>& row) {
+        std::cout << "ID: " << row[0] << ", Name: " << row[1] << ", Email: " << row[2] << std::endl;
+        return true;  // Continue iterating
     });
     
     db.close();
+    OmniNet::cleanup();
 }
 ```
 
@@ -69,36 +70,43 @@ db.close();
 ```cpp
 // Execute DDL (CREATE, DROP, ALTER)
 db.execute("CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY, name TEXT)");
+db.execute("DROP TABLE IF EXISTS old_table");
 
 // Execute DML (INSERT, UPDATE, DELETE)
 db.execute("INSERT INTO products (name) VALUES ('Widget')");
 db.execute("UPDATE products SET name = 'Super Widget' WHERE id = 1");
 db.execute("DELETE FROM products WHERE id = 2");
 
-// Formatted SQL (using printf-like syntax)
-db.executef("INSERT INTO users (name, email) VALUES ('%s', '%s')", name.c_str(), email.c_str());
+// Formatted SQL (printf-like)
+db.executef("INSERT INTO users (name, email) VALUES ('%s', '%s')", 
+    name.c_str(), email.c_str());
 ```
 
 ### Querying Data
 
 ```cpp
 // Query with callback
-db.query("SELECT id, name, email FROM users", [](const std::vector<std::string>& columns) {
-    std::cout << "ID: " << columns[0] << ", Name: " << columns[1] << std::endl;
-    return true;  // Continue iterating
-});
+db.query("SELECT id, name, email FROM users", 
+    [](const std::vector<std::string>& columns) {
+        std::cout << "ID: " << columns[0] << ", Name: " << columns[1] << std::endl;
+        return true;  // Return true to continue, false to stop
+    });
 
 // Query single row
 auto row = db.queryOne("SELECT * FROM users WHERE id = 1");
 if (row) {
     std::cout << "Found user: " << (*row)[1] << std::endl;
+    // (*row)[0] = id
+    // (*row)[1] = name
+    // (*row)[2] = email
 }
 
 // Query with no results
-db.query("SELECT COUNT(*) FROM users", [](const std::vector<std::string>& columns) {
-    std::cout << "Total users: " << columns[0] << std::endl;
-    return false;  // Stop after first row
-});
+db.query("SELECT COUNT(*) FROM users", 
+    [](const std::vector<std::string>& columns) {
+        std::cout << "Total users: " << columns[0] << std::endl;
+        return false;  // Stop after first row
+    });
 ```
 
 ## Prepared Statements
@@ -106,442 +114,343 @@ db.query("SELECT COUNT(*) FROM users", [](const std::vector<std::string>& column
 ### Creating Statements
 
 ```cpp
-auto stmt = db.prepare("SELECT * FROM users WHERE email = ?");
+auto stmt = db.prepare("INSERT INTO users (name, email) VALUES (?, ?)");
+
+// Bind parameters
+stmt.bind(1, "Alice");
+stmt.bind(2, "alice@example.com");
+
+// Execute
+stmt.step();
+
+// Reset for reuse
+stmt.reset();
+
+// Bind new values
+stmt.bind(1, "Bob");
+stmt.bind(2, "bob@example.com");
+stmt.step();
 ```
 
 ### Binding Parameters
 
 ```cpp
-auto stmt = db.prepare("INSERT INTO users (name, email, age) VALUES (?, ?, ?)");
+auto stmt = db.prepare("SELECT * FROM users WHERE id = ? AND active = ?");
 
-// Bind by index (1-based)
-stmt.bind(1, "Alice");
-stmt.bind(2, "alice@example.com");
-stmt.bind(3, 25);
+// By index (1-based)
+stmt.bind(1, 42);                      // int
+stmt.bind(2, 12345678901234LL);         // int64_t
+stmt.bind(3, 3.14159);                  // double
+stmt.bind(4, "text value");              // std::string
+stmt.bind(5, std::string_view("sv"));   // string_view
+stmt.bind(6, nullptr);                   // NULL
 
-// Execute
-stmt.step();
-stmt.reset();  // Reset for reuse
-
-// Bind another row
-stmt.bind(1, "Bob");
-stmt.bind(2, "bob@example.com");
-stmt.bind(3, 30);
-stmt.step();
-```
-
-### Supported Types
-
-```cpp
-// NULL
-stmt.bind(1, nullptr);
-
-// Integer
-stmt.bind(1, 42);
-
-// 64-bit integer
-stmt.bind(1, int64_t(12345678901234));
-
-// Double
-stmt.bind(1, 3.14159);
-
-// String
-stmt.bind(1, "Hello, World!");
-stmt.bind(1, std::string_view("Hello"));
-
-// Binary (BLOB)
-std::vector<uint8_t> data = {0x01, 0x02, 0x03};
-stmt.bind(1, std::span<const uint8_t>(data));
+// By name (using :name syntax)
+auto stmt2 = db.prepare("SELECT * FROM users WHERE name = :name");
+stmt2.bind(":name", "Alice");
 ```
 
 ### Reading Results
 
 ```cpp
 auto stmt = db.prepare("SELECT id, name, email, created_at FROM users");
+stmt.step();  // Move to first row
 
-while (stmt.step()) {
-    int id = std::stoi(stmt.columnText(0));
-    std::string name = stmt.columnText(1);
-    std::string email = stmt.columnText(2);
-    
-    // Check for NULL
-    bool hasCreated = !stmt.columnIsNull(3);
-    
-    std::cout << id << ": " << name << " <" << email << ">" << std::endl;
-}
+// Get column count
+int count = stmt.columnCount();
+
+// Get values by index
+int id = stmt.columnInt64(0);
+std::string name = stmt.columnText(1);
+double value = stmt.columnDouble(2);
+
+// Check for NULL
+bool isNull = stmt.columnIsNull(3);
+
+// Get blob
+auto blob = stmt.columnBlob(4);
+
+// Get by name (if query includes column names)
+std::string name = stmt.columnText("name");
 ```
 
-### Column Access Methods
+### Reusing Statements
 
 ```cpp
-stmt.columnText(0);           // std::string
-stmt.columnInt64(1);          // int64_t
-stmt.columnDouble(2);         // double
-stmt.columnBlob(3);           // std::span<const uint8_t>
-stmt.columnIsNull(4);         // bool
+auto stmt = db.prepare("SELECT * FROM users WHERE active = ?");
 
-// Named column access
-stmt.columnText("name");      // By column name
+stmt.bind(1, 1);  // Active users
+while (stmt.step()) {
+    // Process row
+}
+stmt.reset();
+
+stmt.bind(1, 0);  // Inactive users
+while (stmt.step()) {
+    // Process row
+}
 ```
 
 ## Transactions
 
-### Automatic Transaction
+### Automatic Transactions
 
 ```cpp
-// All operations in a single transaction
+// All operations in fn() run in a transaction
 // Automatically commits on success, rolls back on exception
-db.transaction([&]() {
-    db.execute("INSERT INTO accounts (name) VALUES ('Checking')");
-    db.execute("INSERT INTO accounts (name) VALUES ('Savings')");
-    
-    int id = db.lastInsertRowId();
-    
-    db.execute("INSERT INTO transactions (account_id, amount) VALUES (?, ?)", id, 1000);
-});
-// Committed automatically
+db.transaction([]() {
+    db.execute("INSERT INTO users (name) VALUES ('Alice')");
+    db.execute("INSERT INTO users (name) VALUES ('Bob')");
+    db.execute("UPDATE stats SET count = count + 2");
+});  // Commits here
+
+// If exception thrown, automatically rolled back
+try {
+    db.transaction([]() {
+        db.execute("INSERT INTO users (name) VALUES ('Charlie')");
+        db.execute("INSERT INTO users (name) VALUES ('Dave')");
+        throw std::runtime_error("Something went wrong");
+    });
+} catch (...) {
+    // Changes rolled back, no users inserted
+}
 ```
 
-### Manual Transaction Control
+### Manual Transactions
 
 ```cpp
 db.begin();  // Start transaction
 
 try {
-    db.execute("INSERT INTO ...");
-    db.execute("UPDATE ...");
+    db.execute("INSERT INTO users (name) VALUES ('Alice')");
+    db.execute("INSERT INTO users (name) VALUES ('Bob')");
     
-    db.commit();  // Commit changes
+    if (someCondition) {
+        db.commit();  // Save changes
+    } else {
+        db.rollback();  // Undo changes
+    }
 } catch (...) {
-    db.rollback();  // Rollback on error
+    db.rollback();  // Clean up on error
+}
+
+// Check transaction state
+if (db.inTransaction()) {
+    std::cout << "Still in transaction" << std::endl;
 }
 ```
 
-### Checking Transaction State
+## Schema Migrations
+
+### Defining Migrations
 
 ```cpp
-if (db.inTransaction()) {
-    std::cout << "In transaction" << std::endl;
-}
+Migration migration(
+    "add_users_table",   // Name
+    R"(  // UP - apply migration
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL
+        )
+    )",
+    R"(  // DOWN - revert migration
+        DROP TABLE IF EXISTS users
+    )"
+);
+
+// Version is extracted from migration name if it follows pattern: "v1_2_3_description"
 ```
 
-## Database Configuration
+### Running Migrations
+
+```cpp
+std::vector<Migration> migrations = {
+    Migration("v1_0_0_initial", ...),
+    Migration("v1_0_1_add_email", ...),
+    Migration("v1_1_0_add_roles", ...)
+};
+
+runMigrations(db, migrations);
+```
+
+## Configuration
 
 ### Busy Timeout
 
+Set how long to wait for locks:
+
 ```cpp
-// Wait up to 5 seconds when database is locked
 db.setBusyTimeout(std::chrono::seconds(5));
 ```
 
 ### Foreign Keys
 
 ```cpp
-// Enable foreign key enforcement
-db.enableForeignKeys(true);
-
-// Disable (default for historical compatibility)
-db.enableForeignKeys(false);
+db.enableForeignKeys(true);  // Enforce foreign key constraints
 ```
 
 ### WAL Mode
 
 ```cpp
-// Enable Write-Ahead Logging for better concurrency
-db.enableWAL(true);
-
-// WAL is faster for reads and writes from multiple connections
+db.enableWAL(true);  // Better concurrency for reads
 ```
 
 ### Cache Size
 
 ```cpp
-// Set cache size in pages (default ~2000 pages, ~16MB)
-db.setCacheSize(5000);  // ~40MB cache
+db.setCacheSize(10000);  // Number of pages
 ```
 
 ## Utility Methods
 
+### Last Inserted Row
+
 ```cpp
-// Get last inserted row ID
+db.execute("INSERT INTO users (name) VALUES ('Alice')");
 int64_t id = db.lastInsertRowId();
-
-// Get number of rows affected by last INSERT/UPDATE/DELETE
-int64_t affected = db.affectedRows();
-
-// Vacuum (reclaim disk space, optimize)
-db.vacuum();
-
-// Get raw sqlite3 handle (for advanced use)
-sqlite3* handle = db.handle();
 ```
 
-## Schema Migration
-
-### Defining Migrations
+### Affected Rows
 
 ```cpp
-std::vector<Migration> migrations = {
-    Migration(
-        "create_users",
-        R"(
-            CREATE TABLE users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT UNIQUE NOT NULL
-            )
-        )",
-        "DROP TABLE users"
-    ),
-    Migration(
-        "add_age_column",
-        R"(
-            ALTER TABLE users ADD COLUMN age INTEGER
-        )",
-        R"(
-            -- SQLite doesn't support DROP COLUMN easily
-            -- This is a simplified example
-            ALTER TABLE users DROP COLUMN age
-        )"
-    )
-};
+db.execute("DELETE FROM users WHERE active = 0");
+int64_t count = db.affectedRows();
 ```
 
-### Version Format
+### Vacuum
 
 ```cpp
-// Version is parsed from migration name: "name_1.2.3" -> v1.2.3
-Migration migration(
-    "add_users_table_1.0.0",  // Creates version 1.0.0
-    "CREATE TABLE ...",
-    "DROP TABLE ..."
-);
+db.vacuum();  // Reclaim unused space
 ```
 
-### Running Migrations
+## Thread Safety
+
+All Database methods are thread-safe:
 
 ```cpp
-// Run all pending migrations in order
-runMigrations(db, migrations);
+// Safe to use from multiple threads
+std::thread t1([&db]() {
+    db.query("SELECT * FROM users", ...);
+});
 
-// Migrations table is created automatically
-// Tracks which migrations have been applied
-```
+std::thread t2([&db]() {
+    db.execute("INSERT INTO users ...");
+});
 
-### Migration Example
-
-```cpp
-#include "OmniNet.h"
-
-using namespace OmniNet::DB;
-
-class AppDatabase {
-private:
-    Database db;
-    
-public:
-    AppDatabase(const std::string& path) {
-        db.open(path);
-        migrate();
-    }
-    
-private:
-    void migrate() {
-        std::vector<Migration> migrations = {
-            Migration(
-                "create_users_1.0.0",
-                R"(
-                    CREATE TABLE users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL,
-                        email TEXT UNIQUE NOT NULL,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                )",
-                "DROP TABLE users"
-            ),
-            Migration(
-                "add_sessions_1.1.0",
-                R"(
-                    CREATE TABLE sessions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        token TEXT UNIQUE NOT NULL,
-                        expires_at DATETIME,
-                        FOREIGN KEY (user_id) REFERENCES users(id)
-                    )
-                )",
-                "DROP TABLE sessions"
-            ),
-            Migration(
-                "add_last_login_1.2.0",
-                R"(
-                    ALTER TABLE users ADD COLUMN last_login DATETIME
-                )",
-                "ALTER TABLE users DROP COLUMN last_login"
-            )
-        };
-        
-        runMigrations(db, migrations);
-    }
-};
-```
-
-## Complete CRUD Example
-
-```cpp
-#include "OmniNet.h"
-#include <optional>
-
-using namespace OmniNet::DB;
-
-class UserRepository {
-private:
-    Database& db;
-    
-public:
-    explicit UserRepository(Database& database) : db(database) {
-        initializeSchema();
-    }
-    
-    struct User {
-        int64_t id;
-        std::string name;
-        std::string email;
-        std::optional<std::chrono::system_clock::time_point> lastLogin;
-    };
-    
-    // Create
-    int64_t create(const std::string& name, const std::string& email) {
-        auto stmt = db.prepare(
-            "INSERT INTO users (name, email) VALUES (?, ?)"
-        );
-        stmt.bind(1, name);
-        stmt.bind(2, email);
-        stmt.step();
-        return db.lastInsertRowId();
-    }
-    
-    // Read all
-    std::vector<User> findAll() {
-        std::vector<User> users;
-        db.query("SELECT id, name, email, last_login FROM users ORDER BY id", 
-            [&users](const std::vector<std::string>& row) {
-                User user;
-                user.id = std::stoll(row[0]);
-                user.name = row[1];
-                user.email = row[2];
-                if (!row[3].empty()) {
-                    // Parse datetime
-                }
-                users.push_back(user);
-                return true;
-            }
-        );
-        return users;
-    }
-    
-    // Read one
-    std::optional<User> findById(int64_t id) {
-        auto stmt = db.prepare(
-            "SELECT id, name, email, last_login FROM users WHERE id = ?"
-        );
-        stmt.bind(1, id);
-        
-        if (stmt.step()) {
-            User user;
-            user.id = std::stoll(stmt.columnText(0));
-            user.name = stmt.columnText(1);
-            user.email = stmt.columnText(2);
-            return user;
-        }
-        return std::nullopt;
-    }
-    
-    // Update
-    void update(const User& user) {
-        auto stmt = db.prepare(
-            "UPDATE users SET name = ?, email = ? WHERE id = ?"
-        );
-        stmt.bind(1, user.name);
-        stmt.bind(2, user.email);
-        stmt.bind(3, user.id);
-        stmt.step();
-    }
-    
-    // Delete
-    void remove(int64_t id) {
-        auto stmt = db.prepare("DELETE FROM users WHERE id = ?");
-        stmt.bind(1, id);
-        stmt.step();
-    }
-    
-private:
-    void initializeSchema() {
-        db.execute(R"(
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                last_login DATETIME,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        )");
-    }
-};
+t1.join();
+t2.join();
 ```
 
 ## Error Handling
 
 ```cpp
 try {
-    db.execute("INVALID SQL SYNTAX");
+    db.execute("INSERT INTO users (email) VALUES ('existing@example.com')");
 } catch (const DatabaseException& e) {
     std::cerr << "Database error: " << e.what() << std::endl;
-    std::cerr << "Error code: " << e.errorCode() << std::endl;
+    // Error codes available via errorCode()
 }
 ```
 
-## Thread Safety
+## Example: User Management
 
 ```cpp
-// Database class is thread-safe
-// Multiple threads can safely use the same Database instance
+class UserStore {
+public:
+    UserStore(Database& db) : m_db(db) {}
+    
+    void createTable() {
+        m_db.execute(R"(
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        )");
+    }
+    
+    int64_t createUser(const std::string& username, 
+                       const std::string& email,
+                       const std::string& passwordHash) {
+        m_db.executef(
+            "INSERT INTO users (username, email, password_hash) VALUES ('%s', '%s', '%s')",
+            username.c_str(), email.c_str(), passwordHash.c_str()
+        );
+        return m_db.lastInsertRowId();
+    }
+    
+    std::optional<std::vector<std::string>> findByUsername(const std::string& username) {
+        auto stmt = m_db.prepare("SELECT * FROM users WHERE username = ?");
+        stmt.bind(1, username);
+        
+        if (stmt.step()) {
+            std::vector<std::string> row;
+            for (int i = 0; i < stmt.columnCount(); i++) {
+                row.push_back(stmt.columnText(i));
+            }
+            return row;
+        }
+        return std::nullopt;
+    }
+    
+    bool deleteUser(int64_t id) {
+        m_db.execute("DELETE FROM users WHERE id = " + std::to_string(id));
+        return m_db.affectedRows() > 0;
+    }
+    
+private:
+    Database& m_db;
+};
 
-// For connection pooling, use separate Database instances
-Database db1("pooled.db");
-Database db2("pooled.db");  // Separate connections
+// Usage
+Database db;
+db.open("app.db");
+
+UserStore users(db);
+users.createTable();
+
+int64_t id = users.createUser("alice", "alice@example.com", "hash123");
+auto user = users.findByUsername("alice");
+users.deleteUser(id);
 ```
 
-## Performance Tips
+## Example: Blog with Transactions
 
 ```cpp
-// Use transactions for bulk operations
-db.transaction([&]() {
-    for (const auto& item : items) {
-        db.execute("INSERT INTO ... VALUES (...)", item);
-    }
-});
-
-// Use prepared statements for repeated queries
-auto stmt = db.prepare("SELECT * FROM users WHERE email = ?");
-for (const auto& email : emails) {
-    stmt.bind(1, email);
-    if (stmt.step()) {
-        // Process result
-    }
-    stmt.reset();
+void createPost(Database& db, const std::string& title, 
+                const std::string& content, const std::string& author) {
+    db.transaction([&]() {
+        // Insert post
+        db.executef("INSERT INTO posts (title, content, author) VALUES ('%s', '%s', '%s')",
+            title.c_str(), content.c_str(), author.c_str());
+        int64_t postId = db.lastInsertRowId();
+        
+        // Update author's post count
+        db.executef("UPDATE users SET post_count = post_count + 1 WHERE username = '%s'",
+            author.c_str());
+        
+        // Log the action
+        db.executef("INSERT INTO audit_log (action, target_id) VALUES ('create_post', %ld)",
+            postId);
+    });
 }
 
-// Enable WAL for better concurrency
-db.enableWAL(true);
-
-// Increase cache size for better read performance
-db.setCacheSize(10000);
+void deletePost(Database& db, int64_t postId) {
+    db.transaction([&]() {
+        // Get author before deletion
+        auto row = db.queryOne("SELECT author FROM posts WHERE id = " + std::to_string(postId));
+        if (row) {
+            std::string author = (*row)[0];
+            
+            // Delete post
+            db.execute("DELETE FROM posts WHERE id = " + std::to_string(postId));
+            
+            // Update author's post count
+            db.executef("UPDATE users SET post_count = post_count - 1 WHERE username = '%s'",
+                author.c_str());
+        }
+    });
+}
 ```
-
-## See Also
-
-- [HTTP Server API](http-server.md) - HTTP server reference
-- [WebSocket API](websocket.md) - WebSocket connections
-- [Config System](../config.md) - Configuration options
