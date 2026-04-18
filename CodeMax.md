@@ -213,6 +213,13 @@ cmake -S . -B build -DBUILD_TESTING=ON
 
 ## Testing
 
+### ⚠️ IMPORTANT: Load Server Testing Skill First
+**Before testing any HTTP/HTTPS server demos, always load the `omninet-server-test` skill:**
+```bash
+load_skill("omninet-server-test")
+```
+This skill provides safe patterns to prevent hanging servers and zombie processes.
+
 ### Test Framework
 - Custom test framework in `tests/test_utils.cpp`
 - Assertion macros: `ASSERT_EQ`, `ASSERT_TRUE`, `ASSERT_FALSE`, etc.
@@ -263,6 +270,10 @@ int main() {
 - Namespaces: `OmniNet::`, `OmniNet::HTTP::`, etc.
 - Header guards: `OMNINET_*_H`
 - RAII patterns throughout
+
+### Server Testing
+**⚠️ Always load `omninet-server-test` skill before running server demos.**
+See [Testing](#testing) section above for details.
 
 ### Dependencies
 - **OpenSSL**: TLS/HTTPS support
