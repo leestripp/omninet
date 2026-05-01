@@ -338,12 +338,12 @@ bool PasswordHasher::verify(const std::string& password, const HashResult& store
         m_hashLength
     );
     
+    // Encode computed hash to hex to match stored format
+    auto computedHex = Crypto::hexEncode(computed);
+    
     return Crypto::constantTimeEqual(
-        std::span<const uint8_t>(computed.data(), computed.size()),
-        std::span<const uint8_t>(
-            reinterpret_cast<const uint8_t*>(stored.hash.data()),
-            stored.hash.size()
-        )
+        std::string_view(computedHex),
+        std::string_view(stored.hash)
     );
 }
 
