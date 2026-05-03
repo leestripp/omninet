@@ -1,431 +1,88 @@
-# OmniNet - Project Analysis & Documentation
+# OmniNet Fixes - CodeMax.md
 
 ## System Information
-| Component | Value |
-|-----------|-------|
-| Kernel | Linux 6.18.16 |
-| OS | Arch Linux |
-| Container | Docker (archlinux:latest) |
-| Display | Wayland, GNOME |
-| Architecture | x86_64 |
+- Kernel: Linux 6.8.0
+- OS: Ubuntu 24.04
+- Architecture: x86_64
+- Build System: CMake
+- Language: C++20
 
-## Project Overview
+## Project Info
+- **Build System:** CMake with static library `libOmniNet.a`
+- **Entry Point:** `src/OmniNet.cpp`
+- **Key Components:**
+  - HTTP Server (`src/http/`)
+  - WebSocket (`src/websocket/`)
+  - Crypto (`src/crypto/`)
+  - Dashboard (`src/dashboard/`)
+  - Database (`src/db/`)
+- **Dependencies:** OpenSSL, SQLite3
+- **Demos:** http_server_demo, https_server_demo, dashboard_demo, websocket_echo_demo
 
-**OmniNet** is a modern, high-performance C++ HTTP/WebSocket server library with TLS support, session management, and security features.
+## Issues to Fix
 
-### Quick Stats
-- **Version**: 0.1.0+ (from git tags)
-- **Language**: C++20
-- **Build System**: CMake 3.16+
-- **Dependencies**: OpenSSL, SQLite3, nlohmann/json
-- **License**: MIT
+### 1. Issue #4: StringView Lifetime (parseFormBody)
+**Status:** Analysis complete - Current code appears CORRECT
+**File:** `src/http/HttpRequest.cpp`
+**Issue:** The prompt mentions `string_view` lifetime issue, but code inspection shows:
+- `urlDecode()` returns `std::string` (not `string_view`)
+- `QueryParams` stores `std::string` values
+- `parseFormBody()` returns by value (not by reference)
 
-## Project Structure
+The current implementation is safe. The comment in prompt.txt may be outdated.
 
-```
-OmniNet/
-├── src/                      # Core source code
-│   ├── OmniNet.h/.cpp        # Main header, init/cleanup
-│   ├── config/                # Configuration system
-│   │   ├── Config.h/.cpp      # Singleton config with JSON storage
-│   │   └── LoggingConfig      # Log level, file, rotation settings
-│   ├── utils/                 # Utilities
-│   │   ├── Logger.h/.cpp      # Thread-safe logging with rotation
-│   │   ├── LogReader.h/.cpp   # Log file reader with filtering
-│   │   ├── Exception.h/.cpp    # Exception hierarchy
-│   │   └── Utils.h/.cpp       # String, URL, MIME utilities
-│   ├── crypto/                # Cryptography
-│   │   ├── Crypto.h/.cpp      # Encryption utilities
-│   │   └── Password.h/.cpp     # bcrypt password hashing
-│   ├── net/                   # Networking
-│   │   ├── Socket.h/.cpp      # TCP socket wrapper
-│   │   ├── TLSSocket.h/.cpp   # TLS/SSL socket
-│   │   └── Buffer.h/.cpp      # Byte buffer with I/O
-│   ├── http/                  # HTTP Server
-│   │   ├── HttpRequest.h/.cpp # Request parsing
-│   │   ├── HttpResponse.h/.cpp # Response building
-│   │   ├── HttpConnection.h/.cpp # Connection handling
-│   │   ├── Router.h/.cpp      # Route matching
-│   │   ├── HttpServer.h/.cpp   # Main HTTP server
-│   │   └── StaticHandler.h/.cpp # Static file serving
-│   ├── websocket/              # WebSocket
-│   │   ├── WebSocketFrame.h/.cpp # Frame encoding/decoding
-│   │   ├── WebSocketHandshake.h/.cpp # HTTP upgrade
-│   │   └── WebSocket.h/.cpp    # WebSocket connection
-│   ├── db/                     # Database
-│   │   ├── Database.h/.cpp     # SQLite wrapper
-│   │   ├── SessionStore.h/.cpp # Session management
-│   │   └── UserStore.h/.cpp    # User authentication
-│   ├── dashboard/              # Admin Dashboard
-│   │   ├── DashboardHandler.h/.cpp # HTML/JSON dashboard
-│   │   └── RateLimiter.h/.cpp  # IP rate limiting
-│   ├── sse/                    # Server-Sent Events
-│   │   └── SSEHandler.h/.cpp    # SSE implementation
-│   ├── intrusion/               # Security
-│   │   └── IntrusionDetector.h/.cpp # Intrusion detection
-│   └── admin/                  # Admin API
-│       └── AdminHandler.h/.cpp  # Admin endpoints
-├── tests/                      # Unit tests (GoogleTest-style)
-│   ├── test_all.cpp           # Main test suite
-│   ├── test_config.cpp        # Config tests
-│   ├── test_logger_new.cpp    # Logger/LogReader tests
-│   └── ...
-├── demos/                      # Example applications
-│   ├── http_server.cpp        # Basic HTTP server demo
-│   ├── https_server.cpp       # HTTPS server demo
-│   ├── websocket_echo.cpp      # WebSocket echo demo
-│   ├── static_files.cpp       # Static file serving demo
-│   └── dashboard.cpp           # Dashboard demo
-├── tools/                      # CLI tools
-│   ├── omninet-status          # System status
-│   ├── omninet-health          # Health checks
-│   ├── omninet-init            # Initialize config
-│   ├── omninet-users           # User management
-│   ├── omninet-certs           # TLS certificate management
-│   ├── omninet-db              # Database management
-│   ├── omninet-log             # Log viewer
-│   ├── omninet-firewall        # Firewall rules
-│   ├── omninet-ctl             # Server control
-│   └── omninet-mon             # Monitoring
-├── static/                     # Static files for demos
-├── docs/                       # Documentation
-├── CMakeLists.txt             # Build configuration
-└── README.md                  # Project readme
-```
+### 2. Issue #5: Password Hashing Backward Compatibility (LOW Priority)
+**File:** `src/crypto/Password.cpp`
+**Issue:** `verifyPassword()` only accepts hashes with 32-char or 64-char salts
+**Fix:** 
+- Accept various hash formats (legacy + new)
+- Provide better error logging for debugging
 
-## Core Architecture
+### 3. Issue #3: Router Debug Output Verbosity (LOW Priority)  
+**File:** `src/http/Router.cpp`
+**Issue:** Router logs every route check
+**Fix:** Add log level configuration or reduce debug output
 
-### Layer Hierarchy
+### 4. Issue #1: Empty Response on POST (MEDIUM Priority)
+**File:** `src/http/HttpConnection.cpp`
+**Issue:** Server returns empty response on POST, then crashes with SIGSEGV
+**Observation:** This may be related to redirect handling
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Application                           │
-├─────────────────────────────────────────────────────────────┤
-│                     HTTP/Router Layer                        │
-│   HttpServer → Router → [StaticHandler, WebSocket, etc]    │
-├─────────────────────────────────────────────────────────────┤
-│                   WebSocket/SSE Layer                       │
-│        WebSocket → WebSocketFrame → WebSocketHandshake     │
-├─────────────────────────────────────────────────────────────┤
-│                     Networking Layer                         │
-│              Socket/TLSSocket → Buffer                      │
-├─────────────────────────────────────────────────────────────┤
-│                    Database Layer                           │
-│              Database → SessionStore/UserStore              │
-├─────────────────────────────────────────────────────────────┤
-│                   Security/Dashboard                        │
-│     Dashboard → RateLimiter → IntrusionDetector            │
-├─────────────────────────────────────────────────────────────┤
-│                    Foundation Layer                         │
-│        Config → Logger → Utils → Exception                  │
-└─────────────────────────────────────────────────────────────┘
-```
+### 5. Issue #2: Thread Pool Database Access (MEDIUM Priority)
+**File:** `src/http/HttpConnection.cpp` + database files
+**Issue:** SIGSEGV crashes during database operations in worker threads
+**Observation:** SQLite connections may need thread-local handling
 
-## Key Components
+## Todo List
 
-### 1. HTTP Server (src/http/)
-- **HttpServer**: Main server class with thread pool
-- **Router**: Route matching with path parameters and wildcards
-- **HttpRequest/Response**: HTTP message handling
-- **StaticHandler**: File serving with MIME types
+- [x] Fix Issue #5: Password hashing backward compatibility
+- [x] Fix Issue #3: Reduce Router debug output verbosity
+- [ ] Investigate Issue #1: Empty response on POST (redirect handling)
+- [ ] Investigate Issue #2: Thread safety in database access
+- [ ] Verify all fixes with build and tests
 
-### 2. WebSocket (src/websocket/)
-- Protocol implementation per RFC 6455
-- Frame masking and fragmentation
-- HTTP upgrade handshake
+## Completed Fixes
 
-### 3. Configuration (src/config/)
-- JSON-based configuration storage
-- Singleton pattern for global access
-- Hot reload support with file watching
-- Config file: `~/.omninet/config.json`
+### Fix #5: Password Hashing Backward Compatibility (DONE)
+- Added support for legacy hash format (`salt:hash` without iterations)
+- Added explicit salt length validation with clear error path
 
-### 4. Logging (src/utils/)
-- **Logger**: Thread-safe singleton with async mode
-- **LogRotation**: Configurable size-based rotation
-- **LogReader**: Read/query log files
-- Log location: `~/.omninet/logs/omninet.log`
+### Fix #3: Router Debug Output Verbosity (DONE)
+- Disabled verbose debug logging by setting `DEBUG_ROUTER` to 0
+- Debug output can be re-enabled by setting `DEBUG_ROUTER` to 1
 
-### 5. Database (src/db/)
-- SQLite3 backend
-- Session store with TTL
-- User store with bcrypt passwords
+### Issue #4: StringView Lifetime (NO ACTION NEEDED)
+- Verified current code is safe
+- `urlDecode()` returns `std::string` (owned memory)
+- `QueryParams` stores `std::string` values
+- No string_view dangling pointers
 
-### 6. Dashboard (src/dashboard/)
-- HTML/JSON admin interface
-- Login/logout with session management
-- User management UI
-- Log viewer tab
+## Pending Investigations
 
-### 7. Security (src/intrusion/)
-- Failed login tracking
-- Auto-blocking of suspicious IPs
-- Configurable thresholds
+### Issue #1: Empty Response on POST
+- May be related to redirect handling in Response
+- Need to investigate `Response::redirect()` implementation
 
-## Build System
-
-### CMake Configuration
-- **Source Files**: ~30 C++ files in src/
-- **Dependencies**: OpenSSL, SQLite3, nlohmann/json (fetched)
-- **Output**: Static library `libOmniNet.a`
-- **Extras**: CLI tools, demos, tests
-
-### Build Commands
-```bash
-# Configure
-cmake -S . -B build
-
-# Build
-cmake --build build -j$(nproc)
-
-# Build with tests
-cmake -S . -B build -DBUILD_TESTING=ON
-
-# Run tests
-./build/tests/omnet_test
-
-# Run demo
-./build/demos/http_server_demo
-```
-
-## Configuration
-
-### Config File: ~/.omninet/config.json
-```json
-{
-  "server": { "port": 8080, "workers": 4 },
-  "tls": { "enabled": false },
-  "logging": { "level": "INFO" },
-  "dashboard": { "enabled": true },
-  "database": { "path": "omninet.db" }
-}
-```
-
-### Data Directory: ~/.omninet/
-```
-~/.omninet/
-├── config.json        # Main configuration
-├── logs/              # Log files
-│   └── omninet.log    # Main log (rotated)
-├── dashboard.db       # SQLite dashboard DB
-└── certs/             # TLS certificates
-```
-
-## Testing
-
-### ⚠️ IMPORTANT: Load Server Testing Skill First
-**Before testing any HTTP/HTTPS server demos, always load the `omninet-server-test` skill:**
-```bash
-load_skill("omninet-server-test")
-```
-This skill provides safe patterns to prevent hanging servers and zombie processes.
-
-### Test Framework
-- Custom test framework in `tests/test_utils.cpp`
-- Assertion macros: `ASSERT_EQ`, `ASSERT_TRUE`, `ASSERT_FALSE`, etc.
-- Test runner in `tests/test_main.cpp`
-
-### Running Tests
-```bash
-./build/tests/omnet_test          # Main test suite
-./build/tests/test_config         # Config tests
-./build/tests/test_logger_new     # Logger/LogReader tests
-```
-
-## Entry Points
-
-### Main Library
-- Include `OmniNet.h` for all headers
-- Call `OmniNet::init()` before use
-- Call `OmniNet::cleanup()` at exit
-
-### Example Usage
-```cpp
-#include "OmniNet.h"
-
-int main() {
-    OmniNet::init();
-    
-    OmniNet::HTTP::Server::Config config;
-    config.port = 8080;
-    OmniNet::HTTP::Server server(config);
-    
-    server.router().get("/api/hello", [](auto& req, auto& resp) {
-        resp.setBody(R"({"hello": "world"})");
-    });
-    
-    server.start();
-    OmniNet::cleanup();
-}
-```
-
-## Development Notes
-
-### Branch Strategy
-- `main` - stable releases
-- `devel` - development (current working branch)
-
-### Coding Standards
-- C++20 with Concepts where beneficial
-- Namespaces: `OmniNet::`, `OmniNet::HTTP::`, etc.
-- Header guards: `OMNINET_*_H`
-- RAII patterns throughout
-
-### Server Testing
-**⚠️ Always load `omninet-server-test` skill before running server demos.**
-See [Testing](#testing) section above for details.
-
-### Dependencies
-- **OpenSSL**: TLS/HTTPS support
-- **SQLite3**: Database storage
-- **nlohmann/json**: JSON parsing (header-only, fetched)
-
-## Current Status
-
-### Completed Features
-- ✅ HTTP/1.1 server with keep-alive
-- ✅ WebSocket protocol (RFC 6455)
-- ✅ TLS/HTTPS support
-- ✅ Static file serving
-- ✅ Session management (SQLite)
-- ✅ User authentication (bcrypt)
-- ✅ Rate limiting
-- ✅ Admin dashboard with logs viewer
-- ✅ Log rotation
-- ✅ Config hot reload
-
-### Potential Improvements
-- HTTP/2 support
-- WebSocket permessage-deflate compression
-- Async I/O with io_uring
-- Middleware system
-- OpenAPI documentation generation
-
-## File Locations
-
-| Purpose | Path |
-|---------|------|
-| Main Header | `src/OmniNet.h` |
-| HTTP Server | `src/http/HttpServer.h` |
-| WebSocket | `src/websocket/WebSocket.h` |
-| Config | `src/config/Config.h` |
-| Logger | `src/utils/Logger.h` |
-| Dashboard | `src/dashboard/DashboardHandler.h` |
-| Database | `src/db/Database.h` |
-| Build Output | `build/` |
-| Config File | `~/.omninet/config.json` |
-| Log Files | `~/.omninet/logs/` |
-
-## Documentation Update Plan
-
-### Current State of Documentation
-
-**docs/demos.md** (623 lines) - Needs updates:
-- ❌ References non-existent `scripts/generate-certs.sh`
-- ❌ Uses `OmninetConfig` instead of `OmniNet::Config::instance()`
-- ❌ Uses `ServerBuilder()` which doesn't exist in codebase
-- ❌ References `server.address()`, `server.port()` - actual is `serverConfig.address`, `serverConfig.port`
-- ❌ API endpoints table incomplete (missing dashboard routes)
-- ❌ Missing admin handler info (Health, Stats endpoints)
-- ⚠️ Demo locations need verification
-
-**docs/api/http-server.md** (413 lines) - Needs updates:
-- ❌ Uses `ServerBuilder()` pattern - doesn't exist
-- ❌ Uses `.address()`, `.port()` builder methods
-- ❌ Route params use `req.param()` not `req.pathParam()`
-- ❌ Missing admin routes info
-- ❌ Missing dashboard integration
-- ⚠️ Need to verify current API signatures
-
-**docs/api/websocket.md** (442 lines) - Needs updates:
-- ❌ Uses `WebSocket::Server` which doesn't exist
-- ❌ Uses `Connection` class incorrectly
-- ❌ Uses `conn.receiveText()` not in actual API
-- ⚠️ Need to verify actual WebSocket implementation
-
-**docs/api/database.md** (546 lines) - Needs updates:
-- ❌ Uses `db.query()` with column vector - actual is different
-- ❌ Missing prepared statement examples
-- ⚠️ Need to verify Database class methods
-
-**docs/api/index.md** (70 lines) - Check if current
-
-### Documentation Update Tasks
-
-#### Task 1: Update docs/demos.md [DONE]
-- [x] Remove references to `scripts/generate-certs.sh`
-- [x] Add `tools/omninet-certs` usage instead
-- [x] Update config loading to use `Config::instance()`
-- [x] Fix server setup to use actual API: `Server::Config` struct
-- [x] Add admin routes info (`/omninet/health`, `/omninet/stats`)
-- [x] Add dashboard info (`/omninet`, `/omninet/api/*`)
-- [x] Update endpoint table with actual endpoints
-- [x] Add log file location: `~/.omninet/logs/omninet.log`
-- [x] Add CLI tools section
-- [x] Fix code examples to match actual API
-
-#### Task 2: Update docs/api/http-server.md [DONE]
-- [x] Replace builder pattern with actual `Server::Config` examples
-- [x] Fix route parameter access to use `req.pathParam()`
-- [x] Add admin handler section (`/omninet/*` endpoints)
-- [x] Add dashboard integration section
-- [x] Verify all method signatures match actual code
-- [x] Add statistics section
-- [x] Add error handling section
-- [x] Add middleware section
-- [x] Add full example
-
-#### Task 3: Update docs/api/websocket.md [DONE]
-- [x] Rewrite to match actual WebSocket implementation
-- [x] Use `WebSocket::Server.on()` pattern
-- [x] Document actual Connection class API
-- [x] Add callback-based API section
-- [x] Add auto ping/pong section
-- [x] Add statistics section
-- [x] Add chat server example
-
-#### Task 4: Update docs/api/database.md [DONE]
-- [x] Verify Database class API
-- [x] Update query syntax to match actual implementation
-- [x] Add prepared statement examples
-- [x] Document transaction usage correctly
-- [x] Add schema migration section
-- [x] Add user management example
-
-#### Task 5: Update docs/api/index.md [DONE]
-- [x] Check for outdated links
-- [x] Add new sections for Logger, Dashboard
-- [x] Add CLI tools reference
-- [x] Add data directory structure
-
-#### Task 6: Add Missing Documentation [DONE]
-- [x] Create docs/api/logger.md - LogReader, log rotation
-- [x] Create docs/api/dashboard.md - Admin dashboard usage
-- [x] Create docs/api/config.md - (deferred - see README update)
-
-#### Task 7: Update README.md [DONE]
-- [x] Update project structure to include admin/, tools/
-- [x] Add CLI tools section
-- [x] Add logging section
-- [x] Add data directory structure
-- [x] Fix WebSocket example to match actual API
-- [x] Add documentation links section
-
-## Final Status: All Documentation Updated ✅
-
-### Implementation Order
-1. Update demos.md (most user-facing)
-2. Update http-server.md (core component)
-3. Update websocket.md (fix WebSocket API)
-4. Update database.md (fix DB API)
-5. Update index.md (navigation)
-6. Add missing docs (logger, dashboard, config)
-7. Final review and cross-reference
-
-### Verification Checklist
-After updating each doc:
-- [ ] Build succeeds
-- [ ] Demo runs without errors
-- [ ] Code examples compile
-- [ ] Links resolve correctly
-- [ ] API matches actual implementation
+### Issue #2: Thread Pool Database Access
+- SIGSEGV during SQLite operations in worker threads
+- May need thread-local database connections

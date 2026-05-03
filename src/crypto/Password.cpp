@@ -2,6 +2,7 @@
 // This file provides convenience wrappers around Crypto::PasswordHasher
 #include "Password.h"
 #include "utils/Utils.h"
+#include "crypto/Crypto.h"
 
 namespace OmniNet {
 using Utils::split;
@@ -18,7 +19,24 @@ std::string hashPassword(const std::string& password) {
 
 bool verifyPassword(const std::string& password, const std::string& storedHash) {
     auto parts = Utils::split(storedHash, ':');
-    if (parts.size() != 3) return false;
+    if (parts.size() != 3) {
+        // Try legacy format (no iterations field, just salt:hash)
+        // Legacy format: 32-char salt + 64-char hash (no iterations)
+        if (parts.size() == 2 && parts[0].length() == 32 && parts[1].length() == 64) {
+            PasswordHasher::HashResult result;
+            result.salt = parts[0];
+            result.iterations = 100000; // Default iterations for legacy hashes
+            result.hash = parts[1];
+            return getPasswordHasher().verify(password, result);
+        }
+        return false;
+    }
+    
+    // Verify salt length is valid (32 hex chars = 16 bytes, or 64 hex chars = 32 bytes)
+    size_t saltLen = parts[0].length();
+    if (saltLen != 32 && saltLen != 64) {
+        return false;
+    }
     
     PasswordHasher::HashResult result;
     result.salt = parts[0];

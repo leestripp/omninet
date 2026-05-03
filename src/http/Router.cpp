@@ -4,8 +4,8 @@
 #include <algorithm>
 #include <iostream>
 
-// Debug logging
-#define DEBUG_ROUTER 1
+// Debug logging - set to 0 to disable verbose debug output
+#define DEBUG_ROUTER 0
 #if DEBUG_ROUTER
 #define ROUTER_DEBUG(msg) do { \
     std::cerr << "[Router] " << msg << std::endl; \
