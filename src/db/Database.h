@@ -3,6 +3,7 @@
 #define OMNINET_DATABASE_H
 
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -72,6 +73,67 @@ public:
     // Query returning first row
     std::optional<std::vector<std::string>> queryOne(const std::string& sql);
     
+    // --- Query Result Iterator ---
+    
+    // Forward declare Statement so QueryResult can use it
+    class Statement;
+    
+    // Query result that supports range-based for loop
+    class QueryResult {
+    public:
+        QueryResult(Database& db, const std::string& sql);
+        ~QueryResult();
+        
+        // Prevent copying, allow moving
+        QueryResult(const QueryResult&) = delete;
+        QueryResult& operator=(const QueryResult&) = delete;
+        QueryResult(QueryResult&& other) noexcept;
+        QueryResult& operator=(QueryResult&& other) noexcept;
+        
+        // Iterator for range-based for loop
+        class Iterator {
+        public:
+            using iterator_category = std::input_iterator_tag;
+            using value_type = std::vector<std::string>;
+            using difference_type = std::ptrdiff_t;
+            using pointer = const value_type*;
+            using reference = const value_type&;
+            
+            Iterator(QueryResult* result, bool end = false);
+            reference operator*() const;
+            pointer operator->() const;
+            Iterator& operator++();
+            Iterator operator++(int);
+            bool operator==(const Iterator& other) const;
+            bool operator!=(const Iterator& other) const;
+            
+        private:
+            QueryResult* m_result;
+            std::vector<std::string> m_currentRow;
+            bool m_atEnd;
+        };
+        
+        Iterator begin();
+        Iterator end();
+        
+        // Check if query has results
+        bool hasResults() const;
+        
+    private:
+        friend class Iterator;
+        Database& m_db;
+        std::unique_ptr<Statement> m_stmt;
+        bool m_atEnd = false;
+        std::vector<std::string> m_currentRow;
+        bool m_hasCurrentRow = false;
+        
+        bool fetchNext();
+    };
+    
+    // Execute query and return iterator-based result
+    // Usage: for (const auto& row : db.query("SELECT * FROM users")) { ... }
+    QueryResult query(const std::string& sql);
+    
     // --- Transactions ---
     
     // Execute in transaction
@@ -140,6 +202,9 @@ public:
         struct Impl;
         std::unique_ptr<Impl> m_impl;
     };
+    
+    // Helper to create statement for internal use (QueryResult)
+    Statement createStatement(const std::string& sql);
     
     // Prepare statement
     Statement prepare(const std::string& sql);

@@ -1,3 +1,4 @@
+#pragma once
 #ifndef OMNINET_H
 #define OMNINET_H
 // OmniNet - C++ HTTP/WebSocket Server Library

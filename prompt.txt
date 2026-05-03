@@ -1,4 +1,203 @@
-Summary: Fixed the password verification bug in OmniNet's PasswordHasher::verify() function. The issue was that constantTimeEqual was comparing a 32-byte binary vector with a 64-character hex string, causing a size mismatch. Fixed by encoding the computed hash to hex before comparison. Authentication flow (signup, login, logout) is now working correctly.
+# OmniNet Library Issues and Bugs
 
-Another agent found this bug on our code.
-If it is a bug fix it, if not tell me why its not a bug.
+This document tracks issues and bugs found in the OmniNet library during testing and development.
+
+---
+
+## Issue 1: TEST Macro Conflict
+
+### Description
+The OmniNet library defines a `TEST` macro in `third_party/omninet/tests/test_all.cpp` that conflicts with user-defined test macros.
+
+### Location
+`third_party/omninet/tests/test_all.cpp:31`
+```cpp
+#define TEST(name) void test_##name()
+```
+
+### Impact
+- User test code cannot use `TEST(...)` macro without conflicts
+- Compilation errors when user code has similar macro definitions
+- Requires workaround using alternative macro names (e.g., `UNIT_TEST`, `REGISTER_TEST`)
+
+### Workaround
+Use different macro names for test registration:
+```cpp
+#define REGISTER_TEST(name, func) \
+    static bool name##_registered = []() { \
+        get_tests().push_back({#name, func}); \
+        return true; \
+    }()
+```
+
+### Recommended Fix
+The library should namespace its test macros or use different names to avoid conflicts:
+- Option 1: Use `OMNINET_TEST(name)` instead of `TEST(name)`
+- Option 2: Wrap test macros in a namespace or conditional compilation
+- Option 3: Document that users should avoid the `TEST` identifier
+
+---
+
+## Issue 2: No Test Framework for Library Users
+
+### Description
+OmniNet provides internal test infrastructure but does not expose a test framework for library users who want to write their own tests.
+
+### Impact
+- Users must create their own test frameworks
+- Test macro conflicts (Issue 1) make integration difficult
+- No documented way to run tests
+
+### Recommended Fix
+Create a public test header:
+- `include/OmniNet/Test.h` with public test macros
+- Document the test framework API
+- Provide example test files
+
+---
+
+## Issue 3: Version Macro Redefinition Warnings
+
+### Description
+When building with both parent CMake and tests CMake, version macros get defined multiple times, causing warnings.
+
+### Example Warning
+```
+warning: 'OMNINET_VERSION_MAJOR' redefined
+note: this is the location of the previous definition
+```
+
+### Location
+`third_party/omninet/src/OmniNet.h:11-17`
+```cpp
+#ifndef OMNINET_VERSION_MAJOR
+#define OMNINET_VERSION_MAJOR 0
+#endif
+#ifndef OMNINET_VERSION_MINOR
+#define OMNINET_VERSION_MINOR 1
+#endif
+#ifndef OMNINET_VERSION_PATCH
+#define OMNINET_VERSION_PATCH 0
+#endif
+```
+
+### Impact
+- Build warnings clutter output
+- Confusion about actual version
+- May indicate configuration issues
+
+### Recommended Fix
+The guards (`#ifndef`) are correct, but the warnings persist. Consider:
+- Using `pragma once` style protection
+- Moving version to a separate header included once
+- Improving CMake configuration to define version only once
+
+---
+
+## Issue 4: OpenSSL Deprecated Function Usage
+
+### Description
+The library uses deprecated OpenSSL 3.0 functions that generate deprecation warnings.
+
+### Location
+`third_party/omninet/src/net/TLSSocket.cpp:417`
+```cpp
+<< ", func=" << ERR_func_error_string(e)
+```
+
+### Warning
+```
+warning: 'const char* ERR_func_error_string(long unsigned int)' is deprecated: Since OpenSSL 3.0
+```
+
+### Impact
+- Compilation warnings on modern OpenSSL versions
+- Potential future breakage when deprecated functions are removed
+
+### Recommended Fix
+Use `ERR_reason_error_string()` or the new error reporting API:
+```cpp
+// New approach (OpenSSL 3.0+)
+char err_buf[256];
+ERR_error_string_n(e, err_buf, sizeof(err_buf));
+```
+
+---
+
+## Issue 5: Database API Design Issue
+
+### Description
+The `Database` class query methods return different types that are not easily accessible.
+
+### Query Methods
+```cpp
+// Returns optional<vector<string>> but not easy to iterate
+std::optional<std::vector<std::string>> queryOne(const std::string& sql);
+
+// Returns void with callback - useful but verbose
+void query(const std::string& sql, RowCallback callback);
+```
+
+### Impact
+- Users cannot easily iterate query results without callbacks
+- No way to get a Statement object for simpler iteration
+- Inconsistent with common database patterns
+
+### Recommended Fix
+Add iterator-based query methods:
+```cpp
+// Option 1: Return iterator
+auto results = db.query("SELECT * FROM users");
+for (const auto& row : results) { ... }
+
+// Option 2: Provide prepare() method access to Statement
+auto stmt = db.prepare("SELECT * FROM users WHERE id = ?");
+stmt.bind(1, 42);
+while (stmt.step()) {
+    std::string name = stmt.columnText(0);
+}
+```
+
+---
+
+## Issue 6: Missing Copy Constructor in Statement Class
+
+### Description
+`Database::Statement` class has deleted copy constructor but provides move semantics only.
+
+### Location
+`third_party/omninet/src/db/Database.h`
+
+### Impact
+- Cannot pass Statement by value or copy
+- Slightly awkward API for prepared statements
+- Minor issue but noted for API completeness
+
+### Current Workaround
+Use move semantics:
+```cpp
+auto stmt = db.prepare(sql);  // Move, not copy
+```
+
+---
+
+## Testing Notes
+
+When working with OmniNet in test scenarios:
+1. Always include `<OmniNet.h>` first to ensure proper initialization
+2. Be aware of TEST macro conflicts
+3. Use the `Database::query()` method with callbacks for complex queries
+4. Prepare for OpenSSL deprecation warnings in production builds
+
+---
+
+## Summary
+
+| Issue | Severity | Status |
+|-------|----------|--------|
+| TEST Macro Conflict | High | Requires workaround |
+| No User Test Framework | Medium | Enhancement needed |
+| Version Macro Warnings | Low | Cosmetic issue |
+| OpenSSL Deprecated Functions | Medium | Future risk |
+| Database API Design | Low | Enhancement needed |
+| Statement Copy Constructor | Low | Documentation only |

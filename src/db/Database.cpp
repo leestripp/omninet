@@ -211,6 +211,129 @@ std::optional<std::vector<std::string>> Database::queryOne(const std::string& sq
     return result;
 }
 
+// ============================================================================
+// QueryResult Implementation
+// ============================================================================
+
+Database::QueryResult::QueryResult(Database& db, const std::string& sql)
+    : m_db(db), m_stmt(std::make_unique<Statement>(db.createStatement(sql))), m_atEnd(false) {
+    // Lock the database mutex for the duration of the query
+    m_db.m_mutex.lock();
+    // Fetch the first row
+    m_hasCurrentRow = m_stmt->step();
+    if (!m_hasCurrentRow) {
+        m_atEnd = true;
+        m_db.m_mutex.unlock();
+    }
+}
+
+Database::QueryResult::~QueryResult() {
+    if (!m_atEnd && m_stmt) {
+        m_stmt->reset();
+        m_db.m_mutex.unlock();
+    }
+}
+
+Database::QueryResult::QueryResult(QueryResult&& other) noexcept
+    : m_db(other.m_db)
+    , m_stmt(std::move(other.m_stmt))
+    , m_atEnd(other.m_atEnd)
+    , m_currentRow(std::move(other.m_currentRow))
+    , m_hasCurrentRow(other.m_hasCurrentRow) {
+    other.m_atEnd = true;
+    other.m_stmt.reset();
+}
+
+Database::QueryResult& Database::QueryResult::operator=(QueryResult&& other) noexcept {
+    if (this != &other) {
+        m_stmt = std::move(other.m_stmt);
+        m_atEnd = other.m_atEnd;
+        m_currentRow = std::move(other.m_currentRow);
+        m_hasCurrentRow = other.m_hasCurrentRow;
+        other.m_atEnd = true;
+        other.m_stmt.reset();
+    }
+    return *this;
+}
+
+bool Database::QueryResult::fetchNext() {
+    if (m_atEnd) return false;
+    
+    if (m_stmt->step()) {
+        // Fetch row data
+        m_currentRow.clear();
+        for (int i = 0; i < m_stmt->columnCount(); ++i) {
+            m_currentRow.push_back(m_stmt->columnText(i));
+        }
+        m_hasCurrentRow = true;
+        return true;
+    } else {
+        // No more rows
+        m_atEnd = true;
+        m_stmt->reset();
+        m_db.m_mutex.unlock();
+        m_hasCurrentRow = false;
+        return false;
+    }
+}
+
+bool Database::QueryResult::hasResults() const {
+    return m_hasCurrentRow && !m_atEnd;
+}
+
+// Iterator implementation
+Database::QueryResult::Iterator::Iterator(QueryResult* result, bool end)
+    : m_result(result), m_atEnd(end) {
+    if (!end && result) {
+        m_currentRow = result->m_currentRow;
+    }
+}
+
+Database::QueryResult::Iterator::reference Database::QueryResult::Iterator::operator*() const {
+    return m_currentRow;
+}
+
+Database::QueryResult::Iterator::pointer Database::QueryResult::Iterator::operator->() const {
+    return &m_currentRow;
+}
+
+Database::QueryResult::Iterator& Database::QueryResult::Iterator::operator++() {
+    if (m_result && !m_atEnd) {
+        if (m_result->fetchNext()) {
+            m_currentRow = m_result->m_currentRow;
+        } else {
+            m_atEnd = true;
+        }
+    }
+    return *this;
+}
+
+Database::QueryResult::Iterator Database::QueryResult::Iterator::operator++(int) {
+    Iterator tmp = *this;
+    ++(*this);
+    return tmp;
+}
+
+bool Database::QueryResult::Iterator::operator==(const Iterator& other) const {
+    return m_atEnd == other.m_atEnd;
+}
+
+bool Database::QueryResult::Iterator::operator!=(const Iterator& other) const {
+    return m_atEnd != other.m_atEnd;
+}
+
+Database::QueryResult::Iterator Database::QueryResult::begin() {
+    return Iterator(this, false);
+}
+
+Database::QueryResult::Iterator Database::QueryResult::end() {
+    return Iterator(this, true);
+}
+
+Database::QueryResult Database::query(const std::string& sql) {
+    return QueryResult(*this, sql);
+}
+
 void Database::transaction(std::function<void()> fn) {
     begin();
     try {
@@ -242,6 +365,10 @@ bool Database::inTransaction() const {
 }
 
 Database::Statement Database::prepare(const std::string& sql) {
+    return Statement(m_db, sql);
+}
+
+Database::Statement Database::createStatement(const std::string& sql) {
     return Statement(m_db, sql);
 }
 

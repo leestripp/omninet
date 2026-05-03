@@ -414,7 +414,6 @@ void TLSSocket::doHandshake() {
             char buf[256];
             ERR_error_string_n(e, buf, sizeof(buf));
             std::cerr << "  - " << buf << " (lib=" << ERR_lib_error_string(e) 
-                      << ", func=" << ERR_func_error_string(e) 
                       << ", reason=" << ERR_reason_error_string(e) << ")" << std::endl;
         }
         throw TLSException(std::string("TLS handshake failed: ") + Crypto::lastError(), err);

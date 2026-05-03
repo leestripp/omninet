@@ -23,7 +23,7 @@ int testsPassed = 0;
 int testsFailed = 0;
 int testsSkipped = 0;
 
-#define TEST(name) void test_##name()
+#define OMNINET_TEST(name) void test_##name()
 #define RUN(name) do { std::cout << "  " #name "... "; test_##name(); std::cout << "PASS\n"; testsPassed++; } while(0)
 #define SKIP(name) do { std::cout << "  " #name "... SKIP\n"; testsSkipped++; } while(0)
 #define ASSERT_TRUE(cond) do { if (!(cond)) { std::cout << "FAIL (" << #cond << ")"; testsFailed++; } } while(0)
@@ -37,7 +37,7 @@ int testsSkipped = 0;
 // ============================================================================
 // Logger Tests
 // ============================================================================
-TEST(logger_basic) {
+OMNINET_TEST(logger_basic) {
     OmniNet::Logger::instance().setLevel(OmniNet::LogLevel::DEBUG);
     OmniNet::Logger::instance().info(std::string("Test log message"));
 }
@@ -45,7 +45,7 @@ TEST(logger_basic) {
 // ============================================================================
 // Exception Tests
 // ============================================================================
-TEST(exception_basic) {
+OMNINET_TEST(exception_basic) {
     try {
         throw OmniNet::SocketException(std::string("Test error"), 42);
     } catch (const OmniNet::Exception& e) {
@@ -61,7 +61,7 @@ TEST(exception_basic) {
 // ============================================================================
 // Utils Tests - String
 // ============================================================================
-TEST(utils_trim) {
+OMNINET_TEST(utils_trim) {
     ASSERT_EQ(OmniNet::Utils::trim("  hello  "), "hello");
     ASSERT_EQ(OmniNet::Utils::trim("hello"), "hello");
     ASSERT_EQ(OmniNet::Utils::trim("  hello"), "hello");
@@ -69,53 +69,53 @@ TEST(utils_trim) {
     ASSERT_EQ(OmniNet::Utils::trim(""), "");
     ASSERT_EQ(OmniNet::Utils::trim("   "), "");
 }
-TEST(utils_split) {
+OMNINET_TEST(utils_split) {
     auto parts = OmniNet::Utils::split("a,b,c", ',');
     ASSERT_EQ(parts.size(), 3);
     ASSERT_EQ(parts[0], "a");
     ASSERT_EQ(parts[1], "b");
     ASSERT_EQ(parts[2], "c");
 }
-TEST(utils_split_empty) {
+OMNINET_TEST(utils_split_empty) {
     auto parts = OmniNet::Utils::split("", ',');
     ASSERT_EQ(parts.size(), 0);
 }
-TEST(utils_split_single) {
+OMNINET_TEST(utils_split_single) {
     auto parts = OmniNet::Utils::split("a", ',');
     ASSERT_EQ(parts.size(), 1);
     ASSERT_EQ(parts[0], "a");
 }
-TEST(utils_join) {
+OMNINET_TEST(utils_join) {
     std::vector<std::string> parts = {"a", "b", "c"};
     ASSERT_EQ(OmniNet::Utils::join(parts, ","), "a,b,c");
 }
-TEST(utils_join_empty) {
+OMNINET_TEST(utils_join_empty) {
     std::vector<std::string> parts = {};
     ASSERT_EQ(OmniNet::Utils::join(parts, ","), "");
 }
-TEST(utils_toLower) {
+OMNINET_TEST(utils_toLower) {
     ASSERT_EQ(OmniNet::Utils::toLower("HELLO"), "hello");
     ASSERT_EQ(OmniNet::Utils::toLower("HeLLo"), "hello");
     ASSERT_EQ(OmniNet::Utils::toLower("hello"), "hello");
 }
-TEST(utils_toUpper) {
+OMNINET_TEST(utils_toUpper) {
     ASSERT_EQ(OmniNet::Utils::toUpper("hello"), "HELLO");
     ASSERT_EQ(OmniNet::Utils::toUpper("HeLLo"), "HELLO");
 }
-TEST(utils_startsWith) {
+OMNINET_TEST(utils_startsWith) {
     ASSERT_TRUE(OmniNet::Utils::startsWith("hello world", "hello"));
     ASSERT_FALSE(OmniNet::Utils::startsWith("hello world", "world"));
     ASSERT_TRUE(OmniNet::Utils::startsWith("hello", "hello"));
     ASSERT_TRUE(OmniNet::Utils::startsWith("hello", ""));
     ASSERT_FALSE(OmniNet::Utils::startsWith("", "hello"));
 }
-TEST(utils_endsWith) {
+OMNINET_TEST(utils_endsWith) {
     ASSERT_TRUE(OmniNet::Utils::endsWith("hello world", "world"));
     ASSERT_FALSE(OmniNet::Utils::endsWith("hello world", "hello"));
     ASSERT_TRUE(OmniNet::Utils::endsWith("hello", "hello"));
     ASSERT_TRUE(OmniNet::Utils::endsWith("hello", ""));
 }
-TEST(utils_replaceAll) {
+OMNINET_TEST(utils_replaceAll) {
     ASSERT_EQ(OmniNet::Utils::replaceAll("hello world world", "world", "everyone"), "hello everyone everyone");
     ASSERT_EQ(OmniNet::Utils::replaceAll("hello", "x", "y"), "hello");
 }
@@ -123,23 +123,23 @@ TEST(utils_replaceAll) {
 // ============================================================================
 // Utils Tests - URL Encoding
 // ============================================================================
-TEST(utils_urlEncode) {
+OMNINET_TEST(utils_urlEncode) {
     // Basic URL encoding works
     auto result = OmniNet::Utils::urlEncode("hello world");
     ASSERT_FALSE(result.empty());
     ASSERT_STR_CONTAINS(result, "%20");
 }
-TEST(utils_urlEncode_special) {
+OMNINET_TEST(utils_urlEncode_special) {
     // URL encoding handles special characters
     auto result = OmniNet::Utils::urlEncode("hello?world=123");
     ASSERT_FALSE(result.empty());
 }
-TEST(utils_urlDecode) {
+OMNINET_TEST(utils_urlDecode) {
     // Basic URL decoding works
     auto result = OmniNet::Utils::urlDecode("hello%20world");
     ASSERT_EQ(result, "hello world");
 }
-TEST(utils_urlDecode_special) {
+OMNINET_TEST(utils_urlDecode_special) {
     // Hex decoding works
     auto result = OmniNet::Utils::urlDecode("%3F%3D");
     ASSERT_FALSE(result.empty());
@@ -148,7 +148,7 @@ TEST(utils_urlDecode_special) {
 // ============================================================================
 // Utils Tests - UTF-8 and Emoji (Security critical)
 // ============================================================================
-TEST(utils_utf8_basic) {
+OMNINET_TEST(utils_utf8_basic) {
     // ASCII toLower works
     auto lower = OmniNet::Utils::toLower("HELLO");
     ASSERT_EQ(lower, "hello");
@@ -161,7 +161,7 @@ TEST(utils_utf8_basic) {
     auto decoded = OmniNet::Utils::urlDecode(encoded);
     ASSERT_EQ(decoded, "hello");
 }
-TEST(utils_emoji_path) {
+OMNINET_TEST(utils_emoji_path) {
     // Emoji in path should be URL encoded
     auto encoded = OmniNet::Utils::urlEncode("🔐");
     ASSERT_STR_CONTAINS(encoded, "%F0%9F%94%90");
@@ -170,12 +170,12 @@ TEST(utils_emoji_path) {
     auto decoded = OmniNet::Utils::urlDecode(encoded);
     ASSERT_EQ(decoded, "🔐");
 }
-TEST(utils_emoji_url_decode) {
+OMNINET_TEST(utils_emoji_url_decode) {
     // Test emoji in query string (common attack vector)
     auto decoded = OmniNet::Utils::urlDecode("%F0%9F%98%80");  // 😀
     ASSERT_EQ(decoded, "😀");
 }
-TEST(utils_control_chars_url_encode) {
+OMNINET_TEST(utils_control_chars_url_encode) {
     // Control characters should be encoded
     auto encoded = OmniNet::Utils::urlEncode("line1\nline2\r");
     ASSERT_STR_CONTAINS(encoded, "%0A");
@@ -185,23 +185,23 @@ TEST(utils_control_chars_url_encode) {
 // ============================================================================
 // Utils Tests - Base64
 // ============================================================================
-TEST(utils_base64Encode) {
+OMNINET_TEST(utils_base64Encode) {
     auto encoded = OmniNet::Utils::base64Encode("Hello, World!");
     ASSERT_EQ(encoded, "SGVsbG8sIFdvcmxkIQ==");
 }
-TEST(utils_base64Decode) {
+OMNINET_TEST(utils_base64Decode) {
     auto decoded = OmniNet::Utils::base64DecodeToString("SGVsbG8sIFdvcmxkIQ==");
     ASSERT_TRUE(decoded.has_value());
     ASSERT_EQ(*decoded, "Hello, World!");
 }
-TEST(utils_base64_roundtrip) {
+OMNINET_TEST(utils_base64_roundtrip) {
     std::string original = "Hello, World! 日本語 🎉";
     auto encoded = OmniNet::Utils::base64Encode(original);
     auto decoded = OmniNet::Utils::base64DecodeToString(encoded);
     ASSERT_TRUE(decoded.has_value());
     ASSERT_EQ(*decoded, original);
 }
-TEST(utils_base64_invalid) {
+OMNINET_TEST(utils_base64_invalid) {
     auto decoded = OmniNet::Utils::base64Decode("not-valid-base64!!!");
     // Should return nullopt or empty for invalid input
     if (decoded.has_value()) {
@@ -213,12 +213,12 @@ TEST(utils_base64_invalid) {
 // ============================================================================
 // Utils Tests - Path (Security critical)
 // ============================================================================
-TEST(utils_normalizePath) {
+OMNINET_TEST(utils_normalizePath) {
     ASSERT_EQ(OmniNet::Utils::normalizePath("/path/../file"), "/file");
     ASSERT_EQ(OmniNet::Utils::normalizePath("/path/./file"), "/path/file");
     ASSERT_EQ(OmniNet::Utils::normalizePath("/a/b/c/../../d"), "/a/d");
 }
-TEST(utils_normalizePath_traversal) {
+OMNINET_TEST(utils_normalizePath_traversal) {
     // Path traversal attack - should neutralize ../
     auto normalized = OmniNet::Utils::normalizePath("/protected/../../etc/passwd");
     ASSERT_EQ(normalized, "/etc/passwd");  // Still dangerous if not checked!
@@ -226,17 +226,17 @@ TEST(utils_normalizePath_traversal) {
     // Better to check for traversal before normalization
     ASSERT_FALSE(OmniNet::Utils::normalizePath("/safe/../dangerous").find("..") != std::string::npos);
 }
-TEST(utils_filenameOf) {
+OMNINET_TEST(utils_filenameOf) {
     ASSERT_EQ(OmniNet::Utils::filenameOf("/path/to/file.txt"), "file.txt");
     ASSERT_EQ(OmniNet::Utils::filenameOf("file.txt"), "file.txt");
     ASSERT_EQ(OmniNet::Utils::filenameOf("/path/to/dir/"), "");
 }
-TEST(utils_extensionOf) {
+OMNINET_TEST(utils_extensionOf) {
     ASSERT_EQ(OmniNet::Utils::extensionOf("/path/to/file.txt"), ".txt");
     ASSERT_EQ(OmniNet::Utils::extensionOf("file.TXT"), ".TXT");
     ASSERT_EQ(OmniNet::Utils::extensionOf("file"), "");
 }
-TEST(utils_isAbsolute) {
+OMNINET_TEST(utils_isAbsolute) {
     ASSERT_TRUE(OmniNet::Utils::isAbsolute("/path/to/file"));
     ASSERT_TRUE(OmniNet::Utils::isAbsolute("/"));
     ASSERT_FALSE(OmniNet::Utils::isAbsolute("path/to/file"));
@@ -246,7 +246,7 @@ TEST(utils_isAbsolute) {
 // ============================================================================
 // Utils Tests - MIME
 // ============================================================================
-TEST(utils_mimeType) {
+OMNINET_TEST(utils_mimeType) {
     ASSERT_EQ(OmniNet::Utils::mimeType("file.html"), "text/html");
     ASSERT_EQ(OmniNet::Utils::mimeType("file.css"), "text/css");
     ASSERT_EQ(OmniNet::Utils::mimeType("file.js"), "application/javascript");
@@ -255,7 +255,7 @@ TEST(utils_mimeType) {
     ASSERT_EQ(OmniNet::Utils::mimeType("file.jpg"), "image/jpeg");
     ASSERT_EQ(OmniNet::Utils::mimeType("file.woff"), "font/woff");
 }
-TEST(utils_mimeType_unknown) {
+OMNINET_TEST(utils_mimeType_unknown) {
     auto mime = OmniNet::Utils::mimeType("file.xyz");
     ASSERT_EQ(mime, "application/octet-stream");
 }
@@ -263,7 +263,7 @@ TEST(utils_mimeType_unknown) {
 // ============================================================================
 // Utils Tests - IP
 // ============================================================================
-TEST(utils_isValidIpv4) {
+OMNINET_TEST(utils_isValidIpv4) {
     ASSERT_TRUE(OmniNet::Utils::isValidIpv4("127.0.0.1"));
     ASSERT_TRUE(OmniNet::Utils::isValidIpv4("192.168.1.1"));
     ASSERT_TRUE(OmniNet::Utils::isValidIpv4("0.0.0.0"));
@@ -273,7 +273,7 @@ TEST(utils_isValidIpv4) {
     ASSERT_FALSE(OmniNet::Utils::isValidIpv4(""));
     ASSERT_FALSE(OmniNet::Utils::isValidIpv4("192.168.1"));
 }
-TEST(utils_matchesCidr) {
+OMNINET_TEST(utils_matchesCidr) {
     ASSERT_TRUE(OmniNet::Utils::matchesCidr("192.168.1.100", "192.168.1.0/24"));
     ASSERT_FALSE(OmniNet::Utils::matchesCidr("192.168.2.1", "192.168.1.0/24"));
     ASSERT_TRUE(OmniNet::Utils::matchesCidr("10.0.0.1", "10.0.0.0/8"));
@@ -283,13 +283,13 @@ TEST(utils_matchesCidr) {
 // ============================================================================
 // Utils Tests - HTML (XSS prevention)
 // ============================================================================
-TEST(utils_escapeHtml) {
+OMNINET_TEST(utils_escapeHtml) {
     ASSERT_EQ(OmniNet::Utils::escapeHtml("<div>"), "&lt;div&gt;");
     ASSERT_EQ(OmniNet::Utils::escapeHtml("a & b"), "a &amp; b");
     ASSERT_EQ(OmniNet::Utils::escapeHtml("\"quotes\""), "&quot;quotes&quot;");
     ASSERT_EQ(OmniNet::Utils::escapeHtml("'single'"), "&#39;single&#39;");
 }
-TEST(utils_escapeHtml_xss) {
+OMNINET_TEST(utils_escapeHtml_xss) {
     // Common XSS attack vectors
     ASSERT_EQ(OmniNet::Utils::escapeHtml("<script>alert('xss')</script>"), 
                "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;");
@@ -300,17 +300,17 @@ TEST(utils_escapeHtml_xss) {
 // ============================================================================
 // Utils Tests - HMAC
 // ============================================================================
-TEST(utils_hmacSha256) {
+OMNINET_TEST(utils_hmacSha256) {
     auto hmac = OmniNet::Utils::hmacSha256("key", "message");
     ASSERT_FALSE(hmac.empty());
     ASSERT_EQ(hmac.size(), 64);  // 32 bytes = 64 hex chars
 }
-TEST(utils_hmacSha256_consistency) {
+OMNINET_TEST(utils_hmacSha256_consistency) {
     auto hmac1 = OmniNet::Utils::hmacSha256("key", "message");
     auto hmac2 = OmniNet::Utils::hmacSha256("key", "message");
     ASSERT_EQ(hmac1, hmac2);  // Same input should give same output
 }
-TEST(utils_hmacSha256_different) {
+OMNINET_TEST(utils_hmacSha256_different) {
     auto hmac1 = OmniNet::Utils::hmacSha256("key1", "message");
     auto hmac2 = OmniNet::Utils::hmacSha256("key2", "message");
     ASSERT_NE(hmac1, hmac2);  // Different keys should give different output
@@ -319,7 +319,7 @@ TEST(utils_hmacSha256_different) {
 // ============================================================================
 // Database Tests
 // ============================================================================
-TEST(database_open_close) {
+OMNINET_TEST(database_open_close) {
     std::string path = "test_temp.db";
     if (std::filesystem::exists(path)) {
         std::filesystem::remove(path);
@@ -335,7 +335,7 @@ TEST(database_open_close) {
         std::filesystem::remove(path);
     }
 }
-TEST(database_execute_query) {
+OMNINET_TEST(database_execute_query) {
     std::string path = "test_temp.db";
     if (std::filesystem::exists(path)) {
         std::filesystem::remove(path);
@@ -363,7 +363,7 @@ TEST(database_execute_query) {
         std::filesystem::remove(path);
     }
 }
-TEST(database_sql_injection_prevention) {
+OMNINET_TEST(database_sql_injection_prevention) {
     std::string path = "test_temp.db";
     if (std::filesystem::exists(path)) {
         std::filesystem::remove(path);
@@ -401,7 +401,7 @@ TEST(database_sql_injection_prevention) {
 // ============================================================================
 // HTTP Request Tests
 // ============================================================================
-TEST(http_request_parse) {
+OMNINET_TEST(http_request_parse) {
     std::string raw = 
         "GET /api/hello?key=value HTTP/1.1\r\n"
         "Host: localhost:8080\r\n"
@@ -414,7 +414,7 @@ TEST(http_request_parse) {
     ASSERT_EQ(std::string(req.path()), "/api/hello");
     ASSERT_TRUE((int)req.method() == (int)OmniNet::HTTP::Method::GET);
 }
-TEST(http_request_headers) {
+OMNINET_TEST(http_request_headers) {
     OmniNet::HTTP::Request req;
     req.setMethod(OmniNet::HTTP::Method::GET);
     req.setPath("/test");
@@ -422,7 +422,7 @@ TEST(http_request_headers) {
     
     ASSERT_TRUE(true);  // Just verify setting header doesn't crash
 }
-TEST(http_request_query_string) {
+OMNINET_TEST(http_request_query_string) {
     std::string raw = 
         "GET /search?q=test&page=1&sort=name HTTP/1.1\r\n"
         "Host: localhost\r\n"
@@ -435,7 +435,7 @@ TEST(http_request_query_string) {
     // Check what keys exist
     ASSERT_TRUE(query.has("q") || query.has("page") || !query.params.empty());
 }
-TEST(http_request_post_body) {
+OMNINET_TEST(http_request_post_body) {
     std::string raw = 
         "POST /submit HTTP/1.1\r\n"
         "Host: localhost\r\n"
@@ -454,7 +454,7 @@ TEST(http_request_post_body) {
     auto body = req.body();
     ASSERT_GT(body.size(), 0);
 }
-TEST(http_request_keep_alive) {
+OMNINET_TEST(http_request_keep_alive) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "Host: localhost\r\n"
@@ -468,7 +468,7 @@ TEST(http_request_keep_alive) {
     (void)req.keepAlive();
     ASSERT_TRUE(true);
 }
-TEST(http_request_connection_close) {
+OMNINET_TEST(http_request_connection_close) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "Host: localhost\r\n"
@@ -486,7 +486,7 @@ TEST(http_request_connection_close) {
 // ============================================================================
 // HTTP Request Tests - UTF-8 and Special Characters
 // ============================================================================
-TEST(http_request_utf8_path) {
+OMNINET_TEST(http_request_utf8_path) {
     // Test path with UTF-8 characters
     std::string raw = 
         "GET /api/%E6%97%A5%E6%9C%AC%E8%AA%9E HTTP/1.1\r\n"  // URL encoded Japanese
@@ -499,7 +499,7 @@ TEST(http_request_utf8_path) {
     // Path should be URL encoded, raw bytes preserved
     ASSERT_GT(req.path().size(), 0);
 }
-TEST(http_request_emoji_query) {
+OMNINET_TEST(http_request_emoji_query) {
     // Test emoji in query string
     std::string raw = 
         "GET /search?q=%F0%9F%98%80 HTTP/1.1\r\n"  // 😀 emoji
@@ -512,7 +512,7 @@ TEST(http_request_emoji_query) {
     // Query should contain URL-encoded emoji
     ASSERT_TRUE(req.queryString().find("%F0%9F%98%80") != std::string::npos);
 }
-TEST(http_request_header_case_insensitive) {
+OMNINET_TEST(http_request_header_case_insensitive) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "Content-Type: text/html\r\n"
@@ -536,7 +536,7 @@ TEST(http_request_header_case_insensitive) {
 // ============================================================================
 // HTTP Request - Header Parsing & Off-By-One Tests
 // ============================================================================
-TEST(http_method_all) {
+OMNINET_TEST(http_method_all) {
     // Test all HTTP methods
     const char* methods[] = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"};
     for (const char* m : methods) {
@@ -547,7 +547,7 @@ TEST(http_method_all) {
         ASSERT_TRUE(true);
     }
 }
-TEST(http_query_multiple_params) {
+OMNINET_TEST(http_query_multiple_params) {
     std::string raw = 
         "GET /search?q=test&page=1&sort=name&filter=active HTTP/1.1\r\n"
         "Host: localhost\r\n"
@@ -562,7 +562,7 @@ TEST(http_query_multiple_params) {
     ASSERT_TRUE(query.has("sort"));
     ASSERT_TRUE(query.has("filter"));
 }
-TEST(http_query_empty_param) {
+OMNINET_TEST(http_query_empty_param) {
     std::string raw = 
         "GET /search?q=&page=1 HTTP/1.1\r\n"
         "Host: localhost\r\n"
@@ -575,7 +575,7 @@ TEST(http_query_empty_param) {
     ASSERT_TRUE(query.has("q"));
     ASSERT_TRUE(query.has("page"));
 }
-TEST(http_query_no_value) {
+OMNINET_TEST(http_query_no_value) {
     std::string raw = 
         "GET /search?q&page=1 HTTP/1.1\r\n"
         "Host: localhost\r\n"
@@ -587,7 +587,7 @@ TEST(http_query_no_value) {
     auto& query = req.query();
     ASSERT_TRUE(query.has("q"));
 }
-TEST(http_header_exactly_one_value) {
+OMNINET_TEST(http_header_exactly_one_value) {
     // Test header with value that should be exactly "value"
     std::string raw = 
         "GET / HTTP/1.1\r\n"
@@ -602,7 +602,7 @@ TEST(http_header_exactly_one_value) {
     ASSERT_TRUE(val.has_value());
     ASSERT_EQ(val->size(), 5);
 }
-TEST(http_header_with_spaces) {
+OMNINET_TEST(http_header_with_spaces) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "Accept:   multiple   spaces   \r\n"
@@ -615,7 +615,7 @@ TEST(http_header_with_spaces) {
     ASSERT_TRUE(val.has_value());
     // Value should have trimmed whitespace
 }
-TEST(http_header_empty_value) {
+OMNINET_TEST(http_header_empty_value) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "X-Empty:\r\n"
@@ -628,7 +628,7 @@ TEST(http_header_empty_value) {
     auto val = req.header("X-Empty");
     ASSERT_TRUE(val.has_value());
 }
-TEST(http_header_trailing_cr) {
+OMNINET_TEST(http_header_trailing_cr) {
     // Test with trailing CR in header value (edge case)
     std::string raw = 
         "GET / HTTP/1.1\r\n"
@@ -641,19 +641,19 @@ TEST(http_header_trailing_cr) {
     auto val = req.header("Server");
     ASSERT_TRUE(val.has_value());
 }
-TEST(http_version_11) {
+OMNINET_TEST(http_version_11) {
     std::string raw = "GET / HTTP/1.1\r\n\r\n";
     OmniNet::HTTP::Request req;
     req.parse(raw);
     ASSERT_TRUE(req.version().isHTTP11());
 }
-TEST(http_version_10) {
+OMNINET_TEST(http_version_10) {
     std::string raw = "GET / HTTP/1.0\r\n\r\n";
     OmniNet::HTTP::Request req;
     req.parse(raw);
     ASSERT_TRUE(req.version().isHTTP10());
 }
-TEST(http_path_with_question_mark) {
+OMNINET_TEST(http_path_with_question_mark) {
     std::string raw = "GET /path?with&special=chars HTTP/1.1\r\n\r\n";
     OmniNet::HTTP::Request req;
     req.parse(raw);
@@ -662,20 +662,20 @@ TEST(http_path_with_question_mark) {
     auto& query = req.query();
     ASSERT_TRUE(query.has("with") || query.has("special"));
 }
-TEST(http_path_slash_only) {
+OMNINET_TEST(http_path_slash_only) {
     std::string raw = "GET / HTTP/1.1\r\n\r\n";
     OmniNet::HTTP::Request req;
     req.parse(raw);
     ASSERT_EQ(std::string(req.path()), "/");
 }
-TEST(http_path_double_slash) {
+OMNINET_TEST(http_path_double_slash) {
     std::string raw = "GET // HTTP/1.1\r\n\r\n";
     OmniNet::HTTP::Request req;
     req.parse(raw);
     // Should parse without crash
     ASSERT_TRUE(req.path().size() >= 2);
 }
-TEST(http_header_host_only) {
+OMNINET_TEST(http_header_host_only) {
     std::string raw = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
     OmniNet::HTTP::Request req;
     req.parse(raw);
@@ -684,7 +684,7 @@ TEST(http_header_host_only) {
     ASSERT_TRUE(host.has_value());
     ASSERT_EQ(*host, "localhost");
 }
-TEST(http_header_colon_in_value) {
+OMNINET_TEST(http_header_colon_in_value) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "User-Agent: Test/1.0 (compatible)\r\n"
@@ -697,7 +697,7 @@ TEST(http_header_colon_in_value) {
     ASSERT_TRUE(ua.has_value());
     // Should contain the colon in "compatible)"
 }
-TEST(http_content_length_exact) {
+OMNINET_TEST(http_content_length_exact) {
     std::string raw = 
         "POST /submit HTTP/1.1\r\n"
         "Content-Length: 13\r\n"
@@ -710,7 +710,7 @@ TEST(http_content_length_exact) {
     ASSERT_EQ(req.contentLength(), 13);
     ASSERT_TRUE(req.hasBody());
 }
-TEST(http_content_length_mismatch) {
+OMNINET_TEST(http_content_length_mismatch) {
     std::string raw = 
         "POST /submit HTTP/1.1\r\n"
         "Content-Length: 100\r\n"
@@ -723,7 +723,7 @@ TEST(http_content_length_mismatch) {
     // Parser handles gracefully
     ASSERT_TRUE(req.contentLength() > 0);
 }
-TEST(http_connection_close) {
+OMNINET_TEST(http_connection_close) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "Connection: close\r\n"
@@ -734,7 +734,7 @@ TEST(http_connection_close) {
     
     ASSERT_FALSE(req.keepAlive());
 }
-TEST(http_connection_keepalive) {
+OMNINET_TEST(http_connection_keepalive) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "Connection: keep-alive\r\n"
@@ -745,7 +745,7 @@ TEST(http_connection_keepalive) {
     
     ASSERT_TRUE(req.keepAlive());
 }
-TEST(http_connection_case_insensitive) {
+OMNINET_TEST(http_connection_case_insensitive) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "connection: CLOSE\r\n"
@@ -757,7 +757,7 @@ TEST(http_connection_case_insensitive) {
     // Should recognize "CLOSE" regardless of case
     ASSERT_FALSE(req.keepAlive());
 }
-TEST(http_default_keepalive_http11) {
+OMNINET_TEST(http_default_keepalive_http11) {
     std::string raw = "GET / HTTP/1.1\r\n\r\n";
     OmniNet::HTTP::Request req;
     req.parse(raw);
@@ -765,7 +765,7 @@ TEST(http_default_keepalive_http11) {
     // HTTP/1.1 defaults to keep-alive
     ASSERT_TRUE(req.keepAlive());
 }
-TEST(http_default_close_http10) {
+OMNINET_TEST(http_default_close_http10) {
     std::string raw = "GET / HTTP/1.0\r\n\r\n";
     OmniNet::HTTP::Request req;
     req.parse(raw);
@@ -773,7 +773,7 @@ TEST(http_default_close_http10) {
     // HTTP/1.0 defaults to close
     ASSERT_FALSE(req.keepAlive());
 }
-TEST(http_path_very_long) {
+OMNINET_TEST(http_path_very_long) {
     std::string path = "/";
     for (int i = 0; i < 100; i++) path += "a/";
     std::string raw = "GET " + path + " HTTP/1.1\r\n\r\n";
@@ -783,7 +783,7 @@ TEST(http_path_very_long) {
     
     ASSERT_GT(req.path().size(), 100);
 }
-TEST(http_headers_many) {
+OMNINET_TEST(http_headers_many) {
     std::string raw = 
         "GET / HTTP/1.1\r\n"
         "Header1: value1\r\n"
@@ -803,7 +803,7 @@ TEST(http_headers_many) {
 // ============================================================================
 // HTTP Response Tests
 // ============================================================================
-TEST(http_response_basic) {
+OMNINET_TEST(http_response_basic) {
     OmniNet::HTTP::Response resp;
     resp.setStatus(OmniNet::HTTP::StatusCode::OK);
     resp.setContentType("application/json");
@@ -811,7 +811,7 @@ TEST(http_response_basic) {
     
     ASSERT_TRUE(true);  // Basic construction works
 }
-TEST(http_response_headers) {
+OMNINET_TEST(http_response_headers) {
     OmniNet::HTTP::Response resp;
     resp.setHeader(std::string_view("X-Custom-Header"), std::string_view("test-value"));
     resp.setHeader(std::string_view("Content-Type"), std::string_view("text/html"));
@@ -820,7 +820,7 @@ TEST(http_response_headers) {
     // Just verify we can call header() - implementation may vary
     (void)custom;
 }
-TEST(http_response_status_codes) {
+OMNINET_TEST(http_response_status_codes) {
     OmniNet::HTTP::Response resp;
     
     resp.setStatus(OmniNet::HTTP::StatusCode::OK);
@@ -832,7 +832,7 @@ TEST(http_response_status_codes) {
     resp.setStatus(OmniNet::HTTP::StatusCode::INTERNAL_SERVER_ERROR);
     ASSERT_EQ(resp.statusInt(), 500);
 }
-TEST(http_response_build) {
+OMNINET_TEST(http_response_build) {
     OmniNet::HTTP::Response resp;
     resp.setStatus(OmniNet::HTTP::StatusCode::OK);
     resp.setContentType("text/plain");
@@ -850,7 +850,7 @@ TEST(http_response_build) {
 // ============================================================================
 // Router Tests
 // ============================================================================
-TEST(router_basic) {
+OMNINET_TEST(router_basic) {
     OmniNet::HTTP::Router router;
     
     bool handlerCalled = false;
@@ -867,7 +867,7 @@ TEST(router_basic) {
     auto match = router.match(OmniNet::HTTP::Method::GET, "/test");
     ASSERT_TRUE(match.has_value());
 }
-TEST(router_path_params) {
+OMNINET_TEST(router_path_params) {
     OmniNet::HTTP::Router router;
     
     router.get("/users/:id", [](const OmniNet::HTTP::Request& req, OmniNet::HTTP::Response& resp) {
@@ -883,13 +883,13 @@ TEST(router_path_params) {
         ASSERT_EQ(match->captures[0], "123");
     }
 }
-TEST(router_not_found) {
+OMNINET_TEST(router_not_found) {
     OmniNet::HTTP::Router router;
     
     auto match = router.match(OmniNet::HTTP::Method::GET, "/nonexistent");
     ASSERT_FALSE(match.has_value());
 }
-TEST(router_method_mismatch) {
+OMNINET_TEST(router_method_mismatch) {
     OmniNet::HTTP::Router router;
     
     router.get("/test", [](const OmniNet::HTTP::Request& req, OmniNet::HTTP::Response& resp) {
@@ -900,7 +900,7 @@ TEST(router_method_mismatch) {
     auto match = router.match(OmniNet::HTTP::Method::POST, "/test");
     ASSERT_FALSE(match.has_value());
 }
-TEST(router_wildcard) {
+OMNINET_TEST(router_wildcard) {
     OmniNet::HTTP::Router router;
     
     router.get("/api/*", [](const OmniNet::HTTP::Request& req, OmniNet::HTTP::Response& resp) {
@@ -917,7 +917,7 @@ TEST(router_wildcard) {
 // ============================================================================
 // Rate Limiter Tests
 // ============================================================================
-TEST(rate_limiter_basic) {
+OMNINET_TEST(rate_limiter_basic) {
     OmniNet::RateLimiter limiter(3, std::chrono::seconds(60));
     
     std::string ip = "192.168.1.1";
@@ -931,7 +931,7 @@ TEST(rate_limiter_basic) {
     ASSERT_FALSE(limiter.allow(ip));
     ASSERT_TRUE(limiter.isBlocked(ip));
 }
-TEST(rate_limiter_success_clears) {
+OMNINET_TEST(rate_limiter_success_clears) {
     OmniNet::RateLimiter limiter(3, std::chrono::seconds(60));
     
     std::string ip = "192.168.1.1";
@@ -946,7 +946,7 @@ TEST(rate_limiter_success_clears) {
     // Now should have full quota again
     ASSERT_EQ(limiter.remainingAttempts(ip), 3);
 }
-TEST(rate_limiter_remaining) {
+OMNINET_TEST(rate_limiter_remaining) {
     OmniNet::RateLimiter limiter(5, std::chrono::seconds(60));
     
     std::string ip = "192.168.1.1";
@@ -961,22 +961,22 @@ TEST(rate_limiter_remaining) {
 // ============================================================================
 // Crypto Tests
 // ============================================================================
-TEST(crypto_random) {
+OMNINET_TEST(crypto_random) {
     auto random = OmniNet::SecureToken::generate(32);
     // Verify it generates something
     ASSERT_FALSE(random.empty());
     // Size may vary by implementation
 }
-TEST(crypto_randomUrlSafe) {
+OMNINET_TEST(crypto_randomUrlSafe) {
     auto random = OmniNet::SecureToken::generateUrlSafe(32);
     ASSERT_FALSE(random.empty());
 }
-TEST(crypto_randomHex) {
+OMNINET_TEST(crypto_randomHex) {
     auto hex = OmniNet::Utils::secureRandomHex(32);
     ASSERT_EQ(hex.size(), 64);  // 32 bytes = 64 hex chars
     ASSERT_NE(hex, OmniNet::Utils::secureRandomHex(32));  // Should be different
 }
-TEST(crypto_random_unique) {
+OMNINET_TEST(crypto_random_unique) {
     auto r1 = OmniNet::SecureToken::generate(32);
     auto r2 = OmniNet::SecureToken::generate(32);
     ASSERT_NE(r1, r2);  // Each call should be unique
@@ -985,21 +985,21 @@ TEST(crypto_random_unique) {
 // ============================================================================
 // Password Hasher Tests
 // ============================================================================
-TEST(crypto_passwordHash) {
+OMNINET_TEST(crypto_passwordHash) {
     OmniNet::PasswordHasher hasher;
     auto result = hasher.hash("testpassword123");
     // Verify hashing produces output
     ASSERT_FALSE(result.hash.empty());
     ASSERT_FALSE(result.salt.empty());
 }
-TEST(crypto_passwordVerify) {
+OMNINET_TEST(crypto_passwordVerify) {
     OmniNet::PasswordHasher hasher;
     auto result = hasher.hash("testpassword123");
     // Verification logic should work - test basic functionality
     (void)result;
     ASSERT_TRUE(true);
 }
-TEST(crypto_passwordVerify_wrong) {
+OMNINET_TEST(crypto_passwordVerify_wrong) {
     OmniNet::PasswordHasher hasher;
     auto result = hasher.hash("correctpassword");
     // Verify that wrong password gives different result
@@ -1007,7 +1007,7 @@ TEST(crypto_passwordVerify_wrong) {
     // Just verify no crash
     (void)verified;
 }
-TEST(crypto_passwordDifferentHashes) {
+OMNINET_TEST(crypto_passwordDifferentHashes) {
     OmniNet::PasswordHasher hasher;
     auto r1 = hasher.hash("password");
     auto r2 = hasher.hash("password");
@@ -1019,14 +1019,14 @@ TEST(crypto_passwordDifferentHashes) {
 // ============================================================================
 // Buffer Tests
 // ============================================================================
-TEST(buffer_basic) {
+OMNINET_TEST(buffer_basic) {
     OmniNet::ByteBuffer buf;
     ASSERT_EQ(buf.size(), size_t(0));
     ASSERT_GT(buf.capacity(), size_t(0));  // Should have some capacity
     ASSERT_TRUE(buf.empty());
 }
 
-TEST(buffer_write_read) {
+OMNINET_TEST(buffer_write_read) {
     OmniNet::ByteBuffer buf;
     
     // Write some data
@@ -1043,7 +1043,7 @@ TEST(buffer_write_read) {
     ASSERT_TRUE(buf.empty());
 }
 
-TEST(buffer_growth) {
+OMNINET_TEST(buffer_growth) {
     OmniNet::ByteBuffer buf(16);  // Start with tiny capacity
     
     // Write enough to force growth
@@ -1054,7 +1054,7 @@ TEST(buffer_growth) {
     ASSERT_GT(buf.capacity(), size_t(1000));  // Should have grown
 }
 
-TEST(buffer_clear) {
+OMNINET_TEST(buffer_clear) {
     OmniNet::ByteBuffer buf;
     buf.write("test", 4);
     ASSERT_EQ(buf.size(), size_t(4));
@@ -1066,7 +1066,7 @@ TEST(buffer_clear) {
     ASSERT_GT(buf.capacity(), size_t(0));
 }
 
-TEST(buffer_find) {
+OMNINET_TEST(buffer_find) {
     OmniNet::ByteBuffer buf;
     buf.write("GET /api/test HTTP/1.1\r\nHost: localhost\r\n\r\n", 45);
     
@@ -1083,7 +1083,7 @@ TEST(buffer_find) {
     ASSERT_GE(doubleCrlfPos.value(), size_t(38));  // Should be near end
 }
 
-TEST(buffer_remove) {
+OMNINET_TEST(buffer_remove) {
     OmniNet::ByteBuffer buf;
     buf.write("ABCDEF", 6);
     
@@ -1095,7 +1095,7 @@ TEST(buffer_remove) {
     ASSERT_EQ(strncmp(data, "DEF", 3), 0);
 }
 
-TEST(buffer_peek) {
+OMNINET_TEST(buffer_peek) {
     OmniNet::ByteBuffer buf;
     buf.write("ABCDEF", 6);
     
@@ -1107,7 +1107,7 @@ TEST(buffer_peek) {
     ASSERT_EQ(memcmp(peeked.data(), "ABC", 3), 0);
 }
 
-TEST(buffer_clone) {
+OMNINET_TEST(buffer_clone) {
     OmniNet::ByteBuffer buf;
     buf.write("Hello", 5);
     
@@ -1116,7 +1116,7 @@ TEST(buffer_clone) {
     ASSERT_EQ(memcmp(clone.data(), "Hello", 5), 0);
 }
 
-TEST(buffer_stats) {
+OMNINET_TEST(buffer_stats) {
     OmniNet::ByteBuffer buf(1024);
     buf.write("Test", 4);
     
@@ -1126,7 +1126,7 @@ TEST(buffer_stats) {
     ASSERT_TRUE(stats.utilizationPercent < 100);  // Less than 100%
 }
 
-TEST(buffer_writeByte) {
+OMNINET_TEST(buffer_writeByte) {
     OmniNet::ByteBuffer buf;
     buf.writeByte('A');
     buf.writeByte('B');
@@ -1136,7 +1136,7 @@ TEST(buffer_writeByte) {
     ASSERT_EQ(buf.toString(), "ABC");
 }
 
-TEST(buffer_stringView) {
+OMNINET_TEST(buffer_stringView) {
     OmniNet::ByteBuffer buf;
     buf.write("Hello", 5);
     
@@ -1144,7 +1144,7 @@ TEST(buffer_stringView) {
     ASSERT_EQ(sv, "Hello");
 }
 
-TEST(buffer_isValid) {
+OMNINET_TEST(buffer_isValid) {
     OmniNet::ByteBuffer buf;
     ASSERT_TRUE(buf.isValid());
     
@@ -1152,7 +1152,7 @@ TEST(buffer_isValid) {
     ASSERT_TRUE(buf.isValid());
 }
 
-TEST(buffer_toPrintable) {
+OMNINET_TEST(buffer_toPrintable) {
     OmniNet::ByteBuffer buf;
     buf.write("Hello\x01World", 11);
     
@@ -1161,7 +1161,7 @@ TEST(buffer_toPrintable) {
     ASSERT_STR_CONTAINS(str, "World");
 }
 
-TEST(buffer_isTextual) {
+OMNINET_TEST(buffer_isTextual) {
     OmniNet::ByteBuffer buf;
     buf.write("Hello, World!", 13);
     
@@ -1171,7 +1171,7 @@ TEST(buffer_isTextual) {
     ASSERT_FALSE(OmniNet::BufferUtil::isTextual(buf, 14));
 }
 
-TEST(buffer_chunks) {
+OMNINET_TEST(buffer_chunks) {
     OmniNet::ByteBuffer buf;
     
     // Write in chunks

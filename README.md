@@ -8,7 +8,7 @@ A modern, high-performance C++ HTTP/WebSocket server library with TLS support, s
 
 - **HTTP Server** - Full HTTP/1.1 server implementation with keep-alive support
 - **WebSocket** - Full WebSocket protocol support (RFC 6455)
-- **TLS/HTTPS** - Secure connections using OpenSSL
+- **TLS/HTTPS** - Secure connections using OpenSSL 3.0
 - **Static File Serving** - Built-in static file handler with MIME types
 - **Session Management** - SQLite-backed session store
 - **User Authentication** - Password hashing with bcrypt
@@ -19,12 +19,13 @@ A modern, high-performance C++ HTTP/WebSocket server library with TLS support, s
 - **Intrusion Detection** - Basic security monitoring
 - **Log Rotation** - Automatic rotation based on file size
 - **CLI Tools** - Admin tools for users, certs, logs, etc.
+- **Public Test Framework** - Header-only test utilities for users
 
 ## Requirements
 
 - C++20 compatible compiler (GCC 10+, Clang 12+, MSVC 2019+)
 - CMake 3.16+
-- OpenSSL 1.1.1+
+- OpenSSL 1.1.1+ (3.x recommended)
 - SQLite3
 
 ## Quick Start
@@ -108,25 +109,28 @@ int main() {
 
 ```
 OmniNet/
-├── src/              # Source code
-│   ├── OmniNet.h     # Main header (all includes)
-│   ├── config/       # Configuration system
-│   ├── utils/        # Utilities (Logger, LogReader, Utils, Exception)
-│   ├── crypto/       # Cryptography (Crypto, Password)
-│   ├── net/          # Networking (Socket, TLSSocket, Buffer)
-│   ├── http/         # HTTP server components
-│   ├── websocket/    # WebSocket implementation
-│   ├── db/           # Database (SQLite wrapper)
+├── include/           # Public headers
+│   └── OmniNet/       # Public API headers
+│       └── Test.h     # Test framework for users
+├── src/               # Source code
+│   ├── OmniNet.h      # Main header (all includes)
+│   ├── config/        # Configuration system
+│   ├── utils/         # Utilities (Logger, LogReader, Utils, Exception)
+│   ├── crypto/        # Cryptography (Crypto, Password)
+│   ├── net/           # Networking (Socket, TLSSocket, Buffer)
+│   ├── http/          # HTTP server components
+│   ├── websocket/     # WebSocket implementation
+│   ├── db/            # Database (SQLite wrapper)
 │   ├── dashboard/     # Dashboard handler
-│   ├── admin/        # Admin endpoints
-│   ├── sse/          # Server-Sent Events
+│   ├── admin/         # Admin endpoints
+│   ├── sse/           # Server-Sent Events
 │   └── intrusion/     # Security monitoring
-├── demos/            # Example applications
-├── tests/            # Unit tests
-├── tools/            # CLI admin tools
-├── static/           # Static files for demo
-├── docs/             # Documentation
-└── build/            # Build output (created by CMake)
+├── demos/             # Example applications
+├── tests/             # Unit tests
+├── tools/             # CLI admin tools
+├── static/            # Static files for demo
+├── docs/              # Documentation
+└── build/             # Build output (created by CMake)
 ```
 
 ## API Reference
@@ -224,10 +228,23 @@ db.open("app.db");
 db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
 db.execute("INSERT INTO users (name) VALUES ('Alice')");
 
+// Callback-based query
 db.query("SELECT * FROM users", [](const std::vector<std::string>& row) {
     std::cout << row[0] << ": " << row[1] << std::endl;
     return true;
 });
+
+// Range-based for loop (new iterator support)
+for (const auto& row : db.query("SELECT * FROM users")) {
+    std::cout << row[0] << ": " << row[1] << std::endl;
+}
+
+// Prepared statements
+auto stmt = db.prepare("SELECT * FROM users WHERE id = ?");
+stmt.bind(1, 42);
+while (stmt.step()) {
+    std::string name = stmt.columnText(1);
+}
 ```
 
 ## CLI Tools
@@ -285,6 +302,74 @@ Access at: **http://localhost:8080/omninet**
 | `/omninet/api/stats` | GET | System stats |
 | `/omninet/api/logs` | GET | Recent logs |
 
+## Testing
+
+OmniNet includes a comprehensive test suite and a public test framework for users.
+
+### Build and Run Tests
+
+```bash
+# Build with tests
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build -j$(nproc)
+
+# Run all tests
+./build/tests/omnet_test
+
+# Run config tests
+./build/tests/test_config
+```
+
+### Using the Public Test Framework
+
+Users can include OmniNet's test header for their own test code:
+
+```cpp
+#include <OmniNet/Test.h>
+
+// Define a test
+OMNINET_TEST(my_first_test) {
+    OMNINET_ASSERT_TRUE(1 + 1 == 2);
+    OMNINET_ASSERT_EQ("hello", "hello");
+}
+
+// Define another test
+OMNINET_TEST(string_operations) {
+    std::string s = "test";
+    OMNINET_ASSERT_EQ(s.size(), 4u);
+    OMNINET_ASSERT_STR_CONTAINS(s, "est");
+}
+
+// Run all registered tests
+int main() {
+    return OMNINET_RUN_TESTS();
+}
+```
+
+### Test Macros
+
+| Macro | Description |
+|-------|-------------|
+| `OMNINET_TEST(name)` | Define a test function |
+| `OMNINET_REGISTER_TEST(name, func)` | Register a custom test function |
+| `OMNINET_RUN_TESTS()` | Run all registered tests |
+
+### Assertion Macros
+
+| Macro | Description |
+|-------|-------------|
+| `OMNINET_ASSERT_TRUE(cond)` | Assert condition is true |
+| `OMNINET_ASSERT_FALSE(cond)` | Assert condition is false |
+| `OMNINET_ASSERT_EQ(a, b)` | Assert two values are equal |
+| `OMNINET_ASSERT_NE(a, b)` | Assert two values are not equal |
+| `OMNINET_ASSERT_GT(a, b)` | Assert a > b |
+| `OMNINET_ASSERT_GE(a, b)` | Assert a >= b |
+| `OMNINET_ASSERT_LT(a, b)` | Assert a < b |
+| `OMNINET_ASSERT_LE(a, b)` | Assert a <= b |
+| `OMNINET_ASSERT_STR_CONTAINS(str, substr)` | Assert string contains substring |
+| `OMNINET_ASSERT_THROWS(expr, type)` | Assert expression throws |
+| `OMNINET_ASSERT_NO_THROW(expr)` | Assert expression does not throw |
+
 ## Data Directory
 
 OmniNet stores data in `~/.omninet/`:
@@ -292,25 +377,11 @@ OmniNet stores data in `~/.omninet/`:
 ```
 ~/.omninet/
 ├── config.json        # Configuration
-├── logs/               # Log files
+├── logs/              # Log files
 │   ├── omninet.log    # Main log
 │   └── omninet.log.*  # Rotated logs
 ├── dashboard.db       # SQLite (users, sessions)
 └── certs/             # TLS certificates
-```
-
-## Testing
-
-```bash
-# Build with tests
-cmake -S . -B build -DBUILD_TESTING=ON
-cmake --build build -j$(nproc)
-
-# Run tests
-./build/tests/omnet_test
-
-# Run specific tests
-./build/tests/test_config
 ```
 
 ## Documentation
