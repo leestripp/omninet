@@ -687,32 +687,37 @@ bool writeFile(const std::string& path, std::span<const uint8_t> data) {
 }
 
 // ============================================================================
-// HMAC-SHA256 (using Crypto::hmacSha256)
-// Note: This function requires the Crypto module to be compiled
+// HMAC-SHA256 (using OpenSSL 3.x compatible API)
 // ============================================================================
 
 std::string hmacSha256(std::string_view key, std::string_view message) {
-    // Using OpenSSL directly for HMAC-SHA256
     std::vector<uint8_t> keyBytes(key.data(), key.data() + key.size());
     std::vector<uint8_t> msgBytes(message.data(), message.data() + message.size());
     
-    // Simple HMAC-SHA256 using HMAC function from OpenSSL
+    // Use OpenSSL 3.x compatible HMAC API
     unsigned char result[EVP_MAX_MD_SIZE];
     unsigned int resultLen = 0;
     
-    HMAC(EVP_sha256(), keyBytes.data(), static_cast<int>(keyBytes.size()),
-         msgBytes.data(), static_cast<int>(msgBytes.size()),
-         result, &resultLen);
+    HMAC_CTX* ctx = HMAC_CTX_new();
+    if (!ctx) return "";
     
-    // Convert to hex string manually
-    static const char hex[] = "0123456789abcdef";
-    std::string hexStr;
-    hexStr.reserve(resultLen * 2);
-    for (unsigned int i = 0; i < resultLen; i++) {
-        hexStr += hex[(result[i] >> 4) & 0xf];
-        hexStr += hex[result[i] & 0xf];
+    if (HMAC_Init_ex(ctx, keyBytes.data(), static_cast<int>(keyBytes.size()), EVP_sha256(), nullptr) == 1 &&
+        HMAC_Update(ctx, msgBytes.data(), static_cast<int>(msgBytes.size())) == 1 &&
+        HMAC_Final(ctx, result, &resultLen) == 1) {
+        // Convert to hex string manually
+        static const char hex[] = "0123456789abcdef";
+        std::string hexStr;
+        hexStr.reserve(resultLen * 2);
+        for (unsigned int i = 0; i < resultLen; i++) {
+            hexStr += hex[(result[i] >> 4) & 0xf];
+            hexStr += hex[result[i] & 0xf];
+        }
+        HMAC_CTX_free(ctx);
+        return hexStr;
     }
-    return hexStr;
+    
+    HMAC_CTX_free(ctx);
+    return "";
 }
 
 } // namespace OmniNet::Utils

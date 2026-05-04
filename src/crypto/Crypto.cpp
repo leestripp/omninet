@@ -140,14 +140,22 @@ std::vector<uint8_t> Crypto::hmacSha256(
     std::span<const uint8_t> key,
     std::span<const uint8_t> message
 ) {
+    // Use OpenSSL 3.x compatible HMAC API (HMAC_CTX)
     std::vector<uint8_t> result(EVP_MAX_MD_SIZE);
     unsigned int resultLen = 0;
     
-    HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
-         message.data(), static_cast<int>(message.size()),
-         result.data(), &resultLen);
+    HMAC_CTX* ctx = HMAC_CTX_new();
+    if (!ctx) return {};
     
-    result.resize(resultLen);
+    if (HMAC_Init_ex(ctx, key.data(), static_cast<int>(key.size()), EVP_sha256(), nullptr) == 1 &&
+        HMAC_Update(ctx, message.data(), message.size()) == 1 &&
+        HMAC_Final(ctx, result.data(), &resultLen) == 1) {
+        result.resize(resultLen);
+    } else {
+        result.clear();
+    }
+    
+    HMAC_CTX_free(ctx);
     return result;
 }
 
