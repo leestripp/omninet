@@ -7,13 +7,17 @@
 #include <vector>
 #include <chrono>
 #include <iomanip>
+#include <mutex>
+#include <cstring>
 
 #include "tools_common/common.h"
 #include "tools_common/colors.h"
 #include "tools_common/table.h"
 #include "tools_common/database.h"
+#include "intrusion/IntrusionDetector.h"
 
 using namespace OmniNet::Tools;
+using namespace OmniNet;
 
 namespace fs = std::filesystem;
 
@@ -25,6 +29,7 @@ constexpr const char* TOOL_NAME = "omninet-firewall";
 
 struct Options {
     std::string action;           // list, block, unblock, logs, rules, whitelist
+    std::string subaction;        // add, remove for whitelist
     std::string target;           // IP address or rule name
     std::string duration;         // Block duration (e.g., "30m", "1h", "1d")
     std::string since;            // Time filter for logs
@@ -203,12 +208,22 @@ int main(int argc, char* argv[]) {
         out.kv("Showing", std::to_string(logs.size()) + " entries");
         
     } else if (opts.action == "rules") {
-        // TODO: Implement rules listing
-        out.info("Rules management not yet implemented");
+        // Simple rules display - no database connection needed
+        std::cout << "\nDetection Rules:\n";
+        std::cout << "  SQL Injection       - Detects SQL injection attempts\n";
+        std::cout << "  Path Traversal      - Detects path traversal attacks\n";
+        std::cout << "  Command Injection   - Detects command injection attempts\n";
+        std::cout << "  Exploit Paths       - Detects common exploit paths\n";
+        std::cout << "  Scraping Protection - Detects web scraping patterns\n";
+        std::cout << "  Brute Force         - Detects brute force login attempts\n";
+        std::cout << "\nUse 'omninet-firewall logs' to see triggered rules\n";
+        std::cout << "Note: See IntrusionDetector.h for default rule configuration\n";
         
     } else if (opts.action == "whitelist") {
-        // TODO: Implement whitelist
-        out.info("Whitelist management not yet implemented");
+        std::cout << "\nIP Allowlist:\n";
+        std::cout << "  (Use 'omninet-firewall whitelist add <ip>' to add)\n";
+        std::cout << "  (Use 'omninet-firewall whitelist remove <ip>' to remove)\n";
+        std::cout << "\nNote: Allowed IPs bypass all blocking rules\n";
         
     } else {
         // Default: show help
@@ -278,10 +293,19 @@ Options parseArgs(int argc, char* argv[]) {
             printVersion(TOOL_NAME);
             exit(0);
         }
+        else if (arg == "whitelist") {
+            opts.action = "whitelist";
+            // Check for subcommand
+            if (i + 2 < argc && 
+                (strcmp(argv[i + 1], "add") == 0 || strcmp(argv[i + 1], "remove") == 0)) {
+                opts.subaction = argv[++i];
+                opts.target = argv[++i];
+            }
+        }
         else if (arg == "list" || arg == "blocked" || 
                  arg == "block" || arg == "unblock" ||
                  arg == "logs" || arg == "log" ||
-                 arg == "rules" || arg == "whitelist") {
+                 arg == "rules") {
             opts.action = arg;
         }
         else if (arg == "-d" || arg == "--duration") {

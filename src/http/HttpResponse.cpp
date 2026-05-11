@@ -2,7 +2,13 @@
 #include "HttpResponse.h"
 
 #include <chrono>
+#include <fstream>
 #include <sstream>
+#include <cstring>
+
+#if OMNINET_HAVE_ZLIB
+#include <zlib.h>
+#endif
 
 namespace OmniNet::HTTP {
 
@@ -228,10 +234,111 @@ const std::filesystem::path& Response::filePath() const {
     return *m_filePath;
 }
 
+// ============================================================================
+// Gzip Compression Helper
+// ============================================================================
+
+#if OMNINET_HAVE_ZLIB
+
+static std::vector<uint8_t> gzipCompress(const uint8_t* data, size_t size) {
+    std::vector<uint8_t> compressed;
+    
+    // 16-byte header + compressed data + 8-byte trailer
+    compressed.reserve(size + 32);
+    
+    // gzip header
+    compressed.insert(compressed.end(), {
+        0x1f, 0x8b,                    // Magic number
+        0x08,                        // Compression method (deflate)
+        0x00,                        // Flags
+        0x00, 0x00, 0x00, 0x00,      // Modification time
+        0x00,                        // Extra flags
+        0xff                         // Operating system (Unix)
+    });
+    
+    // Initialize deflate
+    z_stream strm;
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    
+    // Window size = 15 (same as gzip), +16 for gzip format
+    if (deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 
+                     15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+        return {};
+    }
+    
+    strm.next_in = const_cast<uint8_t*>(data);
+    strm.avail_in = static_cast<uInt>(size);
+    
+    // Process in chunks
+    uint8_t outBuffer[8192];
+    int ret;
+    
+    do {
+        strm.next_out = outBuffer;
+        strm.avail_out = sizeof(outBuffer);
+        
+        ret = deflate(&strm, Z_FINISH);
+        
+        size_t produced = sizeof(outBuffer) - strm.avail_out;
+        compressed.insert(compressed.end(), outBuffer, outBuffer + produced);
+        
+    } while (ret != Z_STREAM_END);
+    
+    deflateEnd(&strm);
+    
+    // Append CRC32 and size (little-endian)
+    uint32_t crc = crc32(0L, data, static_cast<uInt>(size));
+    uint32_t origSize = static_cast<uint32_t>(size);
+    
+    compressed.insert(compressed.end(), 
+        reinterpret_cast<uint8_t*>(&crc),
+        reinterpret_cast<uint8_t*>(&crc) + 4);
+    compressed.insert(compressed.end(),
+        reinterpret_cast<uint8_t*>(&origSize),
+        reinterpret_cast<uint8_t*>(&origSize) + 4);
+    
+    return compressed;
+}
+
+#endif // OMNINET_HAVE_ZLIB
+
+// ============================================================================
+// Response - Compression
+// ============================================================================
+
 bool Response::compressBody(const std::string& acceptEncoding) {
-    // TODO: Implement gzip compression
+#if !OMNINET_HAVE_ZLIB
     (void)acceptEncoding;
     return false;
+#else
+    // Check if client accepts gzip
+    if (acceptEncoding.find("gzip") == std::string::npos) {
+        return false;
+    }
+    
+    // Only compress non-empty bodies that aren't already compressed
+    if (bodySize() == 0 || m_compressed) {
+        return false;
+    }
+    
+    // Compress the body
+    auto compressed = gzipCompress(m_body.data(), m_body.size());
+    
+    if (compressed.empty()) {
+        return false;
+    }
+    
+    m_compressedBody = std::move(compressed);
+    m_compressed = true;
+    
+    // Update headers
+    setHeader("Content-Encoding", std::string("gzip"));
+    setHeader("Content-Length", std::to_string(m_compressedBody.size()));
+    
+    return true;
+#endif
 }
 
 std::string Response::buildStatusLine() const {
@@ -278,7 +385,22 @@ std::vector<uint8_t> Response::buildFull() const {
     
     // Add body
     if (hasFile()) {
-        // TODO: Read and append file content
+        // Read and append file content
+        std::ifstream file(filePath(), std::ios::binary);
+        if (file) {
+            // Get file size
+            file.seekg(0, std::ios::end);
+            auto fileSize = file.tellg();
+            file.seekg(0, std::ios::beg);
+            
+            // Reserve space and read
+            response.reserve(response.size() + static_cast<size_t>(fileSize));
+            uint8_t buffer[8192];
+            while (file.good()) {
+                file.read(reinterpret_cast<char*>(buffer), sizeof(buffer));
+                response.insert(response.end(), buffer, buffer + file.gcount());
+            }
+        }
     } else {
         response.insert(response.end(), m_body.begin(), m_body.end());
     }
@@ -581,9 +703,44 @@ std::string computeETag(std::span<const uint8_t> content) {
 
 bool isNotModified(std::string_view etag, std::string_view ifNoneMatch,
                   std::string_view ifModifiedSince) {
-    (void)etag;
-    (void)ifModifiedSince;
-    // TODO: Implement proper If-None-Match / If-Modified-Since handling
+    // If-None-Match check
+    if (!ifNoneMatch.empty()) {
+        // "*" means match any - treat as not modified
+        if (ifNoneMatch == "*") {
+            return true;
+        }
+        // Check if our ETag matches any in the list
+        // If-None-Match can be a comma-separated list
+        size_t start = 0;
+        while (start < ifNoneMatch.size()) {
+            size_t comma = ifNoneMatch.find(',', start);
+            size_t end = (comma == std::string_view::npos) ? ifNoneMatch.size() : comma;
+            
+            // Trim whitespace
+            while (start < end && std::isspace(static_cast<unsigned char>(ifNoneMatch[start]))) start++;
+            while (end > start && std::isspace(static_cast<unsigned char>(ifNoneMatch[end-1]))) end--;
+            
+            if (etag == ifNoneMatch.substr(start, end - start)) {
+                return true;  // ETag matches, return 304
+            }
+            
+            if (comma == std::string_view::npos) break;
+            start = comma + 1;
+        }
+    }
+    
+    // If-Modified-Since check (only if If-None-Match didn't match)
+    if (!ifModifiedSince.empty()) {
+        // Simple implementation: compare as string
+        // A full implementation would parse HTTP-date and compare with Last-Modified
+        // For now, we return false to indicate modification detected
+        // (which means the client should receive the full response)
+        (void)ifModifiedSince;
+        // Return false to indicate we don't have a cached version to compare
+        // In a full implementation, you'd compare with actual Last-Modified header
+        return false;
+    }
+    
     return false;
 }
 

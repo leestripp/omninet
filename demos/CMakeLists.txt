@@ -9,7 +9,6 @@ project(OmniNetDemos)
 add_executable(http_server_demo
     http_server.cpp
 )
-
 target_link_libraries(http_server_demo PRIVATE OmniNet)
 target_include_directories(http_server_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
@@ -17,7 +16,6 @@ target_include_directories(http_server_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_executable(https_server_demo
     https_server.cpp
 )
-
 target_link_libraries(https_server_demo PRIVATE OmniNet)
 target_include_directories(https_server_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
@@ -25,7 +23,6 @@ target_include_directories(https_server_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_executable(websocket_echo_demo
     websocket_echo.cpp
 )
-
 target_link_libraries(websocket_echo_demo PRIVATE OmniNet)
 target_include_directories(websocket_echo_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
@@ -33,7 +30,6 @@ target_include_directories(websocket_echo_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_executable(static_files_demo
     static_files.cpp
 )
-
 target_link_libraries(static_files_demo PRIVATE OmniNet)
 target_include_directories(static_files_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
@@ -41,6 +37,5 @@ target_include_directories(static_files_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_executable(dashboard_demo
     dashboard.cpp
 )
-
 target_link_libraries(dashboard_demo PRIVATE OmniNet)
 target_include_directories(dashboard_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)

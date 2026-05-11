@@ -1,5 +1,6 @@
 // OmniNet - Router Implementation
 #include "Router.h"
+#include "StaticHandler.h"
 
 #include <algorithm>
 #include <iostream>
@@ -67,9 +68,59 @@ void Router::any(std::string pattern, Handler handler) {
 }
 
 void Router::group(std::string prefix, std::function<void(Router&)> configure) {
+    // Create a sub-router for the group
     Router subRouter;
+    
+    // Let the callback configure the sub-router
     configure(subRouter);
-    // TODO: Implement grouping with prefix
+    
+    // Copy routes from sub-router, prepending the prefix
+    for (auto& route : subRouter.m_routes) {
+        // Combine prefix with the route pattern
+        // Ensure single slash between prefix and pattern
+        std::string combinedPattern;
+        if (!prefix.empty() && prefix.back() == '/') {
+            // Prefix ends with /, remove leading / from pattern if present
+            if (!route.pattern.empty() && route.pattern.front() == '/') {
+                combinedPattern = prefix + route.pattern.substr(1);
+            } else {
+                combinedPattern = prefix + route.pattern;
+            }
+        } else if (!route.pattern.empty() && route.pattern.front() == '/') {
+            // No trailing slash on prefix, pattern starts with /
+            combinedPattern = prefix + route.pattern;
+        } else if (!prefix.empty()) {
+            // No trailing slash on prefix, pattern doesn't start with /
+            combinedPattern = prefix + "/" + route.pattern;
+        } else {
+            combinedPattern = route.pattern;
+        }
+        
+        // Add the route with the combined pattern
+        addRoute(route.method, combinedPattern, route.handler);
+    }
+    
+    // Copy middleware from sub-router
+    for (auto& mw : subRouter.m_middleware) {
+        m_middleware.push_back(std::move(mw));
+    }
+    
+    // Copy path-specific middleware
+    for (auto& [pathPrefix, mwList] : subRouter.m_pathMiddleware) {
+        std::string combinedPrefix;
+        if (!prefix.empty() && prefix.back() == '/') {
+            combinedPrefix = prefix + pathPrefix;
+        } else if (!prefix.empty()) {
+            combinedPrefix = prefix + "/" + pathPrefix;
+        } else {
+            combinedPrefix = pathPrefix;
+        }
+        m_pathMiddleware[combinedPrefix].insert(
+            m_pathMiddleware[combinedPrefix].end(),
+            mwList.begin(),
+            mwList.end()
+        );
+    }
 }
 
 void Router::use(Middleware middleware) {
@@ -117,9 +168,37 @@ std::optional<Router::Match> Router::match(Method method, std::string_view path)
 }
 
 void Router::serveStatic(std::string urlPrefix, std::string directory) {
-    // TODO: Implement static file serving
-    (void)urlPrefix;
-    (void)directory;
+    // Store directory before it's moved
+    std::string dirCopy = directory;
+    
+    // Use StaticHandler for serving static files
+    std::shared_ptr<StaticHandler> handler(new StaticHandler(dirCopy));
+    
+    // Register a catch-all route for the URL prefix
+    std::string prefixCopy = std::move(urlPrefix);
+    
+    get(".*", [handler, prefixCopy](const Request& req, Response& resp) {
+        // Get the URL path and strip the prefix if needed
+        std::string urlPath(req.path());
+        
+        // Remove the prefix from the URL path for the handler
+        if (!prefixCopy.empty()) {
+            if (urlPath.rfind(prefixCopy, 0) == 0) {
+                urlPath = urlPath.substr(prefixCopy.length());
+            }
+        }
+        
+        // Ensure path starts with /
+        if (urlPath.empty()) {
+            urlPath = "/";
+        } else if (urlPath[0] != '/') {
+            urlPath = "/" + urlPath;
+        }
+        
+        // Serve the static file
+        auto& mutableReq = const_cast<Request&>(req);
+        handler->handle(mutableReq, resp);
+    });
 }
 
 void Router::setDefaultFile(std::string filename) {

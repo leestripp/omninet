@@ -1,4 +1,5 @@
 // OmniNet - User Store Implementation
+#include <cctype>
 #include "utils/Utils.h"
 #include "http/HttpRequest.h"
 #include "http/HttpResponse.h"
@@ -221,14 +222,61 @@ AuthMiddleware::AuthMiddleware(VerifyUserCallback verifyUser, GetUserCallback ge
     : m_verifyUser(std::move(verifyUser)), m_getUser(std::move(getUser)) {}
 
 bool AuthMiddleware::operator()(const HTTP::Request& req, HTTP::Response& resp) {
-    (void)req; (void)resp;
-    // TODO: Implement auth middleware
-    return true;
+    auto user = getAuthenticatedUser(req);
+    if (user) {
+        return true;  // Authentication successful
+    }
+    
+    // Check for required authentication
+    auto authHeader = req.header("Authorization");
+    if (authHeader && 
+        (authHeader->substr(0, 6) == "Bearer" || authHeader->substr(0, 5) == "Basic")) {
+        // Client provided credentials but they weren't valid
+        resp = HTTP::Response::unauthorized("Bearer realm=\"Protected\"");
+        return false;
+    }
+    
+    // No credentials provided
+    resp = HTTP::Response::unauthorized("Bearer realm=\"Protected\"");
+    return false;
 }
 
 std::optional<UserStore::User> AuthMiddleware::getAuthenticatedUser(const HTTP::Request& req) {
-    (void)req;
-    // TODO: Extract credentials and verify
+    // Try Bearer token first
+    auto authHeader = req.header("Authorization");
+    if (authHeader && authHeader->substr(0, 7) == "Bearer ") {
+        std::string token(authHeader->substr(7));
+        // Trim whitespace
+        while (!token.empty() && std::isspace(token.back())) token.pop_back();
+        
+        if (m_verifyUser) {
+            auto result = m_verifyUser(token, "");
+            if (result) {
+                if (m_getUser) {
+                    return m_getUser(result->id);
+                }
+                return result;
+            }
+        }
+    }
+    
+    // Try Basic authentication
+    if (authHeader && authHeader->substr(0, 6) == "Basic ") {
+        std::string encoded(authHeader->substr(6));
+        // Basic auth is base64 encoded username:password
+        // This would need base64 decoding - for now just try direct match
+        if (m_verifyUser) {
+            // Assuming token is the password for Basic auth
+            auto result = m_verifyUser("", encoded);
+            if (result) {
+                if (m_getUser) {
+                    return m_getUser(result->id);
+                }
+                return result;
+            }
+        }
+    }
+    
     return std::nullopt;
 }
 

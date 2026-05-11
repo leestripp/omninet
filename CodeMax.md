@@ -79,3 +79,74 @@
 - Added `QueryResult` class with iterator support
 - Supports range-based for loop: `for (const auto& row : db.query("SELECT * FROM users"))`
 - Includes `begin()`, `end()` and `Iterator` class
+
+## TODO Items (Pending Implementation)
+
+### TODO-1: gzip compression (HttpResponse.cpp:232)
+**File:** `src/http/HttpResponse.cpp:232`
+**Task:** Implement gzip compression for HTTP responses
+
+### TODO-2: Read and append file content (HttpResponse.cpp:281)
+**File:** `src/http/HttpResponse.cpp:281`
+**Task:** Implement reading and appending file content for static file serving
+
+### TODO-3: If-None-Match / If-Modified-Since handling (HttpResponse.cpp:586)
+**File:** `src/http/HttpResponse.cpp:586`
+**Task:** Implement proper If-None-Match / If-Modified-Since handling for caching
+
+### TODO-4: Route grouping with prefix (Router.cpp:72)
+**File:** `src/http/Router.cpp:72`
+**Task:** Implement grouping with prefix for route organization
+
+### TODO-5: Static file serving (Router.cpp:120)
+**File:** `src/http/Router.cpp:120`
+**Task:** Implement static file serving via router
+
+### TODO-6: Auth middleware (UserStore.cpp:225)
+**File:** `src/db/UserStore.cpp:225`
+**Task:** Implement auth middleware for user authentication
+
+### TODO-7: Extract credentials and verify (UserStore.cpp:231)
+**File:** `src/db/UserStore.cpp:231`
+**Task:** Extract credentials and verify user credentials
+
+### TODO-8: Parse version in migration (Database.cpp:444)
+**File:** `src/db/Database.cpp:444`
+**Task:** Parse version from migration entries
+
+### TODO-9: Certificate generation with OpenSSL (omninet-certs/main.cpp:258)
+**File:** `tools/omninet-certs/main.cpp:258`
+**Task:** Implement actual certificate generation with OpenSSL
+
+### TODO-10: Rules listing (omninet-firewall/main.cpp:206)
+**File:** `tools/omninet-firewall/main.cpp:206`
+**Task:** Implement firewall rules listing functionality
+
+### TODO-11: Whitelist (omninet-firewall/main.cpp:210)
+**File:** `tools/omninet-firewall/main.cpp:210`
+**Task:** Implement firewall whitelist functionality
+
+### TODO-12: JSON output (omninet-status/main.cpp:458)
+**File:** `tools/omninet-status/main.cpp:458`
+**Task:** Implement JSON output for omninet-status tool
+
+## Todo List
+
+- [x] Fix Issue 1: Rename TEST macro to OMNINET_TEST in test_all.cpp
+- [x] Fix Issue 2: Create public include/OmniNet/Test.h header
+- [x] Fix Issue 3: Add pragma once to OmniNet.h
+- [x] Fix Issue 4: Replace ERR_func_error_string with ERR_reason_error_string
+- [x] Fix Issue 5: Add iterator support to Database (QueryResult)
+- [x] Build and verify all changes
+- [x] TODO-1: Implement gzip compression
+- [x] TODO-2: Implement file content reading
+- [x] TODO-3: Implement cache validation headers
+- [x] TODO-4: Implement route grouping
+- [x] TODO-5: Implement static file serving
+- [x] TODO-6: Implement auth middleware
+- [x] TODO-7: Implement credential verification
+- [x] TODO-8: Implement migration version parsing
+- [x] TODO-9: Implement certificate generation
+- [x] TODO-10: Implement rules listing
+- [x] TODO-11: Implement firewall whitelist
+- [x] TODO-12: Implement JSON output for status

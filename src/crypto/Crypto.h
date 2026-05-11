@@ -2,6 +2,7 @@
 #ifndef OMNINET_CRYPTO_H
 #define OMNINET_CRYPTO_H
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>

@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <regex>
 #include <set>
 #include <sstream>
 
@@ -441,7 +442,31 @@ void runMigrations(Database& db, const std::vector<Migration>& migrations) {
     // Get applied migrations
     std::set<Migration::Version> applied;
     db.query("SELECT version FROM _schema_migrations", [&applied](const std::vector<std::string>& row) {
-        applied.insert(Migration::Version{});  // TODO: parse version
+        if (row.size() >= 1) {
+            // Parse version from string like "001_initial" -> extract leading digits
+            // or format like "1.0.0" -> parse as semver
+            std::string versionStr = row[0];
+            std::regex semverRegex(R"(^(\d+)\.(\d+)\.(\d+))");
+            std::smatch match;
+            if (std::regex_match(versionStr, match, semverRegex)) {
+                Migration::Version v;
+                v.major = std::stoi(match[1].str());
+                v.minor = std::stoi(match[2].str());
+                v.patch = std::stoi(match[3].str());
+                applied.insert(v);
+            } else {
+                // Try to extract leading digits (e.g., "001_initial" -> 0.0.1)
+                std::regex digitsRegex(R"(^(\d+))");
+                if (std::regex_match(versionStr, match, digitsRegex)) {
+                    int num = std::stoi(match[1].str());
+                    Migration::Version v;
+                    v.major = num / 100;
+                    v.minor = (num / 10) % 10;
+                    v.patch = num % 10;
+                    applied.insert(v);
+                }
+            }
+        }
         return true;
     });
     

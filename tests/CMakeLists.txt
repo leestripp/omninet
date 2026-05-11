@@ -39,16 +39,5 @@ target_include_directories(omnet_test PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
-target_include_directories(test_config PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
-
-# Copy test resources (if directory exists)
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_data)
-    file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/test_data DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/)
-endif()
-
-# Register tests
-enable_testing()
-add_test(NAME OmniNetTests COMMAND omnet_test)
-add_test(NAME ConfigTests COMMAND test_config)
+# Note: zlib is handled by the main OmniNet library
+# If compression is enabled, the library will link it

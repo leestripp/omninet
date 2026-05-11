@@ -19,6 +19,7 @@
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/opensslv.h>
+#include <openssl/evp.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -251,11 +252,110 @@ int main(int argc, char* argv[]) {
             opts.commonName = "localhost";
         }
         
+#ifdef __linux__
         out.info("Generating self-signed certificate...");
-        out.info("Note: Full certificate generation requires OpenSSL integration");
-        out.info("Use scripts/generate-certs.sh for full generation");
         
-        // TODO: Implement actual certificate generation with OpenSSL
+        // Generate key pair using modern EVP API
+        EVP_PKEY* pkey = nullptr;
+        EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        if (!ctx) {
+            out.error("Failed to create EVP_PKEY context");
+            return 1;
+        }
+        
+        if (EVP_PKEY_keygen_init(ctx) <= 0) {
+            out.error("Failed to initialize key generation");
+            EVP_PKEY_CTX_free(ctx);
+            return 1;
+        }
+        
+        if (EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, 4096) <= 0) {
+            out.error("Failed to set RSA key bits");
+            EVP_PKEY_CTX_free(ctx);
+            return 1;
+        }
+        
+        if (EVP_PKEY_keygen(ctx, &pkey) <= 0) {
+            out.error("Failed to generate RSA key");
+            EVP_PKEY_CTX_free(ctx);
+            return 1;
+        }
+        EVP_PKEY_CTX_free(ctx);
+        
+        // Generate certificate
+        X509* cert = X509_new();
+        if (!cert) {
+            out.error("Failed to create X509 certificate");
+            EVP_PKEY_free(pkey);
+            return 1;
+        }
+        
+        // Set certificate properties
+        X509_set_version(cert, 2);  // X509v3
+        ASN1_INTEGER_set(X509_get_serialNumber(cert), std::time(nullptr));
+        
+        // Validity: 1 year
+        X509_gmtime_adj(X509_get_notBefore(cert), 0);
+        X509_gmtime_adj(X509_get_notAfter(cert), 365 * 24 * 60 * 60);
+        
+        // Set public key
+        X509_set_pubkey(cert, pkey);
+        
+        // Set subject
+        X509_NAME* name = X509_get_subject_name(cert);
+        X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_UTF8, 
+            (unsigned char*)opts.commonName.c_str(), -1, -1, 0);
+        X509_NAME_add_entry_by_txt(name, "O", MBSTRING_UTF8,
+            (unsigned char*)"OmniNet", -1, -1, 0);
+        X509_NAME_add_entry_by_txt(name, "C", MBSTRING_UTF8,
+            (unsigned char*)"US", -1, -1, 0);
+        
+        // Set issuer (self-signed)
+        X509_set_issuer_name(cert, name);
+        
+        // Sign certificate with private key
+        if (!X509_sign(cert, pkey, EVP_sha256())) {
+            out.error("Failed to sign certificate");
+            X509_free(cert);
+            EVP_PKEY_free(pkey);
+            return 1;
+        }
+        
+        // Save to files
+        fs::path certPath = opts.target + ".crt";
+        fs::path keyPath = opts.target + ".key";
+        
+        FILE* fp = fopen(certPath.string().c_str(), "w");
+        if (fp) {
+            PEM_write_X509(fp, cert);
+            fclose(fp);
+            out.success("Certificate saved to: " + certPath.string());
+        } else {
+            out.error("Failed to save certificate to: " + certPath.string());
+        }
+        
+        fp = fopen(keyPath.string().c_str(), "w");
+        if (fp) {
+            PEM_write_PrivateKey(fp, pkey, nullptr, nullptr, 0, nullptr, nullptr);
+            fclose(fp);
+            // Set restrictive permissions on key file
+            fs::permissions(keyPath, fs::perms::owner_read);
+            out.success("Private key saved to: " + keyPath.string());
+            out.warning("IMPORTANT: Keep your private key secure!");
+        } else {
+            out.error("Failed to save private key to: " + keyPath.string());
+        }
+        
+        X509_free(cert);
+        EVP_PKEY_free(pkey);
+        
+        out.success("Certificate generation complete!");
+        
+#else
+        out.error("Certificate generation is only supported on Linux");
+        out.info("Use scripts/generate-certs.sh for full generation");
+        return 1;
+#endif
         
     } else if (opts.action == "install") {
         out.info("Certificate installation requires file path");

@@ -2,6 +2,7 @@
 // Quick diagnostic tool for OmniNet servers
 
 #include <iostream>
+#include <memory>
 #include <unistd.h>
 #include <string>
 #include <vector>
@@ -15,7 +16,10 @@
 #include "tools_common/config.h"
 #include "tools_common/database.h"
 
+#include <nlohmann/json.hpp>
+
 using namespace OmniNet::Tools;
+using json = nlohmann::json;
 
 namespace fs = std::filesystem;
 
@@ -455,6 +459,56 @@ bool checkLogs(const Options& opts, Formatter& out) {
 // ============================================================================
 
 void printJsonOutput() {
-    // TODO: Implement JSON output
-    std::cout << "{\"status\": \"not_implemented\"}\n";
+    json result;
+    result["status"] = "ok";
+    result["version"] = getVersionString();
+    
+    // Configuration status
+    auto configPath = Paths::configFile();
+    result["config"]["exists"] = fs::exists(configPath);
+    
+    if (result["config"]["exists"]) {
+        ConfigReader reader;
+        if (reader.isLoaded()) {
+            const auto& cfg = reader.config();
+            result["config"]["loaded"] = true;
+            result["config"]["version"] = cfg.version;
+            result["config"]["server"]["port"] = cfg.server.port;
+            result["config"]["server"]["address"] = cfg.server.address;
+            result["config"]["tls"]["enabled"] = cfg.tls.enabled;
+            result["config"]["dashboard"]["enabled"] = cfg.dashboard.enabled;
+            result["config"]["intrusion"]["enabled"] = cfg.intrusion.enabled;
+        } else {
+            result["config"]["loaded"] = false;
+        }
+    } else {
+        result["config"]["loaded"] = false;
+    }
+    
+    // Database status
+    auto dbPath = Paths::databaseFile();
+    result["database"]["exists"] = fs::exists(dbPath);
+    result["database"]["path"] = dbPath.string();
+    
+    // Log file status
+    auto logPath = Paths::logFile();
+    result["logs"]["path"] = logPath.string();
+    result["logs"]["exists"] = fs::exists(logPath);
+    if (result["logs"]["exists"]) {
+        try {
+            auto size = fs::file_size(logPath);
+            result["logs"]["size_bytes"] = size;
+        } catch (...) {
+            result["logs"]["size_bytes"] = 0;
+        }
+    }
+    
+    // Data directory
+    auto dataDir = Paths::dataDir();
+    result["paths"]["data_dir"] = dataDir.string();
+    result["paths"]["config_file"] = configPath.string();
+    result["paths"]["database_file"] = dbPath.string();
+    result["paths"]["log_file"] = logPath.string();
+    
+    std::cout << result.dump(2) << "\n";
 }
