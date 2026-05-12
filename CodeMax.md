@@ -14,41 +14,6 @@
 ### Overview
 OmniNet is a modern, high-performance C++ HTTP/WebSocket server library with full-featured capabilities including TLS/HTTPS support, session management, admin dashboard, CLI tools, and more.
 
-### Bug #4 Analysis (Catch-all dot-file issue)
-
-**Status:** ✅ FIXED in OmniNet (verified 2026-05-12)
-
-**Root Cause:** The original bug was that the StaticHandler returned `false` for hidden files without setting the response to 404. The Router's catch-all `/*` WAS correctly matching all paths including dot-files (verified via regex tests), but the StaticHandler wasn't setting the proper response status when handling hidden files.
-
-**Fixes Applied:**
-1. **Commit acc5a68** - Router::handle() now forces 404 if route matched but body is empty
-2. **Commit 85071c0** - StaticHandler now sets `resp = Response::notFound()` for:
-   - Hidden files (starting with `.`)
-   - Directories with no index and listing disabled
-   - Non-existent paths
-
-**Verification:**
-```
-curl -s -w "HTTP:%{http_code}" http://localhost:8080/.env        → "Not FoundHTTP:404" ✅
-curl -s -w "HTTP:%{http_code}" http://localhost:8080/.config    → "Not FoundHTTP:404" ✅
-curl -s -w "HTTP:%{http_code}" http://localhost:8080/.git/config → "Not FoundHTTP:404" ✅
-curl -s -w "HTTP:%{http_code}" http://localhost:8080/nonexistent → "Not FoundHTTP:404" ✅
-```
-
-**Key Finding:** The regex conversion `/*` → `/.*` is CORRECT and matches ALL paths including dot-files. The issue was specifically in how StaticHandler handled hidden files.
-
-### Additional Bug Analysis from prompt.txt
-
-All reported bugs have been verified as FIXED:
-
-| Bug # | Description | Status |
-|-------|-------------|--------|
-| 1 | HEAD requests not matching GET routes | ✅ FIXED |
-| 2 | Duplicate route registration not detected | ✅ FIXED |
-| 3 | Global middleware not working | ✅ FIXED (workaround) |
-| 4 | Catch-all `/*` doesn't match dot-files | ✅ FIXED |
-| 5 | Duplicate route warning but still registers | ⚠️ Design issue - works as intended (warns but ignores duplicate) |
-
 ### Build System
 - **Type**: CMake (3.16+)
 - **Language**: C++20
@@ -71,41 +36,16 @@ OmniNet/
 │   │   ├── HttpServer.cpp/h    # Server core
 │   │   └── StaticHandler.cpp/h # Static file serving
 │   ├── websocket/     # WebSocket implementation
-│   │   ├── WebSocket.cpp/h     # Connection handling
-│   │   ├── WebSocketFrame.cpp/h # Frame encoding/decoding
-│   │   └── WebSocketHandshake.cpp/h # HTTP upgrade
 │   ├── db/            # Database (SQLite wrapper)
-│   │   ├── Database.cpp/h       # SQLite wrapper
-│   │   ├── SessionStore.cpp/h   # Session management
-│   │   └── UserStore.cpp/h      # User management
 │   ├── dashboard/     # Admin dashboard
-│   │   ├── DashboardHandler.cpp/h
-│   │   └── RateLimiter.cpp/h
 │   ├── admin/         # Admin endpoints
 │   ├── sse/           # Server-Sent Events
 │   └── intrusion/     # Security monitoring
 ├── include/           # Public headers
-│   └── OmniNet/       # Public API headers
-│       └── Test.h     # Header-only test framework for users
 ├── demos/             # Example applications
-│   ├── http_server.cpp      # Basic HTTP server
-│   ├── https_server.cpp     # HTTPS server
-│   ├── websocket_echo.cpp   # WebSocket echo
-│   ├── static_files.cpp     # Static file serving
-│   └── dashboard.cpp        # Admin dashboard demo
 ├── tests/             # Unit tests
-│   ├── test_all.cpp         # All tests combined
-│   ├── test_config.cpp      # Config tests
-│   ├── test_database.cpp    # Database tests
-│   └── ...
-├── tools/             # CLI admin tools
-│   ├── omninet-status/     # System status
-│   ├── omninet-log/        # Log viewer
-│   ├── omninet-init/       # Initialize config
-│   ├── omninet-users/      # User management
-│   ├── omninet-certs/      # TLS certificates
-│   └── ... (8 tools total)
-├── static/            # Static files for demo (HTML, CSS)
+├── tools/             # CLI admin tools (omninet-*)
+├── static/            # Static files for demo
 ├── docs/              # Documentation (API, demos)
 └── build/             # Build output (created by CMake)
 ```
@@ -120,7 +60,7 @@ OmniNet/
 ### Dependencies
 - **OpenSSL** - TLS/HTTPS support (1.1.1+)
 - **SQLite3** - Database backend
-- **nlohmann/json** - JSON parsing (fetched as CMake subproject)
+- **nlohmann/json** - JSON parsing (CMake subproject)
 - **GoogleTest** - Unit testing framework (optional)
 - **Threads** - POSIX threads
 
@@ -138,9 +78,6 @@ cmake --build build -j$(nproc)
 
 # Run tests
 ./build/tests/omnet_test
-
-# Run config tests
-./build/tests/test_config
 ```
 
 ### Core Architecture
@@ -171,18 +108,6 @@ cmake --build build -j$(nproc)
 - `SSEHandler.h` - Server-Sent Events
 - `IntrusionDetector.h` - Security monitoring
 
-## Tasks
-
-### Completed Tasks
-- [x] Initial project structure analysis
-- [x] Build system identification (CMake)
-- [x] Core components identification
-- [x] Dependencies analysis
-- [x] Bug #4 analysis - Catch-all dot-file issue
-- [x] All 5 bugs from prompt.txt verified as FIXED
-- [x] Server testing - dot-files correctly return 404
-- [x] Unit tests - all 110 tests passing
-
 ## Notes
 - Project uses a layered architecture (Foundation -> Networking -> HTTP -> Application)
 - Server configuration uses JSON file at `~/.omninet/config.json`
@@ -190,5 +115,6 @@ cmake --build build -j$(nproc)
 - Admin dashboard accessible at `/omninet` endpoint
 - Tests are built as separate executables
 - Tools are prefixed with `omninet-` (e.g., `omninet-init`, `omninet-status`)
-- All 110 unit tests passing
-- All reported bugs from prompt.txt are FIXED
+
+## TODO
+<!-- Add new tasks here -->
