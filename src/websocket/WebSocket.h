@@ -90,11 +90,15 @@ public:
     // --- Fragmentation ---
     
     // Send large message in fragments
+    // Note: chunkSize is capped at 16KB to prevent memory issues
     void sendFragmented(
         Opcode opcode,           // TEXT or BINARY
         std::span<const uint8_t> data,
         size_t chunkSize = 4096
     );
+    
+    // Maximum chunk size for fragmented messages
+    static constexpr size_t MAX_FRAGMENT_SIZE = 16384;  // 16KB
     
     // --- Callbacks ---
     
@@ -123,8 +127,9 @@ public:
     
     const Stats& stats() const;
 
-private:
-    // Server handshake
+// --- Handshake (Server-side) ---
+    
+    // Perform server-side handshake after upgrade
     void performServerHandshake();
     
     // Client handshake
@@ -202,6 +207,9 @@ private:
     std::vector<Endpoint> m_endpoints;
     std::unique_ptr<OmniNet::HTTP::Server> m_httpServer;
     std::unique_ptr<OmniNet::HTTP::Router> m_router;
+    
+    // Store WebSocket handlers for connection upgrade
+    std::unordered_map<std::string, std::function<void(Connection&)>> m_wsHandlers;
 };
 
 } // namespace OmniNet::WebSocket

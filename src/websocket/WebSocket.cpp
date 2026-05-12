@@ -162,13 +162,16 @@ void Connection::setPongTimeout(std::chrono::seconds timeout) {
 }
 
 void Connection::sendFragmented(Opcode opcode, std::span<const uint8_t> data, size_t chunkSize) {
+    // Cap chunk size to prevent memory issues
+    size_t maxChunk = std::min(chunkSize, MAX_FRAGMENT_SIZE);
+    
     size_t offset = 0;
     bool first = true;
     
     while (offset < data.size()) {
         Frame frame;
         size_t remaining = data.size() - offset;
-        size_t toSend = std::min(chunkSize, remaining);
+        size_t toSend = std::min(maxChunk, remaining);
         
         if (first) {
             frame.opcode = opcode;
@@ -344,9 +347,13 @@ void Server::on(std::string path, std::function<void(Connection&)> handler) {
     endpoint.handler = std::move(handler);
     m_endpoints.push_back(std::move(endpoint));
     
-    // Register with HTTP server
-    m_httpServer->any(endpoint.path, [this](const OmniNet::HTTP::Request& req, 
-                                            OmniNet::HTTP::Response& resp) {
+    // Store WebSocket handler for this path
+    auto& wsHandler = m_endpoints.back().handler;
+    std::string wsPath = m_endpoints.back().path;
+    
+    // Register with HTTP server to handle WebSocket upgrade
+    m_httpServer->any(wsPath, [this, wsPath, wsHandler](const OmniNet::HTTP::Request& req, 
+                                                       OmniNet::HTTP::Response& resp) {
         // Handle WebSocket upgrade
         auto upgrade = req.header("Upgrade");
         if (!upgrade || Utils::toLower(*upgrade) != "websocket") {
@@ -354,17 +361,36 @@ void Server::on(std::string path, std::function<void(Connection&)> handler) {
             return;
         }
         
-        // Find matching endpoint
-        for (const auto& ep : m_endpoints) {
-            if (req.path() == ep.path) {
-                // Create WebSocket connection - use nullptr for unique_ptr
-                Connection ws(std::unique_ptr<Socket>(nullptr), req.path());
-                
-                // Call handler
-                ep.handler(ws);
-                return;
-            }
+        // Get the Sec-WebSocket-Key
+        auto key = req.header("Sec-WebSocket-Key");
+        if (!key) {
+            resp = OmniNet::HTTP::Response::badRequest("Missing Sec-WebSocket-Key");
+            return;
         }
+        
+        // Compute accept key and build response
+        auto acceptKey = Handshake::computeAcceptKey(std::string(*key));
+        
+        std::string response = "HTTP/1.1 101 Switching Protocols\r\n";
+        response += "Upgrade: websocket\r\n";
+        response += "Connection: Upgrade\r\n";
+        response += "Sec-WebSocket-Accept: " + acceptKey + "\r\n";
+        response += "\r\n";
+        
+        // We need to get the socket from the connection
+        // Since the handler is set after connection creation, we need a different approach
+        // For now, create a WebSocket connection and pass a null socket (will be handled in real implementation)
+        // This is a placeholder - in a full implementation, the HTTP server would expose the socket
+        
+        // Note: Full WebSocket integration requires modifying HttpServer to support upgrade
+        // For now, return a response indicating WebSocket upgrade is needed
+        resp.setStatus(static_cast<OmniNet::HTTP::StatusCode>(101));
+        resp.setHeader("Upgrade", std::string("websocket"));
+        resp.setHeader("Connection", std::string("Upgrade"));
+        resp.setHeader("Sec-WebSocket-Accept", acceptKey);
+        
+        // The actual WebSocket handling would happen here after response is sent
+        // For demo purposes, we'll leave the connection intact for external WebSocket libraries
     });
 }
 

@@ -23,7 +23,8 @@ std::string Handler::Config::resolve(const std::string& path) {
 Handler::Config::Config() = default;
 
 Handler::Handler(const Config& config)
-    : m_config(config) {
+    : m_config(config)
+    , m_startTime(std::chrono::steady_clock::now()) {
     
     // Open database
     std::string dbPath = config.dbPath.empty() ? 
@@ -287,13 +288,82 @@ void Handler::handleDeleteUser(const HTTP::Request& req, HTTP::Response& resp) {
 }
 
 void Handler::handleChangePassword(const HTTP::Request& req, HTTP::Response& resp) {
-    resp = HTTP::Response::notImplemented();
+    // Get authenticated user
+    auto user = getAuthenticatedUser(req);
+    if (!user) {
+        resp = HTTP::Response::unauthorized("Authentication required");
+        return;
+    }
+    
+    // Get params from body
+    auto body = req.bodyAsString();
+    auto params = Utils::split(body, '&');
+    
+    std::string currentPassword, newPassword;
+    for (const auto& param : params) {
+        auto kv = Utils::split(param, '=');
+        if (kv.size() >= 2) {
+            if (kv[0] == "currentPassword") currentPassword = Utils::urlDecode(kv[1]);
+            if (kv[0] == "newPassword") newPassword = Utils::urlDecode(kv[1]);
+        }
+    }
+    
+    if (currentPassword.empty() || newPassword.empty()) {
+        resp = HTTP::Response::badRequest("Current and new password required");
+        return;
+    }
+    
+    // Verify current password
+    auto verified = m_users->verify(user->username, currentPassword);
+    if (!verified) {
+        resp = HTTP::Response::unauthorized("Current password is incorrect");
+        return;
+    }
+    
+    // Validate new password strength (at least 6 characters)
+    if (newPassword.length() < 6) {
+        resp = HTTP::Response::badRequest("New password must be at least 6 characters");
+        return;
+    }
+    
+    // Update password
+    try {
+        m_users->updatePassword(user->id, newPassword);
+        resp.setStatus(HTTP::StatusCode::OK);
+        resp.setContentType("application/json");
+        resp.setBody(R"({"success": true, "message": "Password changed successfully"})");
+    } catch (const std::exception& e) {
+        resp = HTTP::Response::internalError("Failed to change password");
+    }
 }
 
 void Handler::handleGetStats(const HTTP::Request& req, HTTP::Response& resp) {
+    (void)req;
+    
+    // Gather stats from various sources
+    auto now = std::chrono::system_clock::now();
+    auto time = std::chrono::system_clock::to_time_t(now);
+    
+    std::ostringstream body;
+    body << "{\n";
+    body << "  \"timestamp\": \"" << std::put_time(std::gmtime(&time), "%Y-%m-%dT%H:%M:%SZ") << "\",\n";
+    body << "  \"uptime\": " << std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::steady_clock::now() - m_startTime).count() << ",\n";
+    body << "  \"users\": {\n";
+    body << "    \"total\": " << m_users->count() << "\n";
+    body << "  },\n";
+    body << "  \"sessions\": {\n";
+    body << "    \"active\": " << m_sessions->count() << "\n";
+    body << "  },\n";
+    body << "  \"rateLimit\": {\n";
+    body << "    \"maxLoginAttempts\": " << m_rateLimiter->maxAttempts() << "\n";
+    body << "  },\n";
+    body << "  \"version\": \"" << OmniNet::Admin::Handler::version() << "\"\n";
+    body << "}\n";
+    
     resp.setStatus(HTTP::StatusCode::OK);
     resp.setContentType("application/json");
-    resp.setBody("{}");
+    resp.setBody(body.str());
 }
 
 void Handler::handleGetLogs(const HTTP::Request& req, HTTP::Response& resp) {
@@ -517,7 +587,7 @@ std::string Handler::renderDashboardPage(const DB::UserStore::User& user) {
                 <span class="stat-label">Active Sessions</span>
             </div>
             <div class="stat-card">
-                <span class="stat-value">v1.0</span>
+                <span class="stat-value">)" << OmniNet::Admin::Handler::version() << R"(</span>
                 <span class="stat-label">Version</span>
             </div>
             <div class="stat-card">
@@ -580,7 +650,7 @@ std::string Handler::renderDashboardPage(const DB::UserStore::User& user) {
 
     <footer class="container" style="padding: 2rem 0; border-top: 1px solid var(--color-border-default); margin-top: 2rem;">
         <p class="text-center text-muted">
-            OmniNet Dashboard &middot; v1.0.0
+            OmniNet Dashboard &middot; )" << OmniNet::Admin::Handler::version() << R"(
         </p>
     </footer>
 

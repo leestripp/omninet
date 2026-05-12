@@ -43,7 +43,12 @@ bool Connection::handleNextRequest() {
             m_handler(m_currentRequest, resp);
         } catch (const std::exception& e) {
             CONN_DEBUG("Handler threw exception: " << e.what());
-            handleError(std::current_exception());
+            // If error handler is set, let it produce a response
+            if (m_errorHandler) {
+                m_errorHandler(m_currentRequest, resp, std::current_exception());
+            } else {
+                resp = Response::internalError(e.what());
+            }
         }
         
         CONN_DEBUG("Sending response, status=" << static_cast<int>(resp.status()));
@@ -103,6 +108,14 @@ const Socket& Connection::socket() const {
     return *m_socket;
 }
 
+Socket* Connection::socketPtr() {
+    return m_socket.get();
+}
+
+std::unique_ptr<Socket> Connection::releaseSocket() {
+    return std::move(m_socket);
+}
+
 const Connection::Stats& Connection::stats() const {
     return m_stats;
 }
@@ -111,11 +124,11 @@ bool Connection::readRequest() {
     CONN_DEBUG("readRequest() starting");
     
     // Read until we have complete headers (double CRLF)
-    // Then optionally read body based on Content-Length
+    // Then optionally read body based on Content-Length or Transfer-Encoding
     std::vector<uint8_t> buffer;
     buffer.reserve(4096);
     
-    enum class State { READING_HEADERS, READING_BODY };
+    enum class State { READING_HEADERS, READING_BODY, READING_CHUNKED };
     State state = State::READING_HEADERS;
     size_t contentLength = 0;
     bool haveSeenDoubleCrlf = false;
@@ -179,7 +192,11 @@ bool Connection::readRequest() {
                 // Remove headers from buffer
                 buffer.erase(buffer.begin(), buffer.begin() + headerEnd);
                 
-                if (contentLength > 0) {
+                // Check for chunked encoding
+                if (m_currentRequest.isChunked()) {
+                    state = State::READING_CHUNKED;
+                    CONN_DEBUG("  Transfer-Encoding: chunked detected");
+                } else if (contentLength > 0) {
                     state = State::READING_BODY;
                     CONN_DEBUG("  Need to read " << contentLength << " bytes of body");
                 } else {
@@ -201,6 +218,60 @@ bool Connection::readRequest() {
             m_stats.bytesReceived += m_currentRequest.contentLength();
             ++m_stats.requestsReceived;
             return true;
+        }
+        
+        // Read chunked body
+        if (state == State::READING_CHUNKED) {
+            // Chunked transfer encoding format:
+            // <size in hex>\r\n
+            // <data>\r\n
+            // ...
+            // 0\r\n
+            // \r\n
+            
+            // Look for end of current chunk ( CRLF )
+            size_t crlfPos = 0;
+            for (size_t i = 0; i + 1 < buffer.size(); ++i) {
+                if (buffer[i] == '\r' && buffer[i + 1] == '\n') {
+                    crlfPos = i;
+                    break;
+                }
+            }
+            
+            if (crlfPos > 0) {
+                // Try to parse chunk size
+                std::string sizeStr(buffer.begin(), buffer.begin() + crlfPos);
+                try {
+                    size_t chunkSize = std::stoull(sizeStr, nullptr, 16);
+                    CONN_DEBUG("  Chunk size: " << chunkSize);
+                    
+                    if (chunkSize == 0) {
+                        // Final chunk, we're done
+                        m_currentRequest.setBody(std::move(buffer));
+                        ++m_stats.requestsReceived;
+                        return true;
+                    }
+                    
+                    // Need at least: size line + CRLF + chunk data + CRLF
+                    size_t neededSize = crlfPos + 2 + chunkSize + 2;
+                    if (buffer.size() >= neededSize) {
+                        // Extract chunk data (skip size line and trailing CRLF)
+                        std::vector<uint8_t> chunkData(
+                            buffer.begin() + crlfPos + 2,
+                            buffer.begin() + crlfPos + 2 + chunkSize
+                        );
+                        buffer.erase(buffer.begin(), buffer.begin() + neededSize);
+                        
+                        // TODO: Accumulate chunked data properly
+                        // For now, just continue reading
+                        CONN_DEBUG("  Processed chunk of " << chunkSize << " bytes");
+                    }
+                } catch (...) {
+                    // Invalid chunk size
+                    CONN_DEBUG("  Invalid chunk size, returning false");
+                    return false;
+                }
+            }
         }
         
         // Limit buffer size to prevent memory exhaustion

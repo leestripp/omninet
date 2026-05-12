@@ -130,6 +130,9 @@ private:
     // HTML templates
     std::string m_loginPage;
     std::string m_dashboardPage;
+    
+    // Start time for uptime calculation
+    std::chrono::steady_clock::time_point m_startTime;
 };
 
 } // namespace OmniNet::Dashboard

@@ -57,6 +57,7 @@ void StaticHandler::initMimeTypes() {
             {".wav", "audio/wav"},
             {".mp4", "video/mp4"},
             {".webm", "video/webm"},
+            {".wasm", "application/wasm"},
             {".woff", "font/woff"},
             {".woff2", "font/woff2"},
             {".ttf", "font/ttf"},
@@ -251,6 +252,9 @@ Response StaticHandler::serveIndex(const std::string& dirPath, const std::string
     return serveDirectory(dirPath, urlPath);
 }
 
+// Shared version constant
+constexpr const char* SHARED_VERSION = "0.1.0";
+
 std::string StaticHandler::generateDirectoryListing(
     const std::string& dirPath,
     const std::string& urlPath,
@@ -270,7 +274,7 @@ std::string StaticHandler::generateDirectoryListing(
     }
     
     html << "</ul>\n";
-    html << "<hr><pre>OmniNet Static Server</pre>\n";
+    html << "<hr><pre>OmniNet Static Server v" << SHARED_VERSION << "</pre>\n";
     html << "</body></html>\n";
     
     return html.str();

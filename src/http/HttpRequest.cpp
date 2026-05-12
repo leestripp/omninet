@@ -368,6 +368,10 @@ bool Request::isChunked() const {
     return headerOr("transfer-encoding", "") == "chunked";
 }
 
+std::string_view Request::transferEncoding() const {
+    return headerOr("transfer-encoding", "");
+}
+
 std::span<const uint8_t> Request::body() const {
     return m_body;
 }

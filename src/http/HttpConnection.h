@@ -63,6 +63,12 @@ public:
     // Get underlying socket
     const Socket& socket() const;
     
+    // Get raw socket pointer (for WebSocket upgrade)
+    Socket* socketPtr();
+    
+    // Take ownership of socket (for WebSocket upgrade)
+    std::unique_ptr<Socket> releaseSocket();
+    
     // Statistics
     struct Stats {
         size_t requestsReceived = 0;

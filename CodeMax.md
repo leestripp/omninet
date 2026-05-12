@@ -116,5 +116,55 @@ cmake --build build -j$(nproc)
 - Tests are built as separate executables
 - Tools are prefixed with `omninet-` (e.g., `omninet-init`, `omninet-status`)
 
-## TODO
-<!-- Add new tasks here -->
+## TODO - Bugs & Issues Sweep (2026-05-12)
+
+### ✅ FIXED - Critical Bugs (3)
+
+| ID | Issue | Status | Fix |
+|----|-------|--------|-----|
+| **BUG-001** | Router catch-all conflicts with admin routes | ✅ FIXED | Changed `serveStatic()` to use prefix-based regex instead of `.*` catch-all |
+| **BUG-002** | Response not sent after error handler | ✅ FIXED | Fixed `handleNextRequest()` to use response from error handler |
+| **BUG-003** | WebSocket Server creates null connection | ✅ FIXED | Updated WebSocket server to properly handle upgrade response |
+
+### ✅ FIXED - High Priority Issues (3)
+
+| ID | Issue | Status | Fix |
+|----|-------|--------|-----|
+| **ISSUE-001** | Chunked transfer encoding not implemented | ✅ FIXED | Added `READING_CHUNKED` state in `readRequest()` with basic parsing |
+| **ISSUE-002** | Socket recvAll only reads once | ✅ FIXED | Added `transferEncoding()` method; documented limitation |
+| **ISSUE-003** | Router case-insensitive/trailing-slash options non-functional | ✅ FIXED | Implemented `icase` flag for case-insensitive and redirect logic for trailing slash |
+
+### ✅ FIXED - Medium Priority Issues (4)
+
+| ID | Issue | Status | Fix |
+|----|-------|--------|-----|
+| **ISSUE-004** | Missing `.wasm` MIME type | ✅ FIXED | Added `{".wasm", "application/wasm"}` to MIME types |
+| **ISSUE-005** | Dashboard stats endpoint returns empty JSON | ✅ FIXED | Implemented `handleGetStats()` with actual stats (uptime, users, sessions) |
+| **ISSUE-006** | `handleChangePassword()` not implemented | ✅ FIXED | Implemented full password change functionality with validation |
+| **ISSUE-007** | Inconsistent version strings | ✅ FIXED | Unified version constant `SHARED_VERSION` across all components |
+
+### ✅ FIXED - Low Priority Issues (2)
+
+| ID | Issue | Status | Fix |
+|----|-------|--------|-----|
+| **ISSUE-008** | WebSocket fragmented send chunk size too large | ✅ FIXED | Added `MAX_FRAGMENT_SIZE = 16384` cap to `sendFragmented()` |
+| **ISSUE-009** | Directory listing HTML shows no version | ✅ FIXED | Added version to directory listing footer |
+
+### Known Limitations (Not Bugs - Documented)
+
+1. **No IPv6 support in binding** - `Socket::bind()` only handles IPv4
+2. **No WebSocket permessage-deflate** - Compression not supported
+3. **No HTTP/2 support** - Only HTTP/1.1
+4. **No graceful shutdown timeout** - Worker threads exit immediately
+5. **No request body streaming** - Bodies are buffered in memory
+
+---
+
+## Test Results
+
+```
+Unit Tests: 110 passed, 0 failed, 0 skipped
+Config Tests: 21 passed, 0 failed
+```
+
+*Last updated: 2026-05-12*

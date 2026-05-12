@@ -127,6 +127,9 @@ public:
     bool keepAlive() const;
     bool isChunked() const;
     
+    // Get transfer encoding value
+    std::string_view transferEncoding() const;
+    
     // --- Body ---
     
     std::span<const uint8_t> body() const;

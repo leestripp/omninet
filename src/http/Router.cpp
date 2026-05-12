@@ -27,7 +27,16 @@ void Router::addRoute(Method method, std::string pattern, Handler handler) {
     Route route;
     route.method = method;
     route.pattern = pattern;
-    route.regex = std::regex(patternToRegex(pattern, route.paramNames), std::regex::ECMAScript);
+    
+    // Convert pattern to regex
+    std::string regexPattern = patternToRegex(pattern, route.paramNames);
+    
+    // Apply case-insensitive flag if enabled
+    std::regex::flag_type flags = std::regex::ECMAScript;
+    if (m_caseInsensitive) {
+        flags |= std::regex::icase;
+    }
+    route.regex = std::regex(regexPattern, flags);
     route.handler = std::move(handler);
     
     // Check for duplicate route registration
@@ -217,10 +226,22 @@ void Router::serveStatic(std::string urlPrefix, std::string directory) {
     // Use StaticHandler for serving static files
     std::shared_ptr<StaticHandler> handler(new StaticHandler(dirCopy));
     
-    // Register a catch-all route for the URL prefix
+    // Register a prefix-based route instead of catch-all
+    // This prevents shadowing other routes like /omninet/*
     std::string prefixCopy = std::move(urlPrefix);
     
-    get(".*", [handler, prefixCopy](const Request& req, Response& resp) {
+    // Build a regex that matches paths starting with the prefix
+    // e.g., prefix "/static" matches "/static", "/static/", "/static/file.js"
+    std::string regexPattern = "^" + prefixCopy;
+    if (!prefixCopy.empty() && prefixCopy.back() != '/') {
+        // If prefix doesn't end with /, also match the prefix itself followed by optional /
+        regexPattern += "(/.*)?$";
+    } else {
+        // If prefix ends with /, match anything starting with that prefix
+        regexPattern += ".*$";
+    }
+    
+    get(regexPattern, [handler, prefixCopy](const Request& req, Response& resp) {
         // Get the URL path and strip the prefix if needed
         std::string urlPath(req.path());
         
@@ -274,6 +295,22 @@ void Router::handle(const Request& req, Response& resp) {
     
     // Reset handler invocation flag
     m_handlerInvoked = false;
+    
+    // Handle trailing slash redirect if enabled
+    std::string pathStr(req.path());
+    if (m_redirectTrailingSlash && !pathStr.empty() && pathStr.back() != '/') {
+        // Check if there's a route with trailing slash
+        std::string pathWithSlash = pathStr + "/";
+        for (const auto& route : m_routes) {
+            if (route.pattern == pathWithSlash) {
+                // Redirect to trailing slash version
+                ROUTER_DEBUG("Redirecting " << pathStr << " to " << pathWithSlash);
+                resp.setStatus(StatusCode::MOVED_PERMANENTLY);
+                resp.setHeader("Location", pathWithSlash);
+                return;
+            }
+        }
+    }
     
     // List all registered routes
     ROUTER_DEBUG("Registered routes: " << m_routes.size());
