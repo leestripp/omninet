@@ -1,187 +1,87 @@
-# OmniNet Library Issues and Bugs
+# OmniNet Bug Reports
 
-This document tracks issues and bugs found in the OmniNet library during testing and development.
+This file documents bugs found in OmniNet (third_party) for reporting to the developers.
 
----
+## Bug #1: HEAD requests not matching GET routes
 
-## Issue 1: TEST Macro Conflict ~~(FIXED)~~
+**Date:** 2026-05-12
+**Severity:** Medium
+**Component:** Router / HttpServer
 
 ### Description
-~~The OmniNet library defines a `TEST` macro in `third_party/omninet/tests/test_all.cpp` that conflicts with user-defined test macros.~~
+HEAD requests are not matching GET routes in the router. When a GET handler is registered for a path (e.g., `router.get("/blog", ...)`), a HEAD request to the same path returns 404 Not Found instead of being handled by the GET handler.
 
-**FIXED in v0.3.0** - The macro was renamed to `OMNINET_TEST(name)` to avoid conflicts.
+### Expected Behavior
+Per HTTP specification, HEAD method should be handled by the same handler as GET (returning headers only, no body). The router should automatically handle HEAD requests using the matching GET route.
 
-### Location
-`third_party/omninet/tests/test_all.cpp:31`
-```cpp
-#define TEST(name) void test_##name()
-```
+### Current Behavior
+- GET `/blog` → Returns 200 OK with HTML content ✓
+- HEAD `/blog` → Returns 404 Not Found ✗
+
+### Root Cause
+The router's `match()` method only matches exact HTTP methods. When a route is registered with `router.get()`, it only handles GET requests. HEAD requests fall through to the catch-all which returns 404.
 
 ### Impact
-- User test code cannot use `TEST(...)` macro without conflicts
-- Compilation errors when user code has similar macro definitions
-- Requires workaround using alternative macro names (e.g., `UNIT_TEST`, `REGISTER_TEST`)
+- Breaks HTTP specification compliance
+- HEAD requests to valid endpoints return errors
+- Security implications (logging 404s for valid paths)
 
-### Workaround
-Use different macro names for test registration:
+### Suggested Fix
+In `Router::match()`, add logic to treat HEAD requests as GET requests if no explicit HEAD route exists. Alternatively, automatically register HEAD handlers when GET handlers are added.
+
+**STATUS: FIXED** - Modified `Router::match()` to check if a HEAD request has an explicit HEAD route for the path. If not, it falls back to using the matching GET route handler.
+
+**Alternative workaround** (in project code):
+Manually register HEAD routes alongside GET routes:
 ```cpp
-#define REGISTER_TEST(name, func) \
-    static bool name##_registered = []() { \
-        get_tests().push_back({#name, func}); \
-        return true; \
-    }()
+router.get("/blog", handler);
+router.head("/blog", handler);
 ```
-
-### Recommended Fix
-The library should namespace its test macros or use different names to avoid conflicts:
-- Option 1: Use `OMNINET_TEST(name)` instead of `TEST(name)`
-- Option 2: Wrap test macros in a namespace or conditional compilation
-- Option 3: Document that users should avoid the `TEST` identifier
+This is not ideal as it doubles route registration.
 
 ---
 
-## Issue 2: No Test Framework for Library Users ~~(FIXED)~~
+## Bug #3: Duplicate route registration not detected
+
+**Date:** 2026-05-12
+**Severity:** Low
+**Component:** Router
 
 ### Description
-~~OmniNet provides internal test infrastructure but does not expose a test framework for library users who want to write their own tests.~~
+When the same route is registered multiple times (e.g., duplicate `router.get("/films", ...)` calls), no error or warning is issued. The router silently accepts the duplicate.
 
-**FIXED in v0.3.0** - Public test framework added at `include/OmniNet/Test.h` with:
-- `OMNINET_TEST(name)` - Define test functions
-- `OMNINET_REGISTER_TEST(name)` - Auto-register tests
-- `OMNINET_RUN_TESTS()` - Run all tests
-- Assertion macros: `OMNINET_ASSERT_TRUE`, `OMNINET_ASSERT_EQ`, etc.
+### Current Behavior
+Line 316 and 324 in main.cpp both register `router.get("/films", ...)` - no warning.
 
 ### Impact
-- Users must create their own test frameworks
-- Test macro conflicts (Issue 1) make integration difficult
-- No documented way to run tests
+- No warning about duplicate routes
+- First route is used, subsequent duplicates ignored silently
+- Can lead to hard-to-debug routing issues
 
-### Recommended Fix
-Create a public test header:
-- `include/OmniNet/Test.h` with public test macros
-- Document the test framework API
-- Provide example test files
+### Suggested Fix
+Add validation to detect and warn about duplicate route registrations.
+
+**STATUS: FIXED** - Added duplicate route detection in `Router::addRoute()` that emits a warning and ignores the duplicate.
 
 ---
 
-## Issue 3: Version Macro Redefinition Warnings
+## Bug #4: Duplicate route registration not detected
 
-### Description
-When building with both parent CMake and tests CMake, version macros get defined multiple times, causing warnings.
+**Date:** 2026-05-12
+**Status:** FIXED
 
-### Example Warning
-```
-warning: 'OMNINET_VERSION_MAJOR' redefined
-note: this is the location of the previous definition
-```
+Duplicate of Bug #3 (above).
 
-### Location
-`third_party/omninet/src/OmniNet.h:11-17`
+---
+
+## Workaround Strategy
+
+**NOTE: Bug #1 is now FIXED in the library. The workaround is no longer needed.**
+
+For the HEAD request bug (#1), the library now automatically handles HEAD requests using GET routes if no explicit HEAD route exists.
+
+Previous workaround (now obsolete):
 ```cpp
-#ifndef OMNINET_VERSION_MAJOR
-#define OMNINET_VERSION_MAJOR 0
-#endif
-#ifndef OMNINET_VERSION_MINOR
-#define OMNINET_VERSION_MINOR 1
-#endif
-#ifndef OMNINET_VERSION_PATCH
-#define OMNINET_VERSION_PATCH 0
-#endif
+router.get("/path", handler);    // Handles GET
+router.head("/path", handler);    // Handles HEAD (workaround)
 ```
-
-### Impact
-- Build warnings clutter output
-- Confusion about actual version
-- May indicate configuration issues
-
-### Recommended Fix
-The guards (`#ifndef`) are correct, but the warnings persist. Consider:
-- Using `pragma once` style protection
-- Moving version to a separate header included once
-- Improving CMake configuration to define version only once
-
----
-
-## Issue 4: OpenSSL Deprecated Function Usage ~~(FIXED)~~
-
-### Description
-The library used deprecated OpenSSL 3.0 functions that generated deprecation warnings.
-
-**FIXED** - Updated to use OpenSSL 3.x compatible APIs:
-- `HMAC()` → `HMAC_CTX_new()` / `HMAC_Init_ex()` / `HMAC_Update()` / `HMAC_Final()` / `HMAC_CTX_free()`
-- `ERR_func_error_string()` → `ERR_reason_error_string()` (already using this)
-
-### Changes Made
-- `src/crypto/Crypto.cpp` - Updated `hmacSha256()` to use `HMAC_CTX` API
-- `src/utils/Utils.cpp` - Updated `hmacSha256()` to use `HMAC_CTX` API
-- `src/net/TLSSocket.cpp` - Error handling already uses non-deprecated functions
-
-### Verification
-```bash
-cmake --build build 2>&1 | grep -i deprec  # No deprecation warnings
-```
-
----
-
-## Issue 5: Database API Design Issue ~~(DOCUMENTED)~~
-
-### Description
-The `Database` class query methods return different types that are not easily accessible.
-
-### Current API (Now with Iterator Support)
-```cpp
-// Range-based for loop (added in latest version)
-for (const auto& row : db.query("SELECT * FROM users")) {
-    std::string name = row[0];
-}
-
-// Callback-based (existing)
-db.query("SELECT * FROM users", [](const auto& row) {
-    // process row
-    return true; // return false to stop
-});
-
-// Prepare statements (existing)
-auto stmt = db.prepare("SELECT * FROM users WHERE id = ?");
-stmt.bind(1, 42);
-while (stmt.step()) {
-    std::string name = stmt.columnText(0);
-}
-```
-
-### Status
-**DOCUMENTED** - The Database class now provides multiple query patterns suitable for different use cases.
-
----
-
-## Issue 6: Missing Copy Constructor in Statement Class ~~(DOCUMENTED)~~
-
-### Description
-`Database::Statement` class has deleted copy constructor but provides move semantics only.
-
-### Status
-**DOCUMENTED** - Move semantics are the standard pattern for prepared statements. Use:
-```cpp
-auto stmt = db.prepare(sql);  // Move, not copy
-```
-
-The deleted copy constructor prevents accidental copying of active sqlite3_stmt handles which is intentional for safety.
-
----
-
-## Summary
-
-| Issue | Severity | Status |
-|-------|----------|--------|
-| TEST Macro Conflict | High | ✅ **FIXED v0.3.0** - Renamed to `OMNINET_TEST` |
-| No User Test Framework | Medium | ✅ **FIXED v0.3.0** - Added `include/OmniNet/Test.h` |
-| Version Macro Warnings | Low | ✅ **FIXED v0.3.0** - Added pragma once |
-| OpenSSL Deprecated Functions | Medium | ✅ **FIXED** - Updated to HMAC_CTX API |
-| Database API Design | Low | ✅ **DOCUMENTED** - Has multiple query patterns |
-| Statement Copy Constructor | Low | ✅ **DOCUMENTED** - Move semantics intentional |
-
----
-
-## All Issues Resolved ✅
-
-All tracked issues have been addressed as of current version.

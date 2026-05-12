@@ -29,6 +29,17 @@ void Router::addRoute(Method method, std::string pattern, Handler handler) {
     route.pattern = pattern;
     route.regex = std::regex(patternToRegex(pattern, route.paramNames), std::regex::ECMAScript);
     route.handler = std::move(handler);
+    
+    // Check for duplicate route registration
+    for (const auto& existing : m_routes) {
+        if (existing.method == method && existing.pattern == pattern) {
+            std::cerr << "[Router] WARNING: Duplicate route registered: " 
+                      << toString(method) << " " << pattern << std::endl;
+            std::cerr << "[Router]   The first handler will be used, ignoring duplicate." << std::endl;
+            return;
+        }
+    }
+    
     m_routes.push_back(std::move(route));
 }
 
@@ -136,10 +147,34 @@ std::optional<Router::Match> Router::match(Method method, std::string_view path)
     
     ROUTER_DEBUG("match() - Trying to match " << pathStr << " with method " << toString(method));
     
+    // Per HTTP spec, HEAD requests should be handled by GET handlers
+    // If no explicit HEAD route exists, fall back to matching GET routes
+    Method effectiveMethod = method;
+    if (method == Method::HEAD) {
+        // Check if there's any explicit HEAD route for this path first
+        bool hasExplicitHead = false;
+        for (const auto& route : m_routes) {
+            if (route.method == Method::HEAD) {
+                std::smatch match;
+                if (std::regex_match(pathStr, match, route.regex)) {
+                    hasExplicitHead = true;
+                    break;
+                }
+            }
+        }
+        
+        // If no explicit HEAD route, treat HEAD as GET
+        if (!hasExplicitHead) {
+            ROUTER_DEBUG("  No explicit HEAD route found, using GET handler");
+            effectiveMethod = Method::GET;
+        }
+    }
+    
     for (const auto& route : m_routes) {
         ROUTER_DEBUG("  Checking route: " << toString(route.method) << " " << route.pattern);
         
-        if (route.method != method && route.method != Method::UNKNOWN) {
+        // Match the effective method (HEAD falls back to GET, or exact match)
+        if (route.method != effectiveMethod && route.method != Method::UNKNOWN) {
             ROUTER_DEBUG("    Method mismatch, skipping");
             continue;
         }
