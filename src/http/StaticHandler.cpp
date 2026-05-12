@@ -84,6 +84,7 @@ bool StaticHandler::handle(const Request& req, Response& resp) {
     
     if (isHidden(path)) {
         Logger::instance().debugF("[StaticHandler] Path is hidden: %s", path.c_str());
+        resp = Response::notFound();
         return false;
     }
     
@@ -109,6 +110,7 @@ bool StaticHandler::handle(const Request& req, Response& resp) {
             }
             
             Logger::instance().debug(std::string_view("[StaticHandler] Directory has no index file and listing disabled"));
+            resp = Response::notFound();
             return false;
         }
         
@@ -119,6 +121,7 @@ bool StaticHandler::handle(const Request& req, Response& resp) {
         }
         
         Logger::instance().debugF("[StaticHandler] Path does not exist or is not accessible: %s", path.c_str());
+        resp = Response::notFound();
     } catch (const std::exception& e) {
         Logger::instance().errorF("[StaticHandler] Filesystem error for path '%s': %s", path.c_str(), e.what());
         resp = Response::internalError("Filesystem error: " + std::string(e.what()));

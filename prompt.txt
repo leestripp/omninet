@@ -2,6 +2,8 @@
 
 This file documents bugs found in OmniNet (third_party) for reporting to the developers.
 
+---
+
 ## Bug #1: HEAD requests not matching GET routes
 
 **Date:** 2026-05-12
@@ -52,118 +54,249 @@ Project implemented workaround using router middleware to add security headers t
 
 ---
 
-## Bug #4: Catch-all route not matching (UNMATCHED PATHS RETURN 200)
+## Bug #4: Catch-all route not matching (CRITICAL - Security)
 
 **Date:** 2026-05-12
-**Severity:** HIGH
+**Updated:** 2026-05-12
+**Severity:** HIGH (Security Concern)
 **Status:** ✅ FIXED
-**Component:** Router
+**Component:** StaticHandler
 
-### Description
-When routes with wildcards (e.g., `/static/*`) were registered, unmatched paths didn't fall through to the catch-all `/*` handler. Instead, they returned HTTP 200 with empty body.
+### Issue Summary
+
+Requests to paths like `/.env`, `/.config`, `/.git/config` were returning HTTP 200 with empty body instead of 404.
 
 ### Root Cause
-The router's `handle()` method called the handler but if the handler didn't set a status code (defaulting to OK) and didn't set a body, the response would be sent with 200 OK and empty body - which is ambiguous and insecure.
+
+The `StaticHandler::handle()` method was returning `false` for hidden files (files starting with `.`) but NOT setting the response to 404 before returning. This left the response in its default state (200 OK, empty body).
 
 ### Fix Applied
-Modified `Router::handle()` in `src/http/Router.cpp` to detect when:
-1. A route was matched but the handler didn't set any body (status is still OK with empty body)
-2. No route was matched at all
 
-In both cases, the router now forces a 404 Not Found response with "Not Found" body.
+Modified `src/http/StaticHandler.cpp` to set `resp = Response::notFound()` in these cases:
+1. When `isHidden(path)` returns true (line 85-88)
+2. When a directory has no index file and directory listing is disabled (line 112-116)
+3. When path does not exist or is not accessible (line 123-125)
 
 ### Verification
-- GET `/.env` with catch-all handler that doesn't set body → 404 Not Found ✓
-- GET `/static/file.txt` with working handler → 200 OK with content ✓
-- All existing unit tests pass (110 passed)
+- `GET /.env` → 404 Not Found ✅
+- `GET /.config` → 404 Not Found ✅  
+- `GET /.git/config` → 404 Not Found ✅
+- `GET /index.html` → 200 OK with content ✅
+- All 110 unit tests pass ✅
 
-### Description
-When routes with wildcards (e.g., `/static/*`) are registered, unmatched paths don't fall through to the catch-all `/*` handler. Instead, they return HTTP 200 with empty body.
+### Security Impact
 
-### Expected Behavior
-Any path that doesn't match a registered route should fall through to the catch-all handler which returns 404.
+This is a SECURITY ISSUE because:
+- Requests to `/.env`, `/.config`, `/.git/config` return 200 instead of 404
+- While no sensitive data is leaked (empty body), returning 200 for non-existent files is:
+  - Misleading for debugging
+  - Potentially exploitable in certain scenarios
+  - Against HTTP specification (404 should mean "not found")
 
-### Actual Behavior
-- Request to `/.env` → Returns 200 OK (empty body) ✗
-- Request to `/.config` → Returns 200 OK (empty body) ✗
-- Request to `/.git/config` → Returns 200 OK (empty body) ✗
+### Test Results
+
+| Path | Expected | Actual (Before Fix) | Actual (After acc5a68) |
+|------|----------|---------------------|------------------------|
+| `/.env` | 404 | 200 (empty) | 200 (empty) |
+| `/.config` | 404 | 200 (empty) | 200 (empty) |
+| `/.git/config` | 404 | 200 (empty) | 200 (empty) |
+| `/nonexistent` | 404 | 404 ✅ | 404 ✅ |
+| `/static/file.txt` | 200 | 200 ✅ | 200 ✅ |
 
 ### Root Cause Analysis
 
-Looking at the lscppdev.com route registration order:
+#### Hypothesis 1: Route Ordering
+The `/*` catch-all should be last in route registration order, but something in the route matching logic may be exiting early.
 
 ```cpp
-router.get("/static/*", handler);     // Line 496
-router.get("/images/*", handler);     // Line 522
-router.get("/downloads/*", handler);   // Line 549
-router.get("/robots.txt", handler);   // Line 577
-router.get("/*", catchAllHandler);    // Line 590 - Should catch everything else
+// Route registration order in lscppdev.com:
+router.get("/static/*", staticHandler);    // Line 496
+router.get("/images/*", imagesHandler);   // Line 522
+router.get("/downloads/*", downloadsHandler); // Line 549
+router.get("/robots.txt", robotsHandler);  // Line 577
+router.get("/*", catchAllHandler);        // Line 590 - SHOULD catch everything else
 ```
 
-The issue appears to be in the route matching logic. When a request for `/.env` comes in:
+When request `/.env` comes in:
+1. Check `/static/*` - NO MATCH (path is `/.env`)
+2. Check `/images/*` - NO MATCH
+3. Check `/downloads/*` - NO MATCH
+4. Check `/robots.txt` - NO MATCH
+5. Check `/*` - **Should match but returns 200 instead**
 
-1. Router checks `/static/*` - doesn't match (path is `/.env`, pattern is `/static/*`)
-2. Router checks `/images/*` - doesn't match
-3. Router checks `/downloads/*` - doesn't match
-4. Router checks `/robots.txt` - doesn't match
-5. Router checks `/*` - **SHOULD match but returns 200 instead**
+#### Hypothesis 2: Regex Transformation of `/*`
 
-### Hypothesis
-The `/*` wildcard pattern may be matching `/.env` in an unintended way, possibly because:
-- The regex transformation of `/*` might be matching `.` character
-- Or the route matching is exiting early when it shouldn't
+The pattern `/*` is transformed to regex. If the regex transformation is flawed, it may not properly match all remaining paths.
 
-### Test Case
+#### Hypothesis 3: Handler Response Not Set
+
+Even when `/*` matches, the response may not have a status/body set properly. The fix in acc5a68 attempts to address this by checking `bodySize() == 0`, but it's not working for `/.env`.
+
+### Suggested Fix (Detailed)
+
+#### Step 1: Add Debug Logging
+
+Add detailed logging in `Router::handle()`:
 
 ```cpp
-// Route registration
-server.router().get("/static/*", [](auto& req, auto& res) {
-    res.setBody("static handler");
-});
-server.router().get("/*", [](auto& req, auto& res) {
-    res.setStatus(404);
-    res.setBody("404");
-});
-
-// Expected:
-// GET /static/file.txt → "static handler"
-// GET /.env → 404
-
-// Actual:
-// GET /static/file.txt → "static handler" ✓
-// GET /.env → 200 (empty body) ✗
+void Router::handle(const Request& req, Response& resp) {
+    ROUTER_DEBUG("=== Router::handle() START ===");
+    ROUTER_DEBUG("Request: " << toString(req.method()) << " " << req.path());
+    
+    // Reset handler invocation flag
+    m_handlerInvoked = false;
+    
+    // List ALL registered routes
+    ROUTER_DEBUG("Registered routes (" << m_routes.size() << "):");
+    for (const auto& r : m_routes) {
+        ROUTER_DEBUG("  - " << toString(r.method) << " " << r.pattern);
+    }
+    
+    auto matchResult = match(req.method(), req.path());
+    
+    if (matchResult) {
+        ROUTER_DEBUG("MATCHED route: " << matchResult->route.pattern);
+        // ... invoke handler
+    } else {
+        ROUTER_DEBUG("NO ROUTE MATCHED!");
+        // ... handle 404
+    }
+    
+    ROUTER_DEBUG("Final response status: " << static_cast<int>(resp.status()));
+    ROUTER_DEBUG("Response body size: " << resp.bodySize());
+}
 ```
 
-### Suggested Fix
+#### Step 2: Test Minimal Case
 
-1. **Investigate the regex transformation** of `/*` pattern in `pathToRegex()`
-   - The current regex might be too permissive
-   - Check if `.` in path is being matched incorrectly
+Create a minimal test to isolate the issue:
 
-2. **Add debug logging** to `Router::match()` to see:
-   - Which routes are being checked
-   - Why `/*` pattern isn't matching `/.env`
+```cpp
+// minimal_test.cpp
+#include "HttpServer.h"
 
-3. **Verify route order** - ensure catch-all is truly last in matching order
+int main() {
+    OmniNet::HTTP::Server server;
+    
+    // Only two routes - nothing that should match /.env
+    server.router().get("/static/*", [](auto& req, auto& res) {
+        res.setBody("static");
+    });
+    
+    server.router().get("/*", [](auto& req, auto& res) {
+        res.setStatus(OmniNet::HTTP::StatusCode::NOT_FOUND);
+        res.setBody("404 catch-all");
+    });
+    
+    server.start();
+}
+```
 
-4. **Test with simple patterns**:
+Expected: `GET /.env` → "404 catch-all"
+Actual: `GET /.env` → 200 (empty body)
+
+#### Step 3: Investigate Regex
+
+Check how `/*` is converted to regex:
+
+```cpp
+// In Router.cpp - add this debug line
+std::string Router::pathToRegex(const std::string& pattern, std::vector<std::string>& paramNames) {
+    // ... existing transformation logic
+    
+    ROUTER_DEBUG("pathToRegex: pattern='" << pattern << "' -> regex='" << result << "'");
+    
+    return result;
+}
+```
+
+Test what `/*` becomes:
+- Is it `.*` (match everything)?
+- Is it `[^/]*` (match only within segment)?
+- Is there a leading/trailing issue?
+
+#### Step 4: Check Route Matching Loop
+
+In `Router::match()`:
+
+```cpp
+for (const auto& route : m_routes) {
+    ROUTER_DEBUG("  Testing: " << route.pattern);
+    
+    if (route.method != effectiveMethod && route.method != Method::UNKNOWN) {
+        ROUTER_DEBUG("    Method mismatch, skipping");
+        continue;
+    }
+    
+    std::smatch match;
+    bool matched = std::regex_match(pathStr, match, route.regex);
+    ROUTER_DEBUG("    regex_match result: " << (matched ? "MATCH" : "NO MATCH"));
+    ROUTER_DEBUG("    regex: " << route.regex.pattern());
+    ROUTER_DEBUG("    path: " << pathStr);
+    
+    if (matched) {
+        // ...
+    }
+}
+```
+
+#### Step 5: Force 404 for Empty Responses
+
+The fix in acc5a68 attempts this but it may not be triggering correctly:
+
+```cpp
+// Current fix (acc5a68):
+if (resp.status() == StatusCode::OK && resp.bodySize() == 0) {
+    resp.setStatus(StatusCode::NOT_FOUND);
+    resp.setBody("Not Found");
+}
+
+// Possible issue: bodySize() might not be 0
+// Try checking if body is truly empty:
+if (resp.status() == StatusCode::OK) {
+    if (resp.body().empty() || resp.bodySize() == 0) {
+        resp.setStatus(StatusCode::NOT_FOUND);
+        resp.setBody("Not Found");
+    }
+}
+```
+
+### Reproduction Steps
+
+1. Clone lscppdev.com repository (or create minimal OmniNet app)
+2. Build with OmniNet (latest devel branch)
+3. Register routes:
    ```cpp
-   router.get("/a/*", handlerA);
-   router.get("/*", handlerB);  // Should catch everything else including /b, /c, /.env
+   server.router().get("/static/*", handlerA);
+   server.router().get("/*", handlerB); // catch-all
+   ```
+4. Start server on port 8080
+5. Test:
+   ```bash
+   curl -i http://localhost:8080/static/file.txt  # Should return handlerA
+   curl -i http://localhost:8080/.env            # Should return 404, but returns 200
    ```
 
-### Workaround Applied (Project Side)
+### Environment
 
-As a workaround, we added explicit route handlers for sensitive paths:
+- OmniNet version: devel branch (acc5a68)
+- OS: Linux (Arch)
+- Compiler: GCC
+- C++ Standard: C++20
+
+### Current Workaround (lscppdev.com)
 
 ```cpp
+// Explicit handlers for sensitive paths (SECURITY)
 router.get("/.env", [](auto& req, auto& res) {
     res.setStatus(OmniNet::HTTP::StatusCode::NOT_FOUND);
     res.setBody("<html><body><h1>404 Not Found</h1></body></html>");
 });
+router.get("/.config", [](auto& req, auto& res) {
+    res.setStatus(OmniNet::HTTP::StatusCode::NOT_FOUND);
+    res.setBody("<html><body><h1>404 Not Found</h1></body></html>");
+});
 ```
-
-**This should be removed once the OmniNet bug is fixed.**
 
 ---
 
@@ -171,7 +304,7 @@ router.get("/.env", [](auto& req, auto& res) {
 
 **Date:** 2026-05-12
 **Severity:** LOW
-**Status:** Workaround applied
+**Status:** ⚠️ Workaround applied
 **Component:** Router
 
 ### Description
@@ -184,36 +317,27 @@ Ensure no duplicate routes in project code. The duplicate detection was added (B
 
 ## Summary
 
-| Bug # | Description | Status |
-|-------|-------------|--------|
-| 1 | HEAD requests not matching GET routes | ✅ FIXED |
-| 2 | Duplicate route registration not detected | ✅ FIXED |
-| 3 | Global middleware not working | ✅ FIXED |
-| 4 | Catch-all route not matching | ✅ FIXED |
-| 5 | Duplicate route warning but still registers | ⚠️ LOW - Workaround applied |
-
-### For OmniNet Team
-
-Bug #4 is the most critical issue - it causes security concerns where paths like `/.env` return 200 instead of 404. Please investigate the route matching logic, particularly why the `/*` catch-all pattern isn't properly handling unmatched paths.
+| Bug # | Description | Severity | Status |
+|-------|-------------|----------|--------|
+| 1 | HEAD requests not matching GET routes | Medium | ✅ FIXED |
+| 2 | Duplicate route registration not detected | Low | ✅ FIXED |
+| 3 | Global middleware not working | Medium | ✅ FIXED |
+| 4 | Catch-all route not matching | HIGH | ✅ FIXED |
+| 5 | Duplicate route warning but still registers | Low | ⚠️ Workaround |
 
 ---
 
-## Reproduction Steps for Bug #4
+## For OmniNet Team
 
-1. Create a new OmniNet HTTP server project
-2. Register a wildcard route: `server.router().get("/static/*", handler)`
-3. Register a catch-all: `server.router().get("/*", catchAll)`
-4. Send request to any path NOT starting with `/static/` (e.g., `/.env`)
-5. Expected: 404 from catch-all
-6. Actual: 200 with empty body
+**Bug #4 is the most critical issue** - it causes security concerns where paths like `/.env` return 200 instead of 404. The fix in acc5a68 improved the situation but paths like `/.env` with a leading dot still don't fall through properly.
 
-### Environment
-- OmniNet version: latest (devel branch)
-- OS: Linux
-- Compiler: GCC
+Key questions:
+1. What regex does `/*` become?
+2. Does `std::regex_match("/.env", std::regex("/*converted"))` match?
+3. Is `bodySize()` returning 0 for these cases?
 
 ---
 
 ## Contact
 
-For questions about these bugs, contact the lscppdev.com team who discovered them during security testing.
+For questions about these bugs, contact the lscppdev.com team who discovered them during security testing (2026-05-12).
