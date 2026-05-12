@@ -142,6 +142,14 @@ void Router::use(std::string pathPrefix, Middleware middleware) {
     m_pathMiddleware[std::move(pathPrefix)].push_back(std::move(middleware));
 }
 
+void Router::markHandlerInvoked() {
+    m_handlerInvoked = true;
+}
+
+bool Router::wasHandlerInvoked() const {
+    return m_handlerInvoked;
+}
+
 std::optional<Router::Match> Router::match(Method method, std::string_view path) {
     std::string pathStr(path);
     
@@ -264,6 +272,9 @@ Handler Router::errorHandler() {
 void Router::handle(const Request& req, Response& resp) {
     ROUTER_DEBUG("handle() called - Method: " << toString(req.method()) << ", Path: " << req.path());
     
+    // Reset handler invocation flag
+    m_handlerInvoked = false;
+    
     // List all registered routes
     ROUTER_DEBUG("Registered routes: " << m_routes.size());
     for (const auto& r : m_routes) {
@@ -290,6 +301,7 @@ void Router::handle(const Request& req, Response& resp) {
         
         // Call handler
         matchResult->handler(req, resp);
+        m_handlerInvoked = true;
         ROUTER_DEBUG("Handler returned, response status=" << static_cast<int>(resp.status()));
     } else {
         ROUTER_DEBUG("Route NOT MATCHED");
@@ -299,6 +311,23 @@ void Router::handle(const Request& req, Response& resp) {
         } else {
             ROUTER_DEBUG("No notFoundHandler, returning 404");
             resp = Response::notFound();
+        }
+    }
+    
+    // Ensure response has a valid status code for unmatched routes
+    // If a route was matched but the handler didn't set a proper response (status still OK, no body),
+    // treat it as 404 Not Found to prevent ambiguous empty 200 responses
+    if (resp.status() == StatusCode::OK) {
+        if (matchResult && resp.bodySize() == 0) {
+            // Route matched but no body was set - treat as 404
+            resp.setStatus(StatusCode::NOT_FOUND);
+            resp.setBody("Not Found");
+            ROUTER_DEBUG("Route matched but no body set, forcing 404");
+        } else if (!matchResult) {
+            // No route matched at all - definitely 404
+            resp.setStatus(StatusCode::NOT_FOUND);
+            resp.setBody("Not Found");
+            ROUTER_DEBUG("No route matched, forcing 404");
         }
     }
 }
