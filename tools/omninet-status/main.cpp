@@ -29,24 +29,24 @@ constexpr const char* TOOL_NAME = "omninet-status";
 // Configuration
 // ============================================================================
 
-struct Options {
+struct StatusOptions {
     bool verbose = false;
     bool json = false;
     bool report = false;
 };
 
-Options parseArgs(int argc, char* argv[]);
+StatusOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Status Checks
 // ============================================================================
 
-bool checkConfig(const Options& opts, Formatter& out);
-bool checkDatabase(const Options& opts, Formatter& out);
-bool checkLogs(const Options& opts, Formatter& out);
-bool checkCerts(const Options& opts, Formatter& out);
-bool checkBlockedIPs(const Options& opts, Formatter& out);
-bool checkIntrusion(const Options& opts, Formatter& out);
+bool checkConfig(const StatusOptions& opts, Formatter& out);
+bool checkDatabase(const StatusOptions& opts, Formatter& out);
+bool checkLogs(const StatusOptions& opts, Formatter& out);
+bool checkCerts(const StatusOptions& opts, Formatter& out);
+bool checkBlockedIPs(const StatusOptions& opts, Formatter& out);
+bool checkIntrusion(const StatusOptions& opts, Formatter& out);
 
 // ============================================================================
 // JSON Output
@@ -110,8 +110,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+StatusOptions parseArgs(int argc, char* argv[]) {
+    StatusOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -151,7 +151,7 @@ Options parseArgs(int argc, char* argv[]) {
 // Configuration Check
 // ============================================================================
 
-bool checkConfig(const Options& opts, Formatter& out) {
+bool checkConfig(const StatusOptions& opts, Formatter& out) {
     out.subheader("Configuration");
     
     auto configPath = Paths::configFile();
@@ -192,7 +192,7 @@ bool checkConfig(const Options& opts, Formatter& out) {
 // Database Check
 // ============================================================================
 
-bool checkDatabase(const Options& opts, Formatter& out) {
+bool checkDatabase(const StatusOptions& opts, Formatter& out) {
     out.subheader("Database");
     
     auto dbPath = Paths::databaseFile();
@@ -252,7 +252,7 @@ bool checkDatabase(const Options& opts, Formatter& out) {
 // Certificate Check
 // ============================================================================
 
-bool checkCerts(const Options& opts, Formatter& out) {
+bool checkCerts(const StatusOptions& opts, Formatter& out) {
     out.subheader("TLS Certificates");
     
     auto certsDir = Paths::certsDir();
@@ -315,7 +315,7 @@ bool checkCerts(const Options& opts, Formatter& out) {
 // Blocked IPs Check
 // ============================================================================
 
-bool checkBlockedIPs(const Options& opts, Formatter& out) {
+bool checkBlockedIPs(const StatusOptions& opts, Formatter& out) {
     out.subheader("Blocked IPs");
     
     auto dbPath = Paths::databaseFile();
@@ -357,7 +357,7 @@ bool checkBlockedIPs(const Options& opts, Formatter& out) {
 // Intrusion Check
 // ============================================================================
 
-bool checkIntrusion(const Options& opts, Formatter& out) {
+bool checkIntrusion(const StatusOptions& opts, Formatter& out) {
     out.subheader("Intrusion Detection");
     
     ConfigReader reader;
@@ -410,7 +410,7 @@ bool checkIntrusion(const Options& opts, Formatter& out) {
 // Log Check
 // ============================================================================
 
-bool checkLogs(const Options& opts, Formatter& out) {
+bool checkLogs(const StatusOptions& opts, Formatter& out) {
     out.subheader("Log File");
     
     auto logPath = Paths::logFile();

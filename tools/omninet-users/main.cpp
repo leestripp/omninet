@@ -26,7 +26,7 @@ constexpr const char* TOOL_NAME = "omninet-users";
 // Configuration
 // ============================================================================
 
-struct Options {
+struct UserOptions {
     std::string action;           // list, add, remove, show, reset-password
     std::string username;
     std::string role;
@@ -35,7 +35,7 @@ struct Options {
     bool verbose = false;
 };
 
-Options parseArgs(int argc, char* argv[]);
+UserOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Secure Input (no echo)
@@ -333,8 +333,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+UserOptions parseArgs(int argc, char* argv[]) {
+    UserOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

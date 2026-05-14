@@ -26,7 +26,7 @@ constexpr const char* TOOL_NAME = "omninet-ctl";
 // Configuration
 // ============================================================================
 
-struct Options {
+struct CtlOptions {
     std::string action;            // start, stop, restart, status, list
     std::string serverName;
     std::string configFile;
@@ -35,7 +35,7 @@ struct Options {
     bool verbose = false;
 };
 
-Options parseArgs(int argc, char* argv[]);
+CtlOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Process Control
@@ -368,8 +368,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+CtlOptions parseArgs(int argc, char* argv[]) {
+    CtlOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

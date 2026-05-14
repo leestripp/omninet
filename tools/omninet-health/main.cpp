@@ -20,7 +20,7 @@ constexpr const char* TOOL_NAME = "omninet-health";
 // Configuration
 // ============================================================================
 
-struct Options {
+struct HealthOptions {
     std::string url;
     std::vector<std::string> endpoints;
     std::string expectedBody;
@@ -30,7 +30,7 @@ struct Options {
     bool checkAll = false;
 };
 
-Options parseArgs(int argc, char* argv[]);
+HealthOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Main
@@ -149,8 +149,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+HealthOptions parseArgs(int argc, char* argv[]) {
+    HealthOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

@@ -22,7 +22,7 @@ constexpr const char* TOOL_NAME = "omninet-db";
 // Configuration
 // ============================================================================
 
-struct Options {
+struct DbOptions {
     std::string action;            // info, tables, query, vacuum, backup, restore
     std::string query;
     std::string file;
@@ -30,7 +30,7 @@ struct Options {
     bool verbose = false;
 };
 
-Options parseArgs(int argc, char* argv[]);
+DbOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Main
@@ -283,8 +283,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+DbOptions parseArgs(int argc, char* argv[]) {
+    DbOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

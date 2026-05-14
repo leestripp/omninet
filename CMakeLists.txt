@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Add local cmake modules to module path
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 # ============================================================================
 # Version Detection from Git Tags
 # ============================================================================
@@ -201,3 +204,79 @@ add_subdirectory(demos)
 
 # Build CLI tools
 add_subdirectory(tools)
+
+# ============================================================================
+# Cppcheck Static Analysis
+# ============================================================================
+find_package(Cppcheck QUIET)
+if(Cppcheck_FOUND)
+    message(STATUS "cppcheck found: ${CPPCHECK_EXECUTABLE}")
+    
+    # Create directory for cppcheck reports
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/cppcheck")
+    
+    # Helper macro to add cppcheck to a target
+    macro(add_cppcheck_target TARGET_NAME)
+        add_custom_target(${TARGET_NAME}
+            COMMAND ${CPPCHECK_EXECUTABLE}
+                --std=c++20
+                --enable=all
+                --inconclusive
+                --verbose
+                --quiet
+                --output-file=${CMAKE_BINARY_DIR}/cppcheck/${TARGET_NAME}.xml
+                --xml
+                --template=file:{file}:{line}:{column}:{severity}:{id}:{message}
+                ${ARGN}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMENT "Running cppcheck static analysis for ${TARGET_NAME}"
+        )
+        # Also create a console output version
+        add_custom_target(${TARGET_NAME}_console
+            COMMAND ${CPPCHECK_EXECUTABLE}
+                --std=c++20
+                --enable=all
+                --inconclusive
+                --quiet
+                --template=file:{file}:{line}:{column}:{severity}:{id}:{message}
+                ${ARGN}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            COMMENT "Running cppcheck for ${TARGET_NAME} (console output)"
+        )
+    endmacro()
+    
+    # Analyze library source files
+    add_cppcheck_target(cppcheck_lib
+        src/
+    )
+    
+    # Analyze test source files
+    add_cppcheck_target(cppcheck_tests
+        tests/
+    )
+    
+    # Analyze demo source files
+    add_cppcheck_target(cppcheck_demos
+        demos/
+    )
+    
+    # Analyze tool source files
+    add_cppcheck_target(cppcheck_tools
+        tools/
+    )
+    
+    # Master target to run all cppcheck analyses
+    add_custom_target(cppcheck
+        COMMAND ${CMAKE_COMMAND} -E echo "Running all cppcheck analyses..."
+        COMMAND ${CMAKE_COMMAND} --build . --target cppcheck_lib_console
+        COMMAND ${CMAKE_COMMAND} --build . --target cppcheck_tests_console
+        COMMAND ${CMAKE_COMMAND} --build . --target cppcheck_demos_console
+        COMMAND ${CMAKE_COMMAND} --build . --target cppcheck_tools_console
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Running all cppcheck analyses"
+    )
+    
+    message(STATUS "cppcheck targets created: cppcheck, cppcheck_lib, cppcheck_tests, cppcheck_demos, cppcheck_tools")
+else()
+    message(STATUS "cppcheck not found - static analysis disabled (install cppcheck to enable)")
+endif()

@@ -103,7 +103,7 @@ void Socket::bind(const std::string& address, uint16_t port) {
         }
     }
     
-    if (::bind(m_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    if (::bind(m_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
         throw SocketException("Failed to bind to " + address + ":" + std::to_string(port), getError());
     }
 }
@@ -119,7 +119,7 @@ std::unique_ptr<Socket> Socket::accept() {
     socklen_t clientLen = sizeof(clientAddr);
     
     std::memset(&clientAddr, 0, sizeof(clientAddr));
-    SOCKET clientFd = ::accept(m_fd, (struct sockaddr*)&clientAddr, &clientLen);
+    SOCKET clientFd = ::accept(m_fd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen);
     
     if (clientFd == INVALID_SOCKET) {
         if (wouldBlock()) {
@@ -255,7 +255,7 @@ SOCKET Socket::fd() const {
 std::string Socket::peerAddress() const {
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
-    if (getpeername(m_fd, (struct sockaddr*)&addr, &len) < 0) {
+    if (getpeername(m_fd, reinterpret_cast<struct sockaddr*>(&addr), &len) < 0) {
         return "";
     }
     char buffer[INET_ADDRSTRLEN];
@@ -268,7 +268,7 @@ std::string Socket::peerAddress() const {
 uint16_t Socket::peerPort() const {
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
-    if (getpeername(m_fd, (struct sockaddr*)&addr, &len) < 0) {
+    if (getpeername(m_fd, reinterpret_cast<struct sockaddr*>(&addr), &len) < 0) {
         return 0;
     }
     return ntohs(addr.sin_port);
@@ -277,7 +277,7 @@ uint16_t Socket::peerPort() const {
 std::string Socket::localAddress() const {
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
-    if (getsockname(m_fd, (struct sockaddr*)&addr, &len) < 0) {
+    if (getsockname(m_fd, reinterpret_cast<struct sockaddr*>(&addr), &len) < 0) {
         return "";
     }
     char buffer[INET_ADDRSTRLEN];
@@ -290,7 +290,7 @@ std::string Socket::localAddress() const {
 uint16_t Socket::localPort() const {
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
-    if (getsockname(m_fd, (struct sockaddr*)&addr, &len) < 0) {
+    if (getsockname(m_fd, reinterpret_cast<struct sockaddr*>(&addr), &len) < 0) {
         return 0;
     }
     return ntohs(addr.sin_port);

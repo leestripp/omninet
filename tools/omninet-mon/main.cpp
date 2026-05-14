@@ -23,14 +23,14 @@ constexpr const char* TOOL_NAME = "omninet-mon";
 // Configuration
 // ============================================================================
 
-struct Options {
+struct MonOptions {
     std::string url = "http://localhost:8080";
     int interval = 2;              // seconds
     bool json = false;
     bool verbose = false;
 };
 
-Options parseArgs(int argc, char* argv[]);
+MonOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Stats
@@ -113,8 +113,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+MonOptions parseArgs(int argc, char* argv[]) {
+    MonOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

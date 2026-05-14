@@ -27,7 +27,7 @@ constexpr const char* TOOL_NAME = "omninet-firewall";
 // Configuration
 // ============================================================================
 
-struct Options {
+struct FirewallOptions {
     std::string action;           // list, block, unblock, logs, rules, whitelist
     std::string subaction;        // add, remove for whitelist
     std::string target;           // IP address or rule name
@@ -37,7 +37,7 @@ struct Options {
     bool verbose = false;
 };
 
-Options parseArgs(int argc, char* argv[]);
+FirewallOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Duration Parsing
@@ -251,8 +251,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+FirewallOptions parseArgs(int argc, char* argv[]) {
+    FirewallOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

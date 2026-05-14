@@ -19,11 +19,10 @@ add_executable(test_config
 )
 
 # Link with OmniNet and dependencies
-target_link_libraries(omnet_test PRIVATE
-    OmniNet
-    GTest::GTest
-    pthread
-)
+target_link_libraries(omnet_test PRIVATE OmniNet pthread)
+if(GTest_FOUND)
+    target_link_libraries(omnet_test PRIVATE GTest::GTest)
+endif()
 
 target_link_libraries(test_config PRIVATE
     OmniNet

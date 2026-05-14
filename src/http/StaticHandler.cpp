@@ -178,7 +178,8 @@ void StaticHandler::setDefaultFile(std::string filename) {
 }
 
 std::string_view StaticHandler::defaultFile() const {
-    return m_indexFiles.empty() ? "" : m_indexFiles[0];
+    if (m_indexFiles.empty()) return std::string_view();
+    return m_indexFiles[0];
 }
 
 const std::vector<std::string>& StaticHandler::indexFiles() const {

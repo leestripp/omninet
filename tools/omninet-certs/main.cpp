@@ -31,7 +31,7 @@ constexpr const char* TOOL_NAME = "omninet-certs";
 // Configuration
 // ============================================================================
 
-struct Options {
+struct CertOptions {
     std::string action;            // list, info, check, generate, install
     std::string target;            // certificate name or path
     std::string file;
@@ -41,7 +41,7 @@ struct Options {
     bool verbose = false;
 };
 
-Options parseArgs(int argc, char* argv[]);
+CertOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Certificate Info
@@ -389,8 +389,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+CertOptions parseArgs(int argc, char* argv[]) {
+    CertOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

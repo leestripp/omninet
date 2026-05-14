@@ -174,7 +174,7 @@ std::optional<HttpResponse> HttpClient::request(const std::string& method,
     addr.sin_port = htons(static_cast<uint16_t>(port));
     memcpy(&addr.sin_addr.s_addr, server->h_addr, server->h_length);
     
-    if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    if (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
         m_lastError = "Failed to connect to server";
         closesocket(sock);
 #ifdef _WIN32

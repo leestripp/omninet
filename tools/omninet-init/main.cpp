@@ -26,7 +26,7 @@ constexpr const char* TOOL_NAME = "omninet-init";
 // Configuration
 // ============================================================================
 
-struct Options {
+struct InitInitOptions {
     bool force = false;
     bool nonInteractive = false;
     bool skipCerts = false;
@@ -39,7 +39,7 @@ struct Options {
     std::string adminPassword;
 };
 
-Options parseArgs(int argc, char* argv[]);
+InitInitOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Interactive Input
@@ -54,10 +54,10 @@ bool confirm(const std::string& prompt, bool defaultValue = false);
 // Setup Functions
 // ============================================================================
 
-bool setupDataDirectory(const Options& opts, Formatter& out);
-bool setupConfig(const Options& opts, Formatter& out);
-bool setupCertificates(const Options& opts, Formatter& out);
-bool setupAdminUser(const Options& opts, Formatter& out);
+bool setupDataDirectory(const InitInitOptions& opts, Formatter& out);
+bool setupConfig(const InitInitOptions& opts, Formatter& out);
+bool setupCertificates(const InitInitOptions& opts, Formatter& out);
+bool setupAdminUser(const InitInitOptions& opts, Formatter& out);
 
 // ============================================================================
 // Main
@@ -143,8 +143,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+InitInitOptions parseArgs(int argc, char* argv[]) {
+    InitInitOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -224,7 +224,7 @@ Options parseArgs(int argc, char* argv[]) {
 // Setup Functions
 // ============================================================================
 
-bool setupDataDirectory(const Options& opts, Formatter& out) {
+bool setupDataDirectory(const InitInitOptions& opts, Formatter& out) {
     out.subheader("Creating Data Directory");
     
     auto dataDir = Paths::dataDir();
@@ -257,7 +257,7 @@ bool setupDataDirectory(const Options& opts, Formatter& out) {
     return true;
 }
 
-bool setupConfig(const Options& opts, Formatter& out) {
+bool setupConfig(const InitInitOptions& opts, Formatter& out) {
     out.subheader("Creating Configuration");
     
     auto configPath = Paths::configFile();
@@ -368,7 +368,7 @@ bool setupConfig(const Options& opts, Formatter& out) {
     return true;
 }
 
-bool setupCertificates(const Options& opts, Formatter& out) {
+bool setupCertificates(const InitInitOptions& opts, Formatter& out) {
     out.subheader("Generating TLS Certificates");
     
     auto certsDir = Paths::certsDir();
@@ -437,7 +437,7 @@ bool setupCertificates(const Options& opts, Formatter& out) {
     }
 }
 
-bool setupAdminUser(const Options& opts, Formatter& out) {
+bool setupAdminUser(const InitInitOptions& opts, Formatter& out) {
     out.subheader("Creating Admin User");
     
     // Ensure database exists

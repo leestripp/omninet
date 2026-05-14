@@ -37,7 +37,7 @@ void signalHandler(int) {
 // Configuration
 // ============================================================================
 
-struct Options {
+struct LogOptions {
     bool follow = false;
     bool tail = false;
     int tailLines = 50;
@@ -48,7 +48,7 @@ struct Options {
     std::string file;
 };
 
-Options parseArgs(int argc, char* argv[]);
+LogOptions parseArgs(int argc, char* argv[]);
 
 // ============================================================================
 // Log Entry (parsed from line)
@@ -230,8 +230,8 @@ int main(int argc, char* argv[]) {
 // Argument Parsing
 // ============================================================================
 
-Options parseArgs(int argc, char* argv[]) {
-    Options opts;
+LogOptions parseArgs(int argc, char* argv[]) {
+    LogOptions opts;
     
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
