@@ -132,7 +132,7 @@ target_link_libraries(OmniNet PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 
 # Find SQLite3
 find_package(SQLite3 REQUIRED)
-target_link_libraries(OmniNet PUBLIC SQLite3::SQLite3)
+target_link_libraries(OmniNet PUBLIC SQLite::SQLite3)
 
 # Optional zlib for gzip compression (disabled by default for simplicity)
 # Enable if zlib is properly installed with standard CMake config file
