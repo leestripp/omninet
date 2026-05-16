@@ -1,343 +1,39 @@
-# OmniNet Bug Reports
+Here's the crash log analysis:
 
-This file documents bugs found in OmniNet (third_party) for reporting to the developers.
+## Crash Log Summary
 
----
+**File:** `/tmp/lscppdev_crash.log` on lscppdev.com  
+**Time:** 2026-05-15 05:13:29  
+**Signal:** 6 (SIGABRT - abort signal)
 
-## Bug #1: HEAD requests not matching GET routes
-
-**Date:** 2026-05-12
-**Status:** ✅ FIXED
-**Component:** Router / HttpServer
-
-### Description
-HEAD requests were not matching GET routes in the router. When a GET handler was registered for a path, a HEAD request to the same path returned 404 Not Found.
-
-### Root Cause
-The router's `match()` method only matched exact HTTP methods. HEAD requests fell through to the catch-all which returned 404.
-
-### Fix Applied
-OmniNet team added logic in `Router::match()` to treat HEAD requests as GET requests if no explicit HEAD route exists.
-
-### Verification
-- `curl -I http://localhost:4242/` → 200 OK with headers
-- `curl -I -X HEAD http://localhost:4242/` → 200 OK with headers
-- Both routes now return security headers
-
----
-
-## Bug #2: Duplicate route registration not detected
-
-**Date:** 2026-05-12
-**Status:** ✅ FIXED
-**Component:** Router
-
-### Description
-When the same route was registered multiple times, no error or warning was issued.
-
-### Fix Applied
-OmniNet team added duplicate detection in `Router::addRoute()` that logs a warning when duplicate routes are registered.
-
----
-
-## Bug #3: Global middleware not working
-
-**Date:** 2026-05-12
-**Status:** ✅ FIXED (project workaround)
-**Component:** Router
-
-### Description
-Global middleware registered via `router.use()` was not being applied to responses.
-
-### Status
-Project implemented workaround using router middleware to add security headers to ALL responses.
-
----
-
-## Bug #4: Catch-all route not matching (CRITICAL - Security)
-
-**Date:** 2026-05-12
-**Updated:** 2026-05-12
-**Severity:** HIGH (Security Concern)
-**Status:** ✅ FIXED
-**Component:** StaticHandler
-
-### Issue Summary
-
-Requests to paths like `/.env`, `/.config`, `/.git/config` were returning HTTP 200 with empty body instead of 404.
-
-### Root Cause
-
-The `StaticHandler::handle()` method was returning `false` for hidden files (files starting with `.`) but NOT setting the response to 404 before returning. This left the response in its default state (200 OK, empty body).
-
-### Fix Applied
-
-Modified `src/http/StaticHandler.cpp` to set `resp = Response::notFound()` in these cases:
-1. When `isHidden(path)` returns true (line 85-88)
-2. When a directory has no index file and directory listing is disabled (line 112-116)
-3. When path does not exist or is not accessible (line 123-125)
-
-### Verification
-- `GET /.env` → 404 Not Found ✅
-- `GET /.config` → 404 Not Found ✅  
-- `GET /.git/config` → 404 Not Found ✅
-- `GET /index.html` → 200 OK with content ✅
-- All 110 unit tests pass ✅
-
-### Security Impact
-
-This is a SECURITY ISSUE because:
-- Requests to `/.env`, `/.config`, `/.git/config` return 200 instead of 404
-- While no sensitive data is leaked (empty body), returning 200 for non-existent files is:
-  - Misleading for debugging
-  - Potentially exploitable in certain scenarios
-  - Against HTTP specification (404 should mean "not found")
-
-### Test Results
-
-| Path | Expected | Actual (Before Fix) | Actual (After acc5a68) |
-|------|----------|---------------------|------------------------|
-| `/.env` | 404 | 200 (empty) | 200 (empty) |
-| `/.config` | 404 | 200 (empty) | 200 (empty) |
-| `/.git/config` | 404 | 200 (empty) | 200 (empty) |
-| `/nonexistent` | 404 | 404 ✅ | 404 ✅ |
-| `/static/file.txt` | 200 | 200 ✅ | 200 ✅ |
-
-### Root Cause Analysis
-
-#### Hypothesis 1: Route Ordering
-The `/*` catch-all should be last in route registration order, but something in the route matching logic may be exiting early.
-
-```cpp
-// Route registration order in lscppdev.com:
-router.get("/static/*", staticHandler);    // Line 496
-router.get("/images/*", imagesHandler);   // Line 522
-router.get("/downloads/*", downloadsHandler); // Line 549
-router.get("/robots.txt", robotsHandler);  // Line 577
-router.get("/*", catchAllHandler);        // Line 590 - SHOULD catch everything else
+### Stack Trace
+```
+#9  OmniNet::Socket::recv(std::span<unsigned char, 18446744073709551615>)
+#10 OmniNet::Socket::recvAll(size_t)
+#11 OmniNet::HTTP::Connection::readRequest()
 ```
 
-When request `/.env` comes in:
-1. Check `/static/*` - NO MATCH (path is `/.env`)
-2. Check `/images/*` - NO MATCH
-3. Check `/downloads/*` - NO MATCH
-4. Check `/robots.txt` - NO MATCH
-5. Check `/*` - **Should match but returns 200 instead**
+### Analysis
 
-#### Hypothesis 2: Regex Transformation of `/*`
+The server crashed with **SIGABRT** (signal 6), which is triggered by `std::terminate()` when an uncaught exception propagates. The crash originated in the HTTP request reading code:
 
-The pattern `/*` is transformed to regex. If the regex transformation is flawed, it may not properly match all remaining paths.
+1. **`Connection::readRequest()`** - Reading incoming HTTP requests
+2. **`Socket::recvAll()`** - Receives data from socket
+3. **`Socket::recv()`** - The actual receive with `std::span`
 
-#### Hypothesis 3: Handler Response Not Set
+The crash occurred because:
+- A C++ exception was thrown somewhere in the socket receive path
+- It wasn't caught properly and escalated to `std::terminate()`
+- This triggered `SIGABRT`
 
-Even when `/*` matches, the response may not have a status/body set properly. The fix in acc5a68 attempts to address this by checking `bodySize() == 0`, but it's not working for `/.env`.
+### Possible Causes
+1. **Invalid socket state** - Socket might have been closed while reading
+2. **Buffer overflow/corruption** - Memory issue in the socket buffer
+3. **Exception in callback** - An exception thrown during HTTP processing that propagated up
 
-### Suggested Fix (Detailed)
+### Recommended Fixes
+1. Add more exception handling around `recv()` calls
+2. Verify socket is still valid before calling `recv()`
+3. Add try-catch blocks in `readRequest()` to catch all exceptions
+4. Check if there are any unhandled exceptions in HTTP handlers
 
-#### Step 1: Add Debug Logging
-
-Add detailed logging in `Router::handle()`:
-
-```cpp
-void Router::handle(const Request& req, Response& resp) {
-    ROUTER_DEBUG("=== Router::handle() START ===");
-    ROUTER_DEBUG("Request: " << toString(req.method()) << " " << req.path());
-    
-    // Reset handler invocation flag
-    m_handlerInvoked = false;
-    
-    // List ALL registered routes
-    ROUTER_DEBUG("Registered routes (" << m_routes.size() << "):");
-    for (const auto& r : m_routes) {
-        ROUTER_DEBUG("  - " << toString(r.method) << " " << r.pattern);
-    }
-    
-    auto matchResult = match(req.method(), req.path());
-    
-    if (matchResult) {
-        ROUTER_DEBUG("MATCHED route: " << matchResult->route.pattern);
-        // ... invoke handler
-    } else {
-        ROUTER_DEBUG("NO ROUTE MATCHED!");
-        // ... handle 404
-    }
-    
-    ROUTER_DEBUG("Final response status: " << static_cast<int>(resp.status()));
-    ROUTER_DEBUG("Response body size: " << resp.bodySize());
-}
-```
-
-#### Step 2: Test Minimal Case
-
-Create a minimal test to isolate the issue:
-
-```cpp
-// minimal_test.cpp
-#include "HttpServer.h"
-
-int main() {
-    OmniNet::HTTP::Server server;
-    
-    // Only two routes - nothing that should match /.env
-    server.router().get("/static/*", [](auto& req, auto& res) {
-        res.setBody("static");
-    });
-    
-    server.router().get("/*", [](auto& req, auto& res) {
-        res.setStatus(OmniNet::HTTP::StatusCode::NOT_FOUND);
-        res.setBody("404 catch-all");
-    });
-    
-    server.start();
-}
-```
-
-Expected: `GET /.env` → "404 catch-all"
-Actual: `GET /.env` → 200 (empty body)
-
-#### Step 3: Investigate Regex
-
-Check how `/*` is converted to regex:
-
-```cpp
-// In Router.cpp - add this debug line
-std::string Router::pathToRegex(const std::string& pattern, std::vector<std::string>& paramNames) {
-    // ... existing transformation logic
-    
-    ROUTER_DEBUG("pathToRegex: pattern='" << pattern << "' -> regex='" << result << "'");
-    
-    return result;
-}
-```
-
-Test what `/*` becomes:
-- Is it `.*` (match everything)?
-- Is it `[^/]*` (match only within segment)?
-- Is there a leading/trailing issue?
-
-#### Step 4: Check Route Matching Loop
-
-In `Router::match()`:
-
-```cpp
-for (const auto& route : m_routes) {
-    ROUTER_DEBUG("  Testing: " << route.pattern);
-    
-    if (route.method != effectiveMethod && route.method != Method::UNKNOWN) {
-        ROUTER_DEBUG("    Method mismatch, skipping");
-        continue;
-    }
-    
-    std::smatch match;
-    bool matched = std::regex_match(pathStr, match, route.regex);
-    ROUTER_DEBUG("    regex_match result: " << (matched ? "MATCH" : "NO MATCH"));
-    ROUTER_DEBUG("    regex: " << route.regex.pattern());
-    ROUTER_DEBUG("    path: " << pathStr);
-    
-    if (matched) {
-        // ...
-    }
-}
-```
-
-#### Step 5: Force 404 for Empty Responses
-
-The fix in acc5a68 attempts this but it may not be triggering correctly:
-
-```cpp
-// Current fix (acc5a68):
-if (resp.status() == StatusCode::OK && resp.bodySize() == 0) {
-    resp.setStatus(StatusCode::NOT_FOUND);
-    resp.setBody("Not Found");
-}
-
-// Possible issue: bodySize() might not be 0
-// Try checking if body is truly empty:
-if (resp.status() == StatusCode::OK) {
-    if (resp.body().empty() || resp.bodySize() == 0) {
-        resp.setStatus(StatusCode::NOT_FOUND);
-        resp.setBody("Not Found");
-    }
-}
-```
-
-### Reproduction Steps
-
-1. Clone lscppdev.com repository (or create minimal OmniNet app)
-2. Build with OmniNet (latest devel branch)
-3. Register routes:
-   ```cpp
-   server.router().get("/static/*", handlerA);
-   server.router().get("/*", handlerB); // catch-all
-   ```
-4. Start server on port 8080
-5. Test:
-   ```bash
-   curl -i http://localhost:8080/static/file.txt  # Should return handlerA
-   curl -i http://localhost:8080/.env            # Should return 404, but returns 200
-   ```
-
-### Environment
-
-- OmniNet version: devel branch (acc5a68)
-- OS: Linux (Arch)
-- Compiler: GCC
-- C++ Standard: C++20
-
-### Current Workaround (lscppdev.com)
-
-```cpp
-// Explicit handlers for sensitive paths (SECURITY)
-router.get("/.env", [](auto& req, auto& res) {
-    res.setStatus(OmniNet::HTTP::StatusCode::NOT_FOUND);
-    res.setBody("<html><body><h1>404 Not Found</h1></body></html>");
-});
-router.get("/.config", [](auto& req, auto& res) {
-    res.setStatus(OmniNet::HTTP::StatusCode::NOT_FOUND);
-    res.setBody("<html><body><h1>404 Not Found</h1></body></html>");
-});
-```
-
----
-
-## Bug #5: Duplicate route registration shows warning but still registers
-
-**Date:** 2026-05-12
-**Severity:** LOW
-**Status:** ⚠️ Workaround applied
-**Component:** Router
-
-### Description
-When duplicate routes are registered, a warning is logged but the duplicate is silently ignored (first handler used). This can lead to confusion when debugging routing issues.
-
-### Workaround
-Ensure no duplicate routes in project code. The duplicate detection was added (Bug #2 fix), but developers may not notice the warning.
-
----
-
-## Summary
-
-| Bug # | Description | Severity | Status |
-|-------|-------------|----------|--------|
-| 1 | HEAD requests not matching GET routes | Medium | ✅ FIXED |
-| 2 | Duplicate route registration not detected | Low | ✅ FIXED |
-| 3 | Global middleware not working | Medium | ✅ FIXED |
-| 4 | Catch-all route not matching | HIGH | ✅ FIXED |
-| 5 | Duplicate route warning but still registers | Low | ⚠️ Workaround |
-
----
-
-## For OmniNet Team
-
-**Bug #4 is the most critical issue** - it causes security concerns where paths like `/.env` return 200 instead of 404. The fix in acc5a68 improved the situation but paths like `/.env` with a leading dot still don't fall through properly.
-
-Key questions:
-1. What regex does `/*` become?
-2. Does `std::regex_match("/.env", std::regex("/*converted"))` match?
-3. Is `bodySize()` returning 0 for these cases?
-
----
-
-## Contact
-
-For questions about these bugs, contact the lscppdev.com team who discovered them during security testing (2026-05-12).

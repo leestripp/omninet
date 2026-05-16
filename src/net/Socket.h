@@ -37,6 +37,14 @@ namespace OmniNet {
 // ============================================================================
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+// Maximum receive buffer size to prevent buffer overflow attacks
+// Requests larger than this will be rejected
+static constexpr size_t RECV_BUFFER_MAX = 16 * 1024 * 1024;  // 16MB max single recv
+
+// ============================================================================
 // Base Socket Class
 // ============================================================================
 
@@ -47,6 +55,9 @@ public:
     
     // Wrap an existing file descriptor
     explicit Socket(SOCKET fd);
+    
+    // Get the maximum allowed receive buffer size
+    static constexpr size_t maxRecvSize() { return RECV_BUFFER_MAX; }
     
     virtual ~Socket();
     

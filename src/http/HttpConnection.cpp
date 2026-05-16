@@ -3,6 +3,9 @@
 
 #include <iostream>
 
+#include "net/Socket.h"
+#include "utils/Exception.h"
+
 // Debug logging
 #define DEBUG_CONNECTION 1
 #if DEBUG_CONNECTION
@@ -41,6 +44,10 @@ bool Connection::handleNextRequest() {
         Response resp;
         try {
             m_handler(m_currentRequest, resp);
+        } catch (const SocketException& e) {
+            CONN_DEBUG("Handler threw SocketException: " << e.what());
+            m_socket->close();
+            return false;
         } catch (const std::exception& e) {
             CONN_DEBUG("Handler threw exception: " << e.what());
             // If error handler is set, let it produce a response
@@ -48,6 +55,13 @@ bool Connection::handleNextRequest() {
                 m_errorHandler(m_currentRequest, resp, std::current_exception());
             } else {
                 resp = Response::internalError(e.what());
+            }
+        } catch (...) {
+            CONN_DEBUG("Handler threw unknown exception type");
+            if (m_errorHandler) {
+                m_errorHandler(m_currentRequest, resp, std::current_exception());
+            } else {
+                resp = Response::internalError("Unknown error occurred");
             }
         }
         
@@ -123,6 +137,10 @@ const Connection::Stats& Connection::stats() const {
 bool Connection::readRequest() {
     CONN_DEBUG("readRequest() starting");
     
+    // Safety limit - prevent unbounded buffer growth
+    static constexpr size_t SAFETY_HEADER_LIMIT = 1024 * 1024;  // 1MB for headers
+    static constexpr size_t SAFETY_BODY_LIMIT = 10 * 1024 * 1024; // 10MB for body
+    
     // Read until we have complete headers (double CRLF)
     // Then optionally read body based on Content-Length or Transfer-Encoding
     std::vector<uint8_t> buffer;
@@ -133,11 +151,30 @@ bool Connection::readRequest() {
     size_t contentLength = 0;
     bool haveSeenDoubleCrlf = false;
     
+    // Track total received for overflow detection
+    size_t totalReceived = 0;
+    
     while (m_socket->isOpen()) {
-        CONN_DEBUG("  Reading chunk, buffer size=" << buffer.size());
+        CONN_DEBUG("  Reading chunk, buffer size=" << buffer.size() << ", totalReceived=" << totalReceived);
         
-        // Read available data
-        std::vector<uint8_t> chunk = m_socket->recvAll(65536);
+        // Safety check: prevent infinite loop from small increments
+        if (totalReceived > m_maxRequestSize * 2) {
+            CONN_DEBUG("  ERROR: Total received exceeds 2x maxRequestSize, possible attack");
+            return false;
+        }
+        
+        // Read available data with explicit size limit
+        size_t chunkSize = std::min(size_t(65536), m_maxRequestSize);
+        std::vector<uint8_t> chunk;
+        try {
+            chunk = m_socket->recvAll(chunkSize);
+        } catch (const SocketException& e) {
+            CONN_DEBUG("  recvAll threw SocketException: " << e.what());
+            return false;
+        } catch (const std::exception& e) {
+            CONN_DEBUG("  recvAll threw unexpected exception: " << e.what());
+            return false;
+        }
         
         if (chunk.empty()) {
             CONN_DEBUG("  recvAll returned empty - connection closed or timeout");
@@ -151,7 +188,24 @@ bool Connection::readRequest() {
         }
         
         CONN_DEBUG("  Received " << chunk.size() << " bytes");
+        
+        // Safety: check if adding this chunk would exceed limits
+        if (state == State::READING_HEADERS) {
+            // Still reading headers - check against header limit
+            if (buffer.size() + chunk.size() > SAFETY_HEADER_LIMIT) {
+                CONN_DEBUG("  ERROR: Headers would exceed safety limit (" << SAFETY_HEADER_LIMIT << " bytes)");
+                return false;
+            }
+        } else {
+            // Reading body
+            if (buffer.size() + chunk.size() > SAFETY_BODY_LIMIT) {
+                CONN_DEBUG("  ERROR: Body would exceed safety limit (" << SAFETY_BODY_LIMIT << " bytes)");
+                return false;
+            }
+        }
+        
         buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+        totalReceived += chunk.size();
         
         // Check if we have complete headers
         if (state == State::READING_HEADERS) {
