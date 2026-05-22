@@ -8,6 +8,19 @@ The `OmniNet::DB` namespace provides a thread-safe SQLite3 wrapper with:
 - Schema migration system
 - Thread-safe operations via mutex
 
+## sqlite-vec Extension
+
+The **sqlite-vec** vector database extension is automatically downloaded and built via CMake FetchContent.
+
+```cmake
+# Enable/disable via CMake option
+cmake -DOMNINET_ENABLE_VEC=ON ..  # default: ON
+
+# Extension is built at: ${CMAKE_BINARY_DIR}/vec0.so
+```
+
+**Design Decision**: Embedding generation is your application's responsibility. OmniNet provides vector **storage** and **search** via sqlite-vec. Your app generates embeddings (using OpenAI, local models, etc.) and stores them here.
+
 ## Quick Start
 
 ```cpp
@@ -476,7 +489,11 @@ std::vector<float> embedding = yourEmbedder.embed("Your text here");
 // Store in OmniNet
 Database db;
 db.open("vectors.db");
-db.execute("SELECT load_extension('/path/to/vec0.so')");  // Load sqlite-vec
+// Load vec0.so extension (built automatically by CMake)
+db.execute("SELECT load_extension('/path/to/vec0.so')");
+
+// Or use the path from CMake
+db.execute("SELECT load_extension('${OMNINET_VEC0_PATH}')");
 
 VectorStore store(db);
 

@@ -282,10 +282,20 @@ router.post("/api/vector/delete", ...);
 | `src/db/SessionStore.h/cpp` | Session management |
 | `src/db/UserStore.h/cpp` | User management |
 
-### Third-Party Dependencies
-| Directory | Purpose |
-|-----------|---------|
-| `third_party/sqlite-vec/` | Vector storage (sqlite-vec) |
+### Third-Party Dependencies (FetchContent)
+
+| Dependency | Purpose | Fetch Method |
+|------------|---------|---------------|
+| `nlohmann/json` | Config JSON parsing | FetchContent (header-only) |
+| `sqlite-vec` | Vector storage & search | FetchContent + build `vec0.so` |
+
+**sqlite-vec is built automatically via FetchContent** at CMake configure time. The `vec0.so` extension is built in `${CMAKE_BINARY_DIR}/`.
+
+```bash
+# Manual build (if needed)
+git clone --depth 1 https://github.com/asg017/sqlite-vec.git
+cd sqlite-vec && gcc -shared -fPIC -o vec0.so sqlite-vec.c
+```
 
 ### Documentation
 | File | Purpose |
@@ -297,8 +307,8 @@ router.post("/api/vector/delete", ...);
 ---
 
 ## Recent Fixes
+- **2026-05-22**: Implemented sqlite-vec FetchContent build - auto-downloads and builds `vec0.so` at CMake configure time
 - **2026-05-22**: Simplified vector plan - embeddings out of scope, sqlite-vec only
-- **2026-05-22**: Built sqlite-vec extension (`vec0.so`)
 - **2026-05-15**: Fixed SQLite CMake target name
 
 ---
