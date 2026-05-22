@@ -169,6 +169,81 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json)
 target_link_libraries(OmniNet PUBLIC nlohmann_json::nlohmann_json)
 
+# ============================================================================
+# sqlite-vec Vector Database Extension (FetchContent)
+# ============================================================================
+# sqlite-vec provides vector storage and similarity search for semantic search.
+# It is fetched, built, and loaded at runtime via SQLite's load_extension().
+option(OMNINET_ENABLE_VEC "Enable sqlite-vec vector database support" ON)
+
+if(OMNINET_ENABLE_VEC)
+    FetchContent_Declare(
+        sqlite_vec
+        GIT_REPOSITORY https://github.com/asg017/sqlite-vec.git
+        GIT_TAG v0.1.6
+        GIT_SHALLOW TRUE
+    )
+    
+    FetchContent_MakeAvailable(sqlite_vec)
+    
+    # Get the actual source directory
+    FetchContent_GetProperties(sqlite_vec)
+    
+    # Generate sqlite-vec.h from sqlite-vec.h.tmpl
+    set(VEC_H_TMPL "${sqlite_vec_SOURCE_DIR}/sqlite-vec.h.tmpl")
+    set(VEC_H "${sqlite_vec_SOURCE_DIR}/sqlite-vec.h")
+    set(VEC_VERSION_FILE "${sqlite_vec_SOURCE_DIR}/VERSION")
+    
+    # Read version
+    file(READ "${VEC_VERSION_FILE}" VEC_VERSION)
+    string(STRIP "${VEC_VERSION}" VEC_VERSION)
+    string(REPLACE "." ";" VERSION_PARTS "${VEC_VERSION}")
+    list(GET VERSION_PARTS 0 VERSION_MAJOR)
+    list(GET VERSION_PARTS 1 VERSION_MINOR)
+    list(LENGTH VERSION_PARTS VERSION_PARTS_LEN)
+    if(VERSION_PARTS_LEN EQUAL 3)
+        list(GET VERSION_PARTS 2 VERSION_PATCH)
+    else()
+        set(VERSION_PATCH "0")
+    endif()
+    
+    # Read template and substitute ${VAR} style variables
+    file(READ "${VEC_H_TMPL}" VEC_H_CONTENT)
+    string(REPLACE "\${VERSION}" "${VEC_VERSION}" VEC_H_CONTENT "${VEC_H_CONTENT}")
+    string(REPLACE "\${VERSION_MAJOR}" "${VERSION_MAJOR}" VEC_H_CONTENT "${VEC_H_CONTENT}")
+    string(REPLACE "\${VERSION_MINOR}" "${VERSION_MINOR}" VEC_H_CONTENT "${VEC_H_CONTENT}")
+    string(REPLACE "\${VERSION_PATCH}" "${VERSION_PATCH}" VEC_H_CONTENT "${VEC_H_CONTENT}")
+    string(REPLACE "\${DATE}" "unknown" VEC_H_CONTENT "${VEC_H_CONTENT}")
+    string(REPLACE "\${SOURCE}" "unknown" VEC_H_CONTENT "${VEC_H_CONTENT}")
+    file(WRITE "${VEC_H}" "${VEC_H_CONTENT}")
+    
+    # Build vec0.so from fetched source
+    set(VEC0_SOURCE "${sqlite_vec_SOURCE_DIR}/sqlite-vec.c")
+    set(VEC0_OUTPUT "${CMAKE_BINARY_DIR}/vec0.so")
+    
+    add_custom_command(
+        OUTPUT ${VEC0_OUTPUT}
+        COMMAND gcc -shared -fPIC -O2 -o ${VEC0_OUTPUT} -I${sqlite_vec_SOURCE_DIR} ${VEC0_SOURCE}
+        DEPENDS ${VEC0_SOURCE} ${VEC_H}
+        COMMENT "Building sqlite-vec extension"
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    )
+    
+    add_custom_target(vec0_extension ALL
+        DEPENDS ${VEC0_OUTPUT} OmniNet
+        COMMENT "Building vec0.so for vector database support"
+    )
+    
+    # Store extension path for runtime use
+    get_filename_component(VEC0_ABS_PATH "${VEC0_OUTPUT}" ABSOLUTE)
+    set(OMNINET_VEC0_PATH "${VEC0_ABS_PATH}" CACHE PATH "Path to vec0.so extension")
+    
+    target_compile_definitions(OmniNet PUBLIC OMNINET_VEC0_PATH="${OMNINET_VEC0_PATH}")
+    message(STATUS "sqlite-vec enabled: ${OMNINET_VEC0_PATH}")
+else()
+    message(STATUS "sqlite-vec vector database DISABLED")
+endif()
+
 # Define version macro
 target_compile_definitions(OmniNet PUBLIC
     OMNINET_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
