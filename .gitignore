@@ -33,3 +33,6 @@ prompt.txt
 # Demo certificates
 server.crt
 server.key
+
+# third party
+third_party/
