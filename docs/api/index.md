@@ -51,6 +51,7 @@ int main() {
 | API | Description |
 |-----|-------------|
 | [HTTP Server](http-server.md) | HTTP/1.1 server with routing, middleware, CORS, admin endpoints |
+| [Routing](routes.md) | Route registration order, patterns, and debugging |
 | [WebSocket](websocket.md) | WebSocket server and client |
 | [Database](database.md) | SQLite3 wrapper with transactions and migrations |
 | [Logger](logger.md) | Logging system with rotation |
@@ -79,7 +80,7 @@ See [Demos](../demos.md) for usage examples.
 - `OmniNet::HTTP::Server` - HTTP server
 - `OmniNet::HTTP::Request` - HTTP request
 - `OmniNet::HTTP::Response` - HTTP response
-- `OmniNet::HTTP::Router` - Route handler
+- `OmniNet::HTTP::Router` - Route handler (see [Routing](routes.md))
 - `OmniNet::HTTP::StaticHandler` - Static file serving
 
 ### WebSocket Layer

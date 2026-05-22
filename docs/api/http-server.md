@@ -155,18 +155,83 @@ server.get("/*", [&staticHandler](const Request& req, Response& resp) {
 });
 ```
 
-### Route Priority
+### Route Priority & Registration Order
 
-Routes are matched in order of registration. First match wins:
+**Important:** OmniNet uses **first-match-wins** routing. Routes are matched in the order they are registered, and the first matching route handles the request.
+
+#### Registration Order Matters
 
 ```cpp
-// Register specific routes FIRST
-server.get("/api/users", handleUsers);
-server.get("/api/posts", handlePosts);
+// ✅ CORRECT: Specific routes BEFORE catch-all
+server.get("/api/v1/accounts", handleAccounts);  // Registered first - will match /api/v1/accounts
+server.get("/api/v1/users", handleUsers);       // Registered second
+server.get("/*", handleStatic);                 // Registered last - fallback only
 
-// Then catch-all
-server.get("/*", handleStatic);
+// ❌ WRONG: Catch-all BEFORE specific routes
+server.get("/*", handleStatic);                 // Registered first - catches ALL requests!
+server.get("/api/v1/accounts", handleAccounts);  // Never matches because /* catches first
 ```
+
+#### Common Pitfalls
+
+**Pitfall 1: Catch-all shadowing specific routes**
+```cpp
+// This will NEVER match /api/v1/accounts
+server.get("/*", staticHandler);
+server.get("/api/v1/accounts", accountsHandler);
+
+// Fix: Register specific routes first
+server.get("/api/v1/accounts", accountsHandler);
+server.get("/*", staticHandler);
+```
+
+**Pitfall 2: Generic route before specific route**
+```cpp
+// This will NEVER match /api/v1/users
+server.get("/api/*", genericHandler);
+server.get("/api/v1/users", specificHandler);
+
+// Fix: More specific routes first
+server.get("/api/v1/users", specificHandler);
+server.get("/api/*", genericHandler);
+```
+
+**Pitfall 3: Route groups with conflicting patterns**
+```cpp
+// If using groups, ensure group routes don't conflict
+router.group("/api/v1", [](Router& r) {
+    r.get("/accounts", handler);  // Will be /api/v1/accounts
+});
+// Then register specific override
+router.get("/api/v1/accounts", overrideHandler);  // Registered after group
+```
+
+#### Best Practices
+
+1. **Register specific routes first** - Routes with more specific patterns should be registered before generic ones
+2. **Register catch-all routes last** - The `/*` or wildcard patterns should always be registered after specific routes
+3. **Use parameter routes for dynamic paths** - Use `:param` syntax instead of wildcards when possible
+4. **Test route matching** - Use `router.match()` to verify your routes are registered in the correct order
+
+#### Verifying Route Order
+
+You can inspect registered routes to verify order:
+
+```cpp
+auto routes = server.router().routes();
+for (size_t i = 0; i < routes.size(); i++) {
+    std::cout << i << ": " << routes[i].pattern << std::endl;
+}
+```
+
+#### Route Patterns
+
+| Pattern | Matches | Example |
+|---------|---------|---------|
+| `/exact` | Exact path only | `/api/users` matches only `/api/users` |
+| `/:param` | Single path segment | `/:id` matches `/123` but not `/123/456` |
+| `/path/*` | Path and all below | `/api/*` matches `/api/v1/accounts` |
+| `/path/:id` | Path with param | `/users/:id` matches `/users/123` |
 
 ## Admin Endpoints
 
