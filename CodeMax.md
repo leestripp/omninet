@@ -1,4 +1,4 @@
-# OmniNet - Cppcheck Issue Fix Plan
+# OmniNet - Code Analysis and Development Plan
 
 ## System Information
 | Component | Value |
@@ -15,146 +15,296 @@
 ## Project Info
 - **Type**: C++ HTTP Server Library (C++20)
 - **Build**: CMake
-- **Static Analysis**: cppcheck integrated
-
-## Cppcheck Results Summary
-- **Original Issues**: 14 (2 errors, 12 warnings)
-- **Current Issues**: 5 warnings remaining
+- **Dependencies**: OpenSSL, SQLite3, nlohmann/json, pthread, zlib (optional)
 
 ---
 
-## Issues Fixed
+## SQLite Support Analysis
 
-### 1. ✅ ERROR: `src/http/StaticHandler.cpp:181` - returnDanglingLifetime
+### Overview
+OmniNet has comprehensive SQLite support integrated throughout the codebase via two parallel implementations:
 
-**Status**: FIXED
+1. **Library Implementation** (`src/db/`) - Thread-safe database wrapper for runtime use
+2. **Tools Implementation** (`tools/tools_common/`) - Simplified database access for CLI tools
 
-Changed from ternary with empty string literal to explicit empty string_view:
+### 1. Library Database Layer (`src/db/`)
+
+#### Core Files
+| File | Purpose |
+|------|---------|
+| `Database.h` | SQLite3 wrapper with thread-safe operations, prepared statements, transactions |
+| `Database.cpp` | Implementation of database wrapper |
+| `SessionStore.h/cpp` | Session management with TTL, cleanup, middleware support |
+| `UserStore.h/cpp` | User authentication, RBAC, Basic Auth support |
+
+#### Key Features
+
+**Database Class (`OmniNet::DB::Database`)**:
+- Thread-safe via `std::mutex`
+- Open/close lifecycle management
+- Direct SQL execution with formatted SQL (`executef`)
+- Query with callback and single-row queries
+- Range-based for loop support via `QueryResult`
+- Prepared statements with parameter binding
+- Transactions (automatic and manual)
+- WAL mode, foreign keys, cache size configuration
+- Migration system with version tracking
+
+#### CMake Integration
+```cmake
+find_package(SQLite3 REQUIRED)
+target_link_libraries(OmniNet PUBLIC SQLite::SQLite3)
+```
+
+**SQLite Version**: 3.46.1
+
+---
+
+### 2. Tools Database Layer (`tools/tools_common/`)
+
+- `database.h/cpp` - Simplified database class
+- `IntrusionStore` - Blocked IPs and intrusion logs
+- `UserStore` - User/session management
+- `LogReader` - Log file parsing
+
+---
+
+### 3. CLI Database Tool (`tools/omninet-db/`)
+
+Commands: info, tables, schema, query, vacuum, analyze, backup, restore
+
+---
+
+### 4. Known Issues
+
+1. **SQL Injection via Session/User IDs** - String concatenation instead of prepared statements
+2. **Tools vs Library Duplication** - Two separate database implementations
+
+---
+
+## Build System
+
+### Build Commands
+```bash
+# Configure & Build
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build -j$(nproc)
+
+# Build sqlite-vec extension
+cd third_party/sqlite-vec
+sed -e 's/\${VERSION}/0.1.10/' -e 's/\${VERSION_MAJOR}/0/' \
+    -e 's/\${VERSION_MINOR}/1/' -e 's/\${VERSION_PATCH}/10/' \
+    sqlite-vec.h.tmpl > sqlite-vec.h
+gcc -shared -fPIC -O3 sqlite-vec.c -o ../../vec0.so \
+    -I/usr/include -I. -lm
+cd ../..
+
+# Test
+ctest --test-dir build --output-on-failure
+```
+
+---
+
+## Vector Database Support (sqlite-vec)
+
+**Date**: 2026-05-22
+**Status**: Planning Phase
+
+### Design Decision: Embeddings Out of Scope
+
+**Embedding generation is the responsibility of the application using OmniNet**, not OmniNet itself.
+
+**Rationale:**
+- **Separation of Concerns** - OmniNet is an HTTP server, not an ML framework
+- **Simplicity** - Avoids linking llama.cpp (~50MB, complex build)
+- **Flexibility** - App can use Ollama, OpenAI, local models, etc.
+- **Performance** - Embedding doesn't block HTTP threads
+
+---
+
+### Architecture
+
+```
+┌────────────────────────────────────────────────────────┐
+│                    Your Application                    │
+├────────────────────────────────────────────────────────┤
+│  ┌──────────────┐    ┌──────────────────────────────┐ │
+│  │  Embedder    │───▶│        HTTP Client             │ │
+│  │ (Ollama,     │    │  POST /api/vector/insert     │ │
+│  │  OpenAI...)  │    └──────────────────────────────┘ │
+└──┴──────────────┴─────────────────────▼─────────────────┘
+                                       │
+                         ┌─────────────▼─────────────┐
+                         │   OmniNet::VectorStore    │
+                         │                           │
+                         │  • Store embeddings       │
+                         │  • ANN search (HNSW)     │
+                         │  • Metadata filtering     │
+                         └───────────────────────────┘
+```
+
+---
+
+### Components
+
+| Component | Purpose | Technology |
+|-----------|---------|------------|
+| `VectorStore` | Vector storage & ANN search | sqlite-vec virtual tables |
+
+### Proposed Directory Structure
+
+```
+src/vector/
+    VectorStore.h/cpp        # Vector storage wrapper
+tests/
+    test_vector_store.cpp    # Tests
+```
+
+---
+
+### sqlite-vec Extension
+
+**Build:** `vec0.so` (212KB) - Already compiled
+
+**Usage:**
+```sql
+-- Create vector table
+CREATE VIRTUAL TABLE documents USING vec0(
+    embedding FLOAT[768],
+    metadata TEXT
+);
+
+-- Insert pre-computed embedding
+INSERT INTO documents (embedding, metadata) VALUES (
+    '[0.123, -0.456, 0.789, ...]',
+    '{"title": "My Doc"}'
+);
+
+-- Search
+SELECT rowid, distance, metadata
+FROM documents
+WHERE embedding match '[0.1, -0.4, 0.7, ...]'
+ORDER BY distance
+LIMIT 5;
+```
+
+---
+
+## Implementation Plan
+
+### Phase 1: VectorStore Class
 
 ```cpp
-std::string_view StaticHandler::defaultFile() const {
-    if (m_indexFiles.empty()) return std::string_view();
-    return m_indexFiles[0];
+namespace OmniNet::Vector {
+
+struct SearchResult {
+    int64_t rowid;
+    float distance;
+    std::string metadata;
+};
+
+class VectorStore {
+public:
+    VectorStore(DB::Database& db);
+    
+    void createIndex(const std::string& name, size_t dimensions);
+    int64_t insert(const std::string& indexName,
+                  const std::vector<float>& embedding,
+                  const std::string& metadata = "{}");
+    std::vector<int64_t> insertBatch(...);
+    std::vector<SearchResult> search(const std::string& indexName,
+                                     const std::vector<float>& query,
+                                     size_t k = 5);
+    void remove(int64_t rowid);
+    size_t count(const std::string& indexName) const;
+    std::vector<std::string> listIndices() const;
+};
+
 }
 ```
 
----
+### Phase 2: HTTP Endpoints
 
-### 2. ✅ ERROR: `tools/omninet-certs/main.cpp:34` - ctuOneDefinitionRuleViolation
-
-**Status**: FIXED
-
-Renamed all `struct Options` across all tools to unique names:
-- `omninet-certs`: `CertOptions`
-- `omninet-ctl`: `CtlOptions`
-- `omninet-db`: `DbOptions`
-- `omninet-firewall`: `FirewallOptions`
-- `omninet-init`: `InitOptions`
-- `omninet-log`: `LogOptions`
-- `omninet-status`: `StatusOptions`
-- `omninet-users`: `UserOptions`
-- `omninet-health`: `HealthOptions`
-- `omninet-mon`: `MonOptions`
-
----
-
-### 3-8. ✅ WARNING: `src/net/Socket.cpp:106,122,258,271,280,293` - dangerousTypeCast
-
-**Status**: FIXED
-
-Replaced all C-style casts with `reinterpret_cast`:
-- `::bind(m_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr))`
-- `::accept(m_fd, reinterpret_cast<struct sockaddr*>(&clientAddr), &clientLen)`
-- `getpeername(m_fd, reinterpret_cast<struct sockaddr*>(&addr), &len)`
-- `getsockname(m_fd, reinterpret_cast<struct sockaddr*>(&addr), &len)`
-
----
-
-## Remaining Issues
-
-### 1. WARNING: `src/http/HttpServer.cpp:152,157` - accessMoved
-
-**Status**: PENDING REVIEW
-
-These warnings may be false positives - the code uses `std::move` correctly but cppcheck can't determine the variable isn't used after the move.
-
----
-
-### 2. WARNING: `src/utils/Logger.cpp:113` - accessMoved
-
-**Status**: PENDING REVIEW
-
-The `std::move(m_queue)` is intentional to clear the queue. This is correct semantic - the move transfers ownership, then the cleared vector is used in the loop. This appears to be a false positive.
-
----
-
-### 3. WARNING: `tools/tools_common/http.cpp:156,157` - dangerousTypeCast
-
-**Status**: INVESTIGATING
-
-Lines 156-157 contain:
 ```cpp
-setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+router.post("/api/vector/create", ...);
+router.post("/api/vector/insert", ...);
+router.post("/api/vector/search", ...);
+router.post("/api/vector/delete", ...);
 ```
 
-These are casting `struct timeval*` to `const char*`. This is correct for the `setsockopt` API which expects a `const void*` for the option value.
+---
+
+### Testing Plan
+
+| Test | Purpose |
+|------|---------|
+| `test_vector_create` | Create vector index |
+| `test_vector_insert` | Insert embeddings |
+| `test_vector_search` | ANN search |
+| `test_vector_delete` | Delete vectors |
 
 ---
 
-## TODO List
+### Estimated Timeline
 
-- [x] Fix StaticHandler.cpp:181 - dangling lifetime issue
-- [x] Fix ODR violation - renamed all Options structs to unique names
-- [x] Fix Socket.cpp - replace C-style casts with reinterpret_cast (6 locations)
-- [ ] Review/fix http.cpp casts (may be false positive - API requirement)
-- [ ] Review HttpServer.cpp:152,157 - access after move (likely false positive)
-- [ ] Review Logger.cpp:113 - access after move (likely false positive)
-- [x] Re-run cppcheck to verify fixes
+| Phase | Tasks | Effort |
+|-------|-------|--------|
+| **Phase 1** | VectorStore class | 1-2 days |
+| **Phase 2** | HTTP endpoints | 1 day |
+| **Phase 3** | Testing & docs | 1 day |
 
----
-
-## Files Modified
-
-| File | Status | Change |
-|------|--------|--------|
-| `src/http/StaticHandler.cpp` | ✅ Fixed | Return empty string_view explicitly |
-| `tools/omninet-certs/main.cpp` | ✅ Fixed | Renamed to `CertOptions` |
-| `tools/omninet-ctl/main.cpp` | ✅ Fixed | Renamed to `CtlOptions` |
-| `tools/omninet-db/main.cpp` | ✅ Fixed | Renamed to `DbOptions` |
-| `tools/omninet-firewall/main.cpp` | ✅ Fixed | Renamed to `FirewallOptions` |
-| `tools/omninet-init/main.cpp` | ✅ Fixed | Renamed to `InitOptions` |
-| `tools/omninet-log/main.cpp` | ✅ Fixed | Renamed to `LogOptions` |
-| `tools/omninet-status/main.cpp` | ✅ Fixed | Renamed to `StatusOptions` |
-| `tools/omninet-users/main.cpp` | ✅ Fixed | Renamed to `UserOptions` |
-| `tools/omninet-health/main.cpp` | ✅ Fixed | Renamed to `HealthOptions` |
-| `tools/omninet-mon/main.cpp` | ✅ Fixed | Renamed to `MonOptions` |
-| `src/net/Socket.cpp` | ✅ Fixed | All casts converted to reinterpret_cast |
-| `tools/tools_common/http.cpp` | Partial | Connect cast fixed, setsockopt casts are API-mandated |
+**Total**: ~3-4 days
 
 ---
 
-## Final Results
+## Tasks
 
-| Category | Before | After |
-|----------|--------|-------|
-| Errors | 2 | 0 |
-| Warnings | 12 | 5 |
-| **Total** | **14** | **5** |
+### SQLite Security Fixes
+- [ ] Fix SQL injection risks in SessionStore/UserStore
+- [ ] Consolidate tools/library database implementations
 
-**Reduction**: 64% of issues fixed
-
-The remaining 5 warnings are:
-1. **HttpServer.cpp:152,157** - `accessMoved` (likely false positive - code is correct)
-2. **Logger.cpp:113** - `accessMoved` (likely false positive - intentional move semantics)
-3. **http.cpp:156,157** - `dangerousTypeCast` (API requirement - setsockopt expects const char*)
-
-These remaining warnings don't represent actual bugs - they are either:
-- False positives from static analysis limitations
-- Correct usage of C APIs that require specific casts
+### Vector Database (sqlite-vec only)
+- [x] Create `src/vector/` directory
+- [x] Implement `VectorStore` class (`src/vector/VectorStore.h/cpp`)
+- [x] Add VectorStore to CMakeLists.txt
+- [x] Build passes (100%)
+- [ ] Add HTTP endpoints to router
+- [ ] Write unit tests (basic tests passed manually)
 
 ---
 
-## Build Status
+## Files Summary
 
-✅ All targets compile successfully
+### Source Files (SQLite-related)
+| File | Purpose |
+|------|---------|
+| `src/db/Database.h/cpp` | Main database wrapper |
+| `src/db/SessionStore.h/cpp` | Session management |
+| `src/db/UserStore.h/cpp` | User management |
+
+### Third-Party Dependencies
+| Directory | Purpose |
+|-----------|---------|
+| `third_party/sqlite-vec/` | Vector storage (sqlite-vec) |
+
+### Documentation
+| File | Purpose |
+|------|---------|
+| `docs/api/database.md` | Database API docs |
+| `docs/api/index.md` | API index |
+| `docs/api/vector.md` | Vector API (to create) |
+
+---
+
+## Recent Fixes
+- **2026-05-22**: Simplified vector plan - embeddings out of scope, sqlite-vec only
+- **2026-05-22**: Built sqlite-vec extension (`vec0.so`)
+- **2026-05-15**: Fixed SQLite CMake target name
+
+---
+
+## Current Status
+- ✅ Build passes
+- ✅ Core SQLite functionality working
+- ⚠️ SQL injection vulnerabilities in SessionStore/UserStore
+- 📋 Vector database support planned (sqlite-vec only)

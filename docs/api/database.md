@@ -453,4 +453,347 @@ void deletePost(Database& db, int64_t postId) {
         }
     });
 }
+
+---
+
+# Vector Database (sqlite-vec)
+
+## Overview
+
+The `OmniNet::Vector` namespace provides vector storage and similarity search using **sqlite-vec**, an SQLite extension for vector search. It wraps the sqlite-vec virtual tables with a clean C++ API.
+
+**Important Design Decision**: OmniNet handles **storage and search** of vectors. **Embedding generation** is the responsibility of your application. Use any embedding provider (Ollama, OpenAI, local models, etc.) to generate vectors, then store and search them with OmniNet.
+
+## Quick Start
+
+```cpp
+#include "db/Database.h"
+#include "vector/VectorStore.h"
+
+// Your app generates embeddings with Ollama, OpenAI, etc.
+std::vector<float> embedding = yourEmbedder.embed("Your text here");
+
+// Store in OmniNet
+Database db;
+db.open("vectors.db");
+db.execute("SELECT load_extension('/path/to/vec0.so')");  // Load sqlite-vec
+
+VectorStore store(db);
+
+// Create index
+store.createIndex("documents", 768, "cosine");
+
+// Insert
+store.insert("documents", embedding, R"({"title": "My Document"})");
+
+// Search
+auto results = store.search("documents", queryEmbedding, k=5);
+for (const auto& r : results) {
+    std::cout << "Row: " << r.rowid << ", Distance: " << r.distance << std::endl;
+}
+```
+
+## Extension Loading
+
+Before using VectorStore, you must load the `vec0.so` sqlite-vec extension:
+
+```cpp
+// Load the extension (once per database connection)
+db.execute("SELECT load_extension('/path/to/vec0.so')");
+
+// Or let VectorStore try to load it automatically
+VectorStore store(db);  // Will attempt to load default vec0.so
+```
+
+**Build sqlite-vec**:
+```bash
+cd third_party/sqlite-vec
+# Create header from template
+sed -e 's/\${VERSION}/0.1.10/' -e 's/\${VERSION_MAJOR}/0/' \
+    -e 's/\${VERSION_MINOR}/1/' -e 's/\${VERSION_PATCH}/10/' \
+    sqlite-vec.h.tmpl > sqlite-vec.h
+# Compile
+gcc -shared -fPIC -O3 sqlite-vec.c -o vec0.so -I/usr/include -I. -lm
+```
+
+## Index Management
+
+### Create Index
+
+```cpp
+// Create a vector index
+// dimensions: embedding vector size (e.g., 768 for nomic-embed-text)
+// metric: "cosine" (default), "l2", or "hamming"
+store.createIndex("documents", 768, "cosine");
+
+// Create with L2 (Euclidean) distance
+store.createIndex("vectors_l2", 1536, "l2");
+```
+
+### Check Index Exists
+
+```cpp
+if (store.indexExists("documents")) {
+    std::cout << "Index exists" << std::endl;
+}
+```
+
+### List All Indices
+
+```cpp
+auto indices = store.listIndices();
+for (const auto& name : indices) {
+    std::cout << "  " << name << std::endl;
+}
+```
+
+### Drop Index
+
+```cpp
+store.dropIndex("old_index");
+```
+
+## Inserting Vectors
+
+### Single Insert
+
+```cpp
+// Your embedding vector (e.g., from Ollama/OpenAI)
+std::vector<float> embedding = {0.123, -0.456, 0.789, /* ... 768 floats */};
+
+// Insert with metadata (JSON)
+store.insert("documents", embedding, R"({
+    "title": "Introduction to AI",
+    "category": "technology",
+    "source": "user123"
+})");
+
+// Returns the rowid of inserted record
+int64_t id = store.insert("documents", embedding, "{}");
+```
+
+### Batch Insert
+
+```cpp
+std::vector<std::vector<float>> embeddings = {
+    embedding1,
+    embedding2,
+    embedding3
+};
+
+std::vector<std::string> metadata = {
+    R"({"title": "Doc 1"})",
+    R"({"title": "Doc 2"})",
+    R"({"title": "Doc 3"})"
+};
+
+// Insert batch
+auto rowids = store.insertBatch("documents", embeddings, metadata);
+std::cout << "Inserted " << rowids.size() << " vectors" << std::endl;
+```
+
+### Insert with Explicit Rowid
+
+```cpp
+store.insert(42, "documents", embedding, R"({"id": 42})");
+```
+
+## Searching
+
+### Nearest Neighbor Search
+
+```cpp
+// Search for k nearest neighbors
+std::vector<float> queryEmbedding = yourEmbedder.embed("search query");
+
+auto results = store.search("documents", queryEmbedding, k=5);
+
+for (const auto& result : results) {
+    std::cout << "Row: " << result.rowid << std::endl;
+    std::cout << "Distance: " << result.distance << std::endl;
+    std::cout << "Metadata: " << result.metadata << std::endl;
+}
+```
+
+### Search with Radius Filter
+
+```cpp
+// Only return results within distance radius
+auto results = store.search("documents", queryEmbedding, k=10, radius=1.5f);
+```
+
+### SearchResult Structure
+
+```cpp
+struct SearchResult {
+    int64_t rowid;        // Row ID in the vector table
+    float distance;        // Distance from query vector
+    std::string metadata; // JSON metadata string
+};
+```
+
+## Deleting Vectors
+
+### Single Delete
+
+```cpp
+store.remove("documents", 42);
+```
+
+### Batch Delete
+
+```cpp
+store.removeBatch("documents", {1, 2, 3, 4, 5});
+```
+
+## Statistics
+
+### Count Vectors
+
+```cpp
+size_t count = store.count("documents");
+std::cout << "Total vectors: " << count << std::endl;
+```
+
+### Get Index Info
+
+```cpp
+auto info = store.getIndexInfo("documents");
+if (info) {
+    std::cout << "Name: " << info->name << std::endl;
+    std::cout << "Dimensions: " << info->dimensions << std::endl;
+    std::cout << "Count: " << info->count << std::endl;
+}
+```
+
+## Extension Status
+
+### Check if Loaded
+
+```cpp
+VectorStore store(db);
+if (store.extensionLoaded()) {
+    std::cout << "vec0 extension is loaded" << std::endl;
+} else {
+    std::cout << "Extension not loaded" << std::endl;
+}
+```
+
+### Manual Load
+
+```cpp
+store.loadExtension("/path/to/vec0.so");
+```
+
+## Complete Example
+
+```cpp
+#include "db/Database.h"
+#include "vector/VectorStore.h"
+#include <iostream>
+
+int main() {
+    // Open database
+    Database db;
+    db.open("vectors.db");
+    
+    // Load sqlite-vec extension
+    db.execute("SELECT load_extension('./vec0.so')");
+    
+    // Create vector store
+    VectorStore store(db);
+    
+    // Create index for 768-dimensional embeddings
+    store.createIndex("articles", 768, "cosine");
+    
+    // Simulate embedding generation (your app does this)
+    std::vector<float> emb1 = { /* 768 floats */ };
+    std::vector<float> emb2 = { /* 768 floats */ };
+    
+    // Insert vectors with metadata
+    store.insert("articles", emb1, R"({
+        "title": "Understanding Neural Networks",
+        "tags": ["AI", "ML", "Tutorial"]
+    })");
+    
+    store.insert("articles", emb2, R"({
+        "title": "Introduction to Vector Databases",
+        "tags": ["Database", "Vectors"]
+    })");
+    
+    // Search
+    std::vector<float> query = yourEmbedder.embed("machine learning basics");
+    auto results = store.search("articles", query, k=3);
+    
+    std::cout << "Found " << results.size() << " similar articles" << std::endl;
+    for (const auto& r : results) {
+        std::cout << "  ID: " << r.rowid 
+                  << ", Distance: " << r.distance << std::endl;
+    }
+    
+    return 0;
+}
+```
+
+## HTTP Integration
+
+To add vector endpoints to your HTTP server:
+
+```cpp
+// POST /api/vector/create - Create index
+router.post("/api/vector/create", [](Request& req, Response& resp) {
+    auto body = json::parse(req.body());
+    std::string name = body["name"];
+    size_t dims = body["dimensions"];
+    std::string metric = body.value("metric", "cosine");
+    
+    store.createIndex(name, dims, metric);
+    resp.json({{"status", "created"}});
+});
+
+// POST /api/vector/insert - Insert embedding
+router.post("/api/vector/insert", [](Request& req, Response& resp) {
+    auto body = json::parse(req.body());
+    auto embedding = body["embedding"].get<std::vector<float>>();
+    std::string meta = body.value("metadata", "{}");
+    
+    int64_t id = store.insert(body["index"], embedding, meta);
+    resp.json({{"id", id}});
+});
+
+// POST /api/vector/search - Search
+router.post("/api/vector/search", [](Request& req, Response& resp) {
+    auto body = json::parse(req.body());
+    auto query = body["embedding"].get<std::vector<float>>();
+    size_t k = body.value("k", 5);
+    
+    auto results = store.search(body["index"], query, k);
+    
+    json::array_t items;
+    for (const auto& r : results) {
+        items.push_back({
+            {"rowid", r.rowid},
+            {"distance", r.distance},
+            {"metadata", json::parse(r.metadata)}
+        });
+    }
+    resp.json({{"results", items}});
+});
+```
+
+## Error Handling
+
+```cpp
+try {
+    store.createIndex("documents", 768, "invalid_metric");
+} catch (const VectorStoreException& e) {
+    std::cerr << "VectorStore error: " << e.what() << std::endl;
+}
+
+try {
+    store.insert("nonexistent", embedding);
+} catch (const VectorStoreException& e) {
+    std::cerr << "Index not found: " << e.what() << std::endl;
+}
+```
 ```

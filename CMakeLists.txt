@@ -116,6 +116,9 @@ target_sources(OmniNet PRIVATE
     src/db/SessionStore.cpp
     src/db/UserStore.cpp
     
+    # Vector (sqlite-vec)
+    src/vector/VectorStore.cpp
+    
     # SSE
     src/sse/SSEHandler.cpp
     
