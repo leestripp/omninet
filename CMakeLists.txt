@@ -147,10 +147,17 @@ target_link_libraries(OmniNet PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 find_package(SQLite3 REQUIRED)
 target_link_libraries(OmniNet PUBLIC SQLite::SQLite3)
 
-# Optional zlib for gzip compression (disabled by default for simplicity)
-# Enable if zlib is properly installed with standard CMake config file
-find_package(Zlib QUIET)
-if(Zlib_FOUND)
+# Optional zlib for gzip compression
+# Use find_library/find_path for compatibility with standard zlib1g-dev package
+find_path(ZLIB_INCLUDE_DIR NAMES zlib.h)
+find_library(ZLIB_LIBRARY NAMES z)
+if(ZLIB_INCLUDE_DIR AND ZLIB_LIBRARY)
+    set(Zlib_FOUND TRUE)
+    add_library(Zlib::Zlib SHARED IMPORTED)
+    set_target_properties(Zlib::Zlib PROPERTIES
+        IMPORTED_LOCATION "${ZLIB_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIR}"
+    )
     target_link_libraries(OmniNet PUBLIC Zlib::Zlib)
     target_compile_definitions(OmniNet PUBLIC OMNINET_HAVE_ZLIB=1)
     message(STATUS "zlib found - gzip compression enabled")
@@ -158,9 +165,6 @@ else()
     target_compile_definitions(OmniNet PUBLIC OMNINET_HAVE_ZLIB=0)
     message(STATUS "zlib not found - gzip compression disabled")
 endif()
-
-# Note: To enable gzip compression, install zlib with CMake config files
-# or use: find_package(Zlib REQUIRED) after installing zlib-dev package
 
 # Platform-specific sockets (usually part of libc)
 target_link_libraries(OmniNet PUBLIC pthread)
