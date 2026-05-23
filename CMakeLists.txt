@@ -119,6 +119,13 @@ target_sources(OmniNet PRIVATE
     # Vector (sqlite-vec)
     src/vector/VectorStore.cpp
     
+    # Token Management
+    src/token/TokenUtils.cpp
+    src/token/SessionToken.cpp
+    src/token/SessionTokenStore.cpp
+    src/token/ApiKey.cpp
+    src/token/ApiKeyStore.cpp
+    
     # SSE
     src/sse/SSEHandler.cpp
     

@@ -122,6 +122,9 @@ std::string formatIso8601(const std::chrono::system_clock::time_point& tp);
 // Parse RFC 2822 timestamp
 std::optional<std::chrono::system_clock::time_point> parseRfc2822(std::string_view str);
 
+// Parse ISO 8601 timestamp (YYYY-MM-DDTHH:MM:SS.sssZ)
+std::optional<std::chrono::system_clock::time_point> parseIso8601(std::string_view str);
+
 // Get current timestamp as Unix epoch
 int64_t currentUnixTime();
 

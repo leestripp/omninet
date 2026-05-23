@@ -54,6 +54,7 @@ int main() {
 | [Routing](routes.md) | Route registration order, patterns, and debugging |
 | [WebSocket](websocket.md) | WebSocket server and client |
 | [Database](database.md) | SQLite3 wrapper with transactions and migrations |
+| [Token System](token.md) | Session tokens and API keys with secure storage |
 | [Logger](logger.md) | Logging system with rotation |
 | [Dashboard](dashboard.md) | Admin dashboard and user management |
 
@@ -90,6 +91,13 @@ See [Demos](../demos.md) for usage examples.
 ### Database Layer
 - `OmniNet::DB::Database` - SQLite3 database
 - `OmniNet::DB::Migration` - Schema migration
+
+### Token System Layer
+- `OmniNet::Token::SessionTokenStore` - Session token storage
+- `OmniNet::Token::SessionToken` - Session token structure
+- `OmniNet::Token::ApiKeyStore` - API key storage
+- `OmniNet::Token::ApiKey` - API key structure
+- `OmniNet::Token::TokenUtils` - Token generation utilities
 
 ### Security/Dashboard Layer
 - `OmniNet::Admin::Handler` - Admin endpoints (`/omninet/*`)

@@ -442,6 +442,66 @@ std::optional<std::chrono::system_clock::time_point> parseRfc2822(std::string_vi
     return std::nullopt;
 }
 
+std::optional<std::chrono::system_clock::time_point> parseIso8601(std::string_view str) {
+    std::tm tm = {};
+    int milliseconds = 0;
+    
+    // Try ISO 8601 formats
+    const char* formats[] = {
+        "%Y-%m-%dT%H:%M:%S.%LZ",    // 2024-01-15T10:30:45.123Z
+        "%Y-%m-%dT%H:%M:%SZ",         // 2024-01-15T10:30:45Z
+        "%Y-%m-%dT%H:%M:%S",          // 2024-01-15T10:30:45 (local)
+        "%Y-%m-%dT%H:%M:%S.%L",       // 2024-01-15T10:30:45.123 (local, no Z)
+        "%Y-%m-%d %H:%M:%S",          // 2024-01-15 10:30:45
+        nullptr
+    };
+    
+    for (const char* fmt : formats) {
+        std::string s(str);
+        if (strptime(s.c_str(), fmt, &tm)) {
+            auto time = std::mktime(&tm);
+            if (time != -1) {
+                auto tp = std::chrono::system_clock::from_time_t(time);
+                if (milliseconds > 0) {
+                    tp += std::chrono::milliseconds(milliseconds);
+                }
+                return tp;
+            }
+        }
+    }
+    
+    // Try parsing milliseconds manually for formats ending with .123Z
+    if (str.size() >= 24 && str[str.size() - 1] == 'Z') {
+        std::string s(str);
+        // Find the . before milliseconds
+        auto dotPos = s.find('.');
+        if (dotPos != std::string::npos) {
+            // Zero out the milliseconds part temporarily
+            auto msStart = dotPos + 1;
+            auto msEnd = s.size() - 1;  // Before Z
+            if (msEnd > msStart && msEnd - msStart <= 3) {
+                std::string msStr = s.substr(msStart, msEnd - msStart);
+                milliseconds = std::stoi(msStr);
+                // Temporarily replace with format we can parse
+                s = s.substr(0, dotPos) + "Z";
+            }
+        }
+        
+        if (strptime(s.c_str(), "%Y-%m-%dT%H:%M:%SZ", &tm)) {
+            auto time = std::mktime(&tm);
+            if (time != -1) {
+                auto tp = std::chrono::system_clock::from_time_t(time);
+                if (milliseconds > 0) {
+                    tp += std::chrono::milliseconds(milliseconds);
+                }
+                return tp;
+            }
+        }
+    }
+    
+    return std::nullopt;
+}
+
 int64_t currentUnixTime() {
     return std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
 }

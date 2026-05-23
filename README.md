@@ -10,7 +10,8 @@ A modern, high-performance C++ HTTP/WebSocket server library with TLS support, s
 - **WebSocket** - Full WebSocket protocol support (RFC 6455)
 - **TLS/HTTPS** - Secure connections using OpenSSL 3.0
 - **Static File Serving** - Built-in static file handler with MIME types
-- **Session Management** - SQLite-backed session store
+- **Session Management** - SQLite-backed session store with secure tokens
+- **API Keys** - Secure API key management with scopes and expiration
 - **User Authentication** - Password hashing with bcrypt
 - **Rate Limiting** - Request rate limiting per IP
 - **Admin Dashboard** - Web-based monitoring at `/omninet`
@@ -121,6 +122,7 @@ OmniNet/
 │   ├── http/          # HTTP server components
 │   ├── websocket/     # WebSocket implementation
 │   ├── db/            # Database (SQLite wrapper)
+│   ├── token/         # Token management (Session tokens, API keys)
 │   ├── dashboard/     # Dashboard handler
 │   ├── admin/         # Admin endpoints
 │   ├── sse/           # Server-Sent Events
@@ -244,6 +246,60 @@ auto stmt = db.prepare("SELECT * FROM users WHERE id = ?");
 stmt.bind(1, 42);
 while (stmt.step()) {
     std::string name = stmt.columnText(1);
+}
+```
+
+### Session Tokens & API Keys
+
+```cpp
+using namespace OmniNet::Token;
+
+// --- Session Tokens ---
+SessionTokenStore tokenStore(db);
+tokenStore.initialize();
+
+// Create session token
+std::string rawToken = tokenStore.create(
+    "user_123",                     // User ID
+    std::chrono::hours(24),         // TTL
+    "192.168.1.1",                  // IP address
+    "Mozilla/5.0",                   // User-Agent
+    R"({"purpose": "web"})"         // JSON metadata
+);
+// IMPORTANT: rawToken is only shown ONCE at creation!
+
+// Validate token
+auto session = tokenStore.validate(rawToken);
+if (session && session->isValid()) {
+    std::cout << "User: " << session->userId << "\n";
+    std::cout << "Expires: " << formatTime(session->expiresAt) << "\n";
+}
+
+// Revoke token
+tokenStore.revoke(rawToken);
+
+// --- API Keys ---
+ApiKeyStore keyStore(db);
+keyStore.initialize();
+
+// Create API key
+auto result = keyStore.create(
+    "user_123",
+    "Production API Key",
+    {"read", "write:orders"},     // Scopes
+    std::chrono::days(365)        // Expires in 1 year
+);
+// IMPORTANT: result.rawKey is only shown ONCE!
+
+std::cout << "API Key: " << result.rawKey << "\n";
+
+// Validate API key
+auto validation = keyStore.validate(result.rawKey);
+if (validation.valid) {
+    // Check scopes
+    if (keyStore.hasScope(*validation.key, "read")) {
+        // Allow read operation
+    }
 }
 ```
 
@@ -392,6 +448,7 @@ OmniNet stores data in `~/.omninet/`:
 - [Database API](docs/api/database.md) - SQLite wrapper
 - [Logger API](docs/api/logger.md) - Logging system
 - [Dashboard API](docs/api/dashboard.md) - Admin dashboard
+- [Token System API](docs/api/token.md) - Session tokens and API keys
 
 ## License
 
