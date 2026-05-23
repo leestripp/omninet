@@ -475,10 +475,9 @@ void runMigrations(Database& db, const std::vector<Migration>& migrations) {
         if (applied.find(mig.version()) == applied.end()) {
             db.transaction([&]() {
                 db.execute(mig.up());
-                db.executef(
-                    "INSERT INTO _schema_migrations (version, applied_at) VALUES ('%s', datetime('now'))",
-                    mig.name().c_str()
-                );
+                auto stmt = db.prepare("INSERT INTO _schema_migrations (version, applied_at) VALUES (?, datetime('now'))");
+                stmt.bind(1, mig.name());
+                stmt.step();
             });
         }
     }

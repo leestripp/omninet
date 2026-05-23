@@ -46,33 +46,30 @@ std::string SessionStore::create(
     auto createdStr = Utils::formatRfc2822(now);
     auto expiresStr = Utils::formatRfc2822(expires);
     
-    m_db.executef(
-        "INSERT INTO sessions (id, user_id, created_at, expires_at, data) VALUES ('%s', '%s', '%s', '%s', '%s')",
-        id.c_str(),
-        std::string(userId).c_str(),
-        createdStr.c_str(),
-        expiresStr.c_str(),
-        std::string(data).c_str()
-    );
+    auto stmt = m_db.prepare("INSERT INTO sessions (id, user_id, created_at, expires_at, data) VALUES (?, ?, ?, ?, ?)");
+    stmt.bind(1, id);
+    stmt.bind(2, userId);
+    stmt.bind(3, createdStr);
+    stmt.bind(4, expiresStr);
+    stmt.bind(5, data);
+    stmt.step();
     
     return id;
 }
 
 std::optional<SessionStore::Session> SessionStore::get(std::string_view sessionId) {
-    auto result = m_db.queryOne(
-        "SELECT id, user_id, created_at, expires_at, data FROM sessions WHERE id = '" + std::string(sessionId) + "'"
-    );
+    auto stmt = m_db.prepare("SELECT id, user_id, created_at, expires_at, data FROM sessions WHERE id = ?");
+    stmt.bind(1, sessionId);
     
-    if (!result) return std::nullopt;
-    
-    Session session;
-    if (result->size() >= 5) {
-        session.id = (*result)[0];
-        session.userId = (*result)[1];
-        session.data = (*result)[4];
+    if (stmt.step()) {
+        Session session;
+        session.id = stmt.columnText(0);
+        session.userId = stmt.columnText(1);
+        session.data = stmt.columnText(4);
+        return session;
     }
     
-    return session;
+    return std::nullopt;
 }
 
 std::optional<SessionStore::Session> SessionStore::touch(std::string_view sessionId) {
@@ -80,27 +77,26 @@ std::optional<SessionStore::Session> SessionStore::touch(std::string_view sessio
     if (!session) return std::nullopt;
     
     auto now = std::chrono::system_clock::now();
-    m_db.executef(
-        "UPDATE sessions SET expires_at = '%s' WHERE id = '%s'",
-        Utils::formatRfc2822(now + std::chrono::hours(24)).c_str(),
-        std::string(sessionId).c_str()
-    );
+    auto newExpiry = Utils::formatRfc2822(now + std::chrono::hours(24));
+    
+    auto stmt = m_db.prepare("UPDATE sessions SET expires_at = ? WHERE id = ?");
+    stmt.bind(1, newExpiry);
+    stmt.bind(2, sessionId);
+    stmt.step();
     
     return session;
 }
 
 void SessionStore::remove(std::string_view sessionId) {
-    m_db.executef(
-        "DELETE FROM sessions WHERE id = '%s'",
-        std::string(sessionId).c_str()
-    );
+    auto stmt = m_db.prepare("DELETE FROM sessions WHERE id = ?");
+    stmt.bind(1, sessionId);
+    stmt.step();
 }
 
 void SessionStore::removeAllForUser(std::string_view userId) {
-    m_db.executef(
-        "DELETE FROM sessions WHERE user_id = '%s'",
-        std::string(userId).c_str()
-    );
+    auto stmt = m_db.prepare("DELETE FROM sessions WHERE user_id = ?");
+    stmt.bind(1, userId);
+    stmt.step();
 }
 
 size_t SessionStore::cleanup() {
@@ -125,10 +121,13 @@ size_t SessionStore::count() const {
 }
 
 size_t SessionStore::countForUser(std::string_view userId) const {
-    auto result = m_db.queryOne(
-        "SELECT COUNT(*) FROM sessions WHERE user_id = '" + std::string(userId) + "'"
-    );
-    return result ? std::stoul((*result)[0]) : 0;
+    auto stmt = m_db.prepare("SELECT COUNT(*) FROM sessions WHERE user_id = ?");
+    stmt.bind(1, userId);
+    
+    if (stmt.step()) {
+        return static_cast<size_t>(stmt.columnInt64(0));
+    }
+    return 0;
 }
 
 // ============================================================================

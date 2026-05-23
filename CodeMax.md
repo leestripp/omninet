@@ -181,6 +181,7 @@ cmake --build build --target cppcheck
 - [x] sqlite-vec integration
 - [x] VectorStore class implementation
 - [x] Cppcheck static analysis targets
+- [x] **Token System**: Session Tokens + API Keys (28 tests)
 
 ### In Progress 🔄
 - None
@@ -191,7 +192,7 @@ cmake --build build --target cppcheck
 - [x] **Phase 3**: API Key Store (`src/token/ApiKeyStore.h/cpp`) ✅
 - [x] **Phase 4**: Unit tests for token system ✅ (28 tests)
 - [x] **Documentation**: Updated README.md and created docs/api/token.md
-- [ ] Fix SQL injection in SessionStore/UserStore (existing code)
+- [ ] Fix SQL injection in existing SessionStore/UserStore (string concat)
 - [ ] Consolidate tools/library database implementations
 - [ ] Enable gzip compression (install zlib)
 
@@ -673,8 +674,8 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-05-23 | 0.3.1 | Token system: SessionTokenStore + ApiKeyStore |
 | 2026-05-23 | 0.3.0 | Current version from git tag |
-| 2026-05-23 | - | Implemented: Token System (TokenUtils, SessionTokenStore, ApiKeyStore) |
 | 2026-05-22 | - | Implemented sqlite-vec FetchContent build |
 | 2026-05-22 | - | Simplified vector plan (embeddings out of scope) |
 | 2026-05-15 | - | Fixed SQLite CMake target name |

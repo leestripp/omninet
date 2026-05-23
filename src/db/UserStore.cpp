@@ -45,14 +45,15 @@ int64_t UserStore::createUser(
     
     auto now = Utils::formatRfc2822(std::chrono::system_clock::now());
     
-    m_db.executef(
-        "INSERT INTO users (username, password_hash, password_salt, role, created_at) VALUES ('%s', '%s', '%s', '%s', '%s')",
-        username.c_str(),
-        hashResult.hash.c_str(),
-        hashResult.salt.c_str(),
-        actualRole.c_str(),
-        now.c_str()
+    auto stmt = m_db.prepare(
+        "INSERT INTO users (username, password_hash, password_salt, role, created_at) VALUES (?, ?, ?, ?, ?)"
     );
+    stmt.bind(1, username);
+    stmt.bind(2, hashResult.hash);
+    stmt.bind(3, hashResult.salt);
+    stmt.bind(4, actualRole);
+    stmt.bind(5, now);
+    stmt.step();
     
     return m_db.lastInsertRowId();
 }
@@ -61,119 +62,123 @@ std::optional<UserStore::User> UserStore::verify(
     const std::string& username,
     const std::string& password
 ) {
-    auto result = m_db.queryOne(
-        "SELECT id, username, password_hash, password_salt, role, created_at, last_login_at FROM users WHERE username = '" + username + "'"
+    auto stmt = m_db.prepare(
+        "SELECT id, username, password_hash, password_salt, role, created_at, last_login_at FROM users WHERE username = ?"
     );
+    stmt.bind(1, username);
     
-    if (!result) return std::nullopt;
-    
-    User user;
-    if (result->size() >= 6) {
-        user.id = std::stoll((*result)[0]);
-        user.username = (*result)[1];
-        user.passwordHash = (*result)[2];
-        user.passwordSalt = (*result)[3];
-        user.role = (*result)[4];
+    if (stmt.step()) {
+        User user;
+        user.id = stmt.columnInt64(0);
+        user.username = stmt.columnText(1);
+        user.passwordHash = stmt.columnText(2);
+        user.passwordSalt = stmt.columnText(3);
+        user.role = stmt.columnText(4);
+        
+        // Verify password
+        PasswordHasher::HashResult stored;
+        stored.hash = user.passwordHash;
+        stored.salt = user.passwordSalt;
+        
+        if (!m_hasher.verify(password, stored)) {
+            return std::nullopt;
+        }
+        
+        return user;
     }
     
-    // Verify password
-    PasswordHasher::HashResult stored;
-    stored.hash = user.passwordHash;
-    stored.salt = user.passwordSalt;
-    
-    if (!m_hasher.verify(password, stored)) {
-        return std::nullopt;
-    }
-    
-    return user;
+    return std::nullopt;
 }
 
 std::optional<UserStore::User> UserStore::getById(int64_t id) {
-    auto result = m_db.queryOne(
-        "SELECT id, username, password_hash, password_salt, role, created_at, last_login_at FROM users WHERE id = " + std::to_string(id)
+    auto stmt = m_db.prepare(
+        "SELECT id, username, password_hash, password_salt, role, created_at, last_login_at FROM users WHERE id = ?"
     );
+    stmt.bind(1, id);
     
-    if (!result) return std::nullopt;
-    
-    User user;
-    if (result->size() >= 6) {
-        user.id = std::stoll((*result)[0]);
-        user.username = (*result)[1];
-        user.passwordHash = (*result)[2];
-        user.passwordSalt = (*result)[3];
-        user.role = (*result)[4];
+    if (stmt.step()) {
+        User user;
+        user.id = stmt.columnInt64(0);
+        user.username = stmt.columnText(1);
+        user.passwordHash = stmt.columnText(2);
+        user.passwordSalt = stmt.columnText(3);
+        user.role = stmt.columnText(4);
+        return user;
     }
     
-    return user;
+    return std::nullopt;
 }
 
 std::optional<UserStore::User> UserStore::getByUsername(const std::string& username) {
-    auto result = m_db.queryOne(
-        "SELECT id, username, password_hash, password_salt, role, created_at, last_login_at FROM users WHERE username = '" + username + "'"
+    auto stmt = m_db.prepare(
+        "SELECT id, username, password_hash, password_salt, role, created_at, last_login_at FROM users WHERE username = ?"
     );
+    stmt.bind(1, username);
     
-    if (!result) return std::nullopt;
-    
-    User user;
-    if (result->size() >= 6) {
-        user.id = std::stoll((*result)[0]);
-        user.username = (*result)[1];
-        user.passwordHash = (*result)[2];
-        user.passwordSalt = (*result)[3];
-        user.role = (*result)[4];
+    if (stmt.step()) {
+        User user;
+        user.id = stmt.columnInt64(0);
+        user.username = stmt.columnText(1);
+        user.passwordHash = stmt.columnText(2);
+        user.passwordSalt = stmt.columnText(3);
+        user.role = stmt.columnText(4);
+        return user;
     }
     
-    return user;
+    return std::nullopt;
 }
 
 std::vector<UserStore::User> UserStore::list() {
     std::vector<User> users;
     
-    m_db.query("SELECT id, username, password_hash, password_salt, role, created_at, last_login_at FROM users", 
-        [&users](const std::vector<std::string>& row) {
-            User user;
-            if (row.size() >= 6) {
-                user.id = std::stoll(row[0]);
-                user.username = row[1];
-                user.passwordHash = row[2];
-                user.passwordSalt = row[3];
-                user.role = row[4];
-                users.push_back(user);
-            }
-            return true;
-        });
+    auto stmt = m_db.prepare(
+        "SELECT id, username, password_hash, password_salt, role, created_at, last_login_at FROM users"
+    );
+    
+    while (stmt.step()) {
+        User user;
+        user.id = stmt.columnInt64(0);
+        user.username = stmt.columnText(1);
+        user.passwordHash = stmt.columnText(2);
+        user.passwordSalt = stmt.columnText(3);
+        user.role = stmt.columnText(4);
+        users.push_back(user);
+    }
     
     return users;
 }
 
 void UserStore::remove(int64_t id) {
-    m_db.execute("DELETE FROM users WHERE id = " + std::to_string(id));
+    auto stmt = m_db.prepare("DELETE FROM users WHERE id = ?");
+    stmt.bind(1, id);
+    stmt.step();
 }
 
 void UserStore::setRole(int64_t id, const std::string& role) {
-    m_db.executef(
-        "UPDATE users SET role = '%s' WHERE id = %lld",
-        role.c_str(),
-        id
-    );
+    auto stmt = m_db.prepare("UPDATE users SET role = ? WHERE id = ?");
+    stmt.bind(1, role);
+    stmt.bind(2, id);
+    stmt.step();
 }
 
 bool UserStore::isAdmin(int64_t id) {
-    auto result = m_db.queryOne(
-        "SELECT role FROM users WHERE id = " + std::to_string(id)
-    );
-    return result && (*result)[0] == "admin";
+    auto stmt = m_db.prepare("SELECT role FROM users WHERE id = ?");
+    stmt.bind(1, id);
+    
+    if (stmt.step()) {
+        return stmt.columnText(0) == "admin";
+    }
+    return false;
 }
 
 void UserStore::updatePassword(int64_t id, const std::string& newPassword) {
     auto hashResult = m_hasher.hash(newPassword);
     
-    m_db.executef(
-        "UPDATE users SET password_hash = '%s', password_salt = '%s' WHERE id = %lld",
-        hashResult.hash.c_str(),
-        hashResult.salt.c_str(),
-        id
-    );
+    auto stmt = m_db.prepare("UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?");
+    stmt.bind(1, hashResult.hash);
+    stmt.bind(2, hashResult.salt);
+    stmt.bind(3, id);
+    stmt.step();
 }
 
 bool UserStore::needsRehash(const User& user) {
@@ -185,21 +190,21 @@ bool UserStore::needsRehash(const User& user) {
 
 void UserStore::recordLogin(int64_t id) {
     auto now = Utils::formatRfc2822(std::chrono::system_clock::now());
-    m_db.executef(
-        "UPDATE users SET last_login_at = '%s' WHERE id = %lld",
-        now.c_str(),
-        id
-    );
+    
+    auto stmt = m_db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?");
+    stmt.bind(1, now);
+    stmt.bind(2, id);
+    stmt.step();
 }
 
 std::optional<std::chrono::system_clock::time_point> UserStore::lastLogin(int64_t id) {
-    auto result = m_db.queryOne(
-        "SELECT last_login_at FROM users WHERE id = " + std::to_string(id)
-    );
+    auto stmt = m_db.prepare("SELECT last_login_at FROM users WHERE id = ?");
+    stmt.bind(1, id);
     
-    if (!result || result->empty()) return std::nullopt;
-    
-    return Utils::parseRfc2822((*result)[0]);
+    if (stmt.step() && !stmt.columnIsNull(0)) {
+        return Utils::parseRfc2822(stmt.columnText(0));
+    }
+    return std::nullopt;
 }
 
 size_t UserStore::count() const {
@@ -208,10 +213,13 @@ size_t UserStore::count() const {
 }
 
 size_t UserStore::countByRole(const std::string& role) const {
-    auto result = m_db.queryOne(
-        "SELECT COUNT(*) FROM users WHERE role = '" + role + "'"
-    );
-    return result ? std::stoul((*result)[0]) : 0;
+    auto stmt = m_db.prepare("SELECT COUNT(*) FROM users WHERE role = ?");
+    stmt.bind(1, role);
+    
+    if (stmt.step()) {
+        return static_cast<size_t>(stmt.columnInt64(0));
+    }
+    return 0;
 }
 
 // ============================================================================
