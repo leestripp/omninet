@@ -787,4 +787,16 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 | Token System | ✅ Implemented |
 | Compression | ✅ zlib enabled |
 
-**Last Updated**: 2026-05-23 11:30 AEST
+**Last Updated**: 2026-05-23 14:00 AEST
+
+---
+
+## Future Work (Potential)
+
+| Feature | Description | Priority |
+|---------|-------------|----------|
+| Gzip response compression | Implement in HttpResponse for `Accept-Encoding: gzip` | Medium |
+| Rate limiting middleware | Global rate limiter with Redis support | Medium |
+| WebSocket load balancing | Session affinity or stateless mode | Low |
+| HTTP/2 support | Upgrade path for performance | Low |
+| Metrics export | Prometheus/Graphite integration | Low |
