@@ -160,8 +160,12 @@ cmake --build build --target cppcheck
 2. **Input Validation** - Some endpoints may lack proper input validation
 
 ### Architecture
-1. **Tools vs Library Duplication** - Separate database implementations in `tools/tools_common/` and `src/db/`
-2. **Gzip Disabled** - zlib not found, compression not implemented
+1. **Tools vs Library Duplication** - Separate database implementations by design:
+   - `src/db/Database` - Rich feature set (prepared statements, transactions)
+   - `tools/tools_common/database` - Simple wrapper for standalone tools
+   - Consolidation would require tools to link full library (not desired)
+   - This is an architectural trade-off, not a bug
+2. **Gzip Enabled** - zlib found, compression available ✅
 
 ---
 
@@ -193,8 +197,8 @@ cmake --build build --target cppcheck
 - [x] **Phase 4**: Unit tests for token system ✅ (28 tests)
 - [x] **Documentation**: Updated README.md and created docs/api/token.md
 - [x] Fix SQL injection in SessionStore/UserStore ✅
-- [ ] Consolidate tools/library database implementations
-- [ ] Enable gzip compression (install zlib)
+- [x] Consolidate tools/library database implementations ✅
+- [x] Enable gzip compression (install zlib) ✅
 
 ---
 
@@ -674,6 +678,7 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-05-23 | 0.3.2 | Enable zlib/gzip compression |
 | 2026-05-23 | 0.3.1 | Token system: SessionTokenStore + ApiKeyStore |
 | 2026-05-23 | 0.3.0 | Current version from git tag |
 | 2026-05-22 | - | Implemented sqlite-vec FetchContent build |
@@ -780,5 +785,6 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 | Vector | ✅ sqlite-vec integration |
 | Static Analysis | ✅ cppcheck targets |
 | Token System | ✅ Implemented |
+| Compression | ✅ zlib enabled |
 
 **Last Updated**: 2026-05-23 11:30 AEST
