@@ -59,7 +59,7 @@ message(STATUS "OmniNet Version: ${PROJECT_VERSION} (from git tag: ${GIT_TAG})")
 # Project Setup
 # ============================================================================
 
-project(OmniNet VERSION ${PROJECT_VERSION} LANGUAGES CXX)
+project(OmniNet VERSION ${PROJECT_VERSION} LANGUAGES C CXX)
 
 # C++20 required
 set(CMAKE_CXX_STANDARD 20)
@@ -228,26 +228,18 @@ if(OMNINET_ENABLE_VEC)
     string(REPLACE "\${SOURCE}" "unknown" VEC_H_CONTENT "${VEC_H_CONTENT}")
     file(WRITE "${VEC_H}" "${VEC_H_CONTENT}")
     
-    # Build vec0.so from fetched source
-    set(VEC0_SOURCE "${sqlite_vec_SOURCE_DIR}/sqlite-vec.c")
-    set(VEC0_OUTPUT "${CMAKE_BINARY_DIR}/vec0.so")
-    
-    add_custom_command(
-        OUTPUT ${VEC0_OUTPUT}
-        COMMAND gcc -shared -fPIC -O2 -o ${VEC0_OUTPUT} -I${sqlite_vec_SOURCE_DIR} ${VEC0_SOURCE}
-        DEPENDS ${VEC0_SOURCE} ${VEC_H}
-        COMMENT "Building sqlite-vec extension"
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    )
-    
-    add_custom_target(vec0_extension ALL
-        DEPENDS ${VEC0_OUTPUT} OmniNet
-        COMMENT "Building vec0.so for vector database support"
+    # Build vec0.so as a CMake shared library target
+    # Note: OUTPUT_NAME "vec0" with SHARED library type automatically gets "lib" prefix on Linux
+    # We use RENAME to override this behavior
+    add_library(vec0_extension SHARED ${sqlite_vec_SOURCE_DIR}/sqlite-vec.c)
+    target_include_directories(vec0_extension PUBLIC ${sqlite_vec_SOURCE_DIR})
+    set_target_properties(vec0_extension PROPERTIES
+        OUTPUT_NAME "vec0"  # Results in libvec0.so on Linux
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     )
     
     # Store extension path for runtime use
-    get_filename_component(VEC0_ABS_PATH "${VEC0_OUTPUT}" ABSOLUTE)
-    set(OMNINET_VEC0_PATH "${VEC0_ABS_PATH}" CACHE PATH "Path to vec0.so extension")
+    set(OMNINET_VEC0_PATH "${CMAKE_BINARY_DIR}/libvec0.so" CACHE PATH "Path to vec0.so extension")
     
     target_compile_definitions(OmniNet PUBLIC OMNINET_VEC0_PATH="${OMNINET_VEC0_PATH}")
     message(STATUS "sqlite-vec enabled: ${OMNINET_VEC0_PATH}")
