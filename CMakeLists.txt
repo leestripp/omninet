@@ -322,6 +322,9 @@ endif()
 # Build demos
 add_subdirectory(demos)
 
+# Build benchmarks
+add_subdirectory(benchmarks)
+
 # Build CLI tools
 add_subdirectory(tools)
 
