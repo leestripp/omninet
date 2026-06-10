@@ -148,6 +148,7 @@ target_sources(OmniNet PRIVATE
     
     # Async (Phase 3) - mostly header only
     src/async/AsyncLogger.cpp
+    src/async/AsyncTlsSocket.cpp
     
     # I/O (Phase 4)
     src/io/EpollContext.cpp

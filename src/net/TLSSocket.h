@@ -94,25 +94,39 @@ public:
     std::vector<uint8_t> recvExactly(size_t n) override;
     
     // --- State ---
-    
+
     bool isSecure() const;
-    
+
     // Get negotiated cipher suite
     std::string getCipher();
-    
+
     // Get TLS version
     std::string getVersion();
-    
+
     // Check if peer has certificate
     bool hasPeerCertificate();
-    
+
     // Get peer certificate CN
     std::optional<std::string> getPeerCertificateCN();
-    
+
     // Get peer certificate fingerprint
     std::optional<std::string> getPeerCertificateFingerprint();
-    
+
     // Get ALPN negotiated protocol
+
+    // ----- Internal accessors (for AsyncTlsSocket) -----
+
+    // Get the underlying SSL handle (for advanced use)
+    SSL* getSSL() const { return m_ssl; }
+
+    // Check if this is server-mode
+    bool isServerMode() const { return m_serverMode; }
+
+    // Mark handshake as done (used after async handshake completes)
+    void markHandshakeDone() { m_handshakeDone = true; }
+
+    // Get the fd of the underlying socket
+    int getRawFd() const { return m_fd; }
     std::optional<std::string> getALPNProtocol();
     
     // --- SSL Object Access (for advanced use) ---
