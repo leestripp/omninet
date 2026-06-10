@@ -125,12 +125,12 @@ Finalize documentation for all new modules:
 
 ### Phased Rollout
 
-| Phase | Duration | Deliverable |
-|-------|----------|-------------|
-| **9a. Integration Demo** | 3-4 days | Complete demo using all features |
-| **9b. Benchmarks** | 2-3 days | Performance validation |
-| **9c. Documentation** | 2-3 days | API docs + migration guide |
-| **Release 0.5.0** | 1 day | Tag, demos, benchmark results |
+| Phase | Duration | Deliverable | Status |
+|-------|----------|-------------|--------|
+| **9a. Integration Demo** | 3-4 days | Complete demo using all features | ✅ Done |
+| **9b. Benchmarks** | 2-3 days | Performance validation | ✅ Done |
+| **9c. Documentation** | 2-3 days | API docs + migration guide | ✅ Done |
+| **Release 0.5.0** | 1 day | Tag, demos, benchmark results | ✅ Done |
 
 **Total**: ~2-3 weeks
 
@@ -800,7 +800,8 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2026-05-23 | **0.4.1** | Async I/O Extensions (4 phases complete) |
+| 2026-05-23 | **0.5.0** | Integration & Demos (3 phases complete) |
+| 2026-05-23 | 0.4.1 | Async I/O Extensions (4 phases complete) |
 | 2026-05-23 | 0.4.0 | C++23 + Async + ThreadPool refactor (7 phases) |
 | 2026-05-23 | 0.3.2 | Enable zlib/gzip compression |
 | 2026-05-23 | 0.3.1 | Token system: SessionTokenStore + ApiKeyStore |
