@@ -1638,4 +1638,398 @@ docs/api/*.md                         (update for new APIs)
 
 ---
 
+## v0.4.1 Plan: Async I/O Extensions
+
+**Status**: 📋 Planning  
+**Target Version**: 0.4.1  
+**Estimated Effort**: 3-4 weeks (incremental, backward-compatible)
+
+### Goal
+
+Complete the async migration started in v0.4.0 by adding:
+- **AsyncLogger** — eliminate disk I/O blocking in hot paths
+- **TLS async handshake** — enable secure AsyncServer
+- **`std::expected<T, E>`** — modernize error handling, no exceptions
+- **AsyncFile** — async static file serving (io_uring / thread pool)
+
+All changes are **backward-compatible**. Existing sync code continues to work.
+
+---
+
+### Phase 8a: AsyncLogger
+
+#### Problem
+
+Current `Logger::log()` writes synchronously to disk on the calling thread:
+
+```cpp
+// Synchronous write — blocks if disk is slow
+void Logger::log(LogLevel level, const std::string& message) {
+    // ... format message ...
+    if (m_logFile.is_open()) {
+        m_logFile << formatted << std::endl;  // BLOCKS!
+    }
+}
+```
+
+For high-throughput servers, this becomes a bottleneck.
+
+#### Solution
+
+`AsyncLogger` queues log messages and writes them on a background thread:
+
+```cpp
+namespace OmniNet::Async {
+
+class AsyncLogger {
+public:
+    explicit AsyncLogger(Thread::ThreadPool& pool);
+    
+    // Non-blocking log (queues for background write)
+    void log(LogLevel level, std::string_view message);
+    
+    // Async log (returns immediately, message is owned)
+    void log(LogLevel level, std::string message);
+    
+    // Flush pending messages (blocking)
+    void flush();
+    
+    // Shutdown (flushes and stops)
+    void shutdown();
+    
+    // Statistics
+    struct Stats {
+        uint64_t messagesQueued;
+        uint64_t messagesWritten;
+        uint64_t messagesDropped;  // if queue full
+    };
+    Stats stats() const;
+};
+
+}
+```
+
+#### Architecture
+
+```
+┌─────────────────┐
+│  Logger::log()  │ (any thread)
+└────────┬────────┘
+         │ non-blocking
+         ▼
+┌─────────────────┐
+│  MPSC Queue     │ (lockfree)
+│  (messages)     │
+└────────┬────────┘
+         │ background
+         ▼
+┌─────────────────┐
+│  Writer Thread  │ (ThreadPool worker)
+│  flush to disk  │
+└─────────────────┘
+```
+
+#### Files
+
+```
+src/async/AsyncLogger.h
+src/async/AsyncLogger.cpp
+tests/test_async_logger.cpp
+docs/api/async-logger.md
+```
+
+#### Tests (~8 test cases)
+
+- basic_log, non_blocking_log
+- concurrent_log (1000 messages from 10 threads)
+- flush_drains_queue
+- shutdown_blocks_until_drained
+- queue_full_drops_messages
+- level_filtering
+- rotation_async
+- stats_tracking
+
+#### Estimated Effort
+- 2-3 days implementation + tests
+
+---
+
+### Phase 8b: TLS Async Handshake
+
+#### Problem
+
+Current `TLSSocket::performHandshake()` blocks the calling thread:
+
+```cpp
+// Server-side: blocking TLS handshake (can take 10-100ms)
+tlsSocket->performHandshake();
+// ... while this runs, the thread is blocked
+```
+
+For AsyncServer, we need non-blocking handshake.
+
+#### Solution
+
+Wrap TLS operations in coroutine-aware awaiters:
+
+```cpp
+namespace OmniNet::Async {
+
+class AsyncTlsSocket {
+public:
+    AsyncTlsSocket(IO::IoContext& ctx, std::unique_ptr<TLSSocket> socket);
+    
+    // Async handshake (suspends until complete)
+    Async::Task<> handshake();
+    
+    // Async read/write like AsyncSocket
+    Async::Task<size_t> read_some(std::span<uint8_t> buf);
+    Async::Task<size_t> write_some(std::span<const uint8_t> data);
+    Async::Task<void> write_all(std::span<const uint8_t> data);
+    
+    // Cancel pending operations
+    void cancel();
+    
+    // Native access
+    TLSSocket& native() { return *m_socket; }
+    
+private:
+    IO::IoContext& m_context;
+    std::unique_ptr<TLSSocket> m_socket;
+};
+
+}
+```
+
+#### Implementation Strategy
+
+- Use OpenSSL's non-blocking BIO
+- Hook into `IoContext::watch()` for read/write readiness
+- Re-handshake on `EAGAIN` / `SSL_ERROR_WANT_READ/WRITE`
+- Same pattern as `AsyncSocket::read_some` retry loop
+
+#### Files
+
+```
+src/async/AsyncTlsSocket.h
+src/async/AsyncTlsSocket.cpp
+tests/test_async_tls.cpp
+```
+
+#### Tests (~6 test cases)
+
+- handshake_success
+- handshake_after_read
+- read_after_handshake
+- echo_over_tls
+- concurrent_tls_handshakes
+- handshake_timeout
+
+#### Estimated Effort
+- 3-4 days (requires OpenSSL BIO setup)
+
+---
+
+### Phase 8c: `std::expected<T, E>` Migration
+
+#### Problem
+
+Current Socket/DB functions use `void` returns or exceptions:
+
+```cpp
+// Current
+void Socket::connect(const std::string& host, uint16_t port);
+// throws SocketException on failure
+
+bool Socket::bind(const std::string& address, uint16_t port);
+// returns false on failure
+```
+
+This forces callers to either catch exceptions (slow) or check bools (lose error info).
+
+#### Solution
+
+Replace with `std::expected<T, E>` for type-safe error handling:
+
+```cpp
+// New (C++23)
+std::expected<void, SocketError> Socket::connect(
+    const std::string& host, uint16_t port);
+
+enum class SocketError {
+    InvalidAddress,
+    ConnectionRefused,
+    Timeout,
+    NetworkUnreachable,
+    PermissionDenied,
+    AddressInUse,
+    OutOfMemory,
+};
+```
+
+#### Migration Strategy
+
+1. Add new `std::expected` overloads alongside existing APIs
+2. Mark old `void`/`bool` versions as `[[deprecated]]`
+3. Update internal code to use new APIs
+4. Document migration path in release notes
+
+#### Affected APIs
+
+| Module | Functions |
+|--------|-----------|
+| `Socket` | `connect`, `bind`, `accept`, `recv`, `send` |
+| `TLSSocket` | `performHandshake`, `read`, `write` |
+| `Database` | `open`, `execute`, `query`, `queryOne` |
+| `Database::Statement` | `bind`, `step`, `reset` |
+
+#### Files
+
+```
+src/utils/Expected.h           # Common Result<T, E> alias
+src/net/Socket.h               # Add expected overloads
+src/net/Socket.cpp
+src/net/TLSSocket.h
+src/net/TLSSocket.cpp
+src/db/Database.h
+src/db/Database.cpp
+tests/test_expected.cpp        # Tests for new APIs
+```
+
+#### Tests (~10 test cases)
+
+- expected_success_path
+- expected_error_path
+- expected_chained_operations
+- expected_with_void_value
+- socket_connect_error
+- socket_bind_error
+- database_open_error
+- database_query_error
+- back_compat_bool_api
+- back_compat_void_api
+
+#### Estimated Effort
+- 5-7 days (large refactor)
+
+---
+
+### Phase 8d: AsyncFile (Optional)
+
+#### Problem
+
+`StaticHandler::serveFile()` reads files synchronously, blocking the thread.
+
+For high-throughput static file serving, async I/O is needed.
+
+#### Solution
+
+AsyncFile using thread pool (or io_uring on Linux 5.6+):
+
+```cpp
+namespace OmniNet::IO {
+
+class AsyncFile {
+public:
+    explicit AsyncFile(Async::Executor& exec);
+    
+    // Open file (async)
+    Async::Task<> open(std::string_view path, bool read = true);
+    
+    // Read entire file
+    Async::Task<std::vector<uint8_t>> read_all();
+    
+    // Read range
+    Async::Task<std::vector<uint8_t>> read_range(size_t offset, size_t length);
+    
+    // Close
+    Async::Task<> close();
+    
+    bool isOpen() const;
+    
+private:
+    Async::Executor& m_exec;
+    int m_fd = -1;
+};
+
+}
+```
+
+#### Implementation
+
+- **Thread pool approach** (cross-platform): Dispatch blocking `read()` to executor
+- **io_uring approach** (Linux 5.6+): True async I/O via io_uring syscalls
+
+#### Files
+
+```
+src/io/AsyncFile.h
+src/io/AsyncFile.cpp
+tests/test_async_file.cpp
+```
+
+#### Tests (~6 test cases)
+
+- file_open_read
+- file_read_all
+- file_read_range
+- file_concurrent_reads
+- file_not_found
+- file_large_read
+
+#### Estimated Effort
+- 3-4 days
+
+---
+
+### Phased Rollout
+
+| Phase | Duration | Deliverable |
+|-------|----------|-------------|
+| **8a. AsyncLogger** | 2-3 days | Non-blocking logging |
+| **8b. TLS Async** | 3-4 days | Secure AsyncServer |
+| **8c. expected<T, E>** | 5-7 days | Modern error handling |
+| **8d. AsyncFile** | 3-4 days | Async static file serving |
+| **Release 0.4.1** | 1 day | Tag, docs, release notes |
+
+**Total**: ~2-3 weeks (can be parallelized)
+
+---
+
+### Migration Compatibility
+
+All changes are **additive** and **backward-compatible**:
+
+| Existing Code | v0.4.1 |
+|---------------|--------|
+| `Logger::log(level, msg)` | ✅ Still works (uses AsyncLogger internally) |
+| `socket.connect(host, port)` (void) | ✅ Still works, marked `[[deprecated]]` |
+| `socket.connect(host, port)` (bool) | ✅ New, returns `std::expected` |
+| `TLSSocket::performHandshake()` | ✅ Still works |
+| `co_await asyncTls.handshake()` | ✅ New |
+
+---
+
+### Performance Targets
+
+| Metric | v0.4.0 | v0.4.1 |
+|--------|--------|--------|
+| Log throughput | ~10k msg/s | 1M+ msg/s (off-thread) |
+| HTTPS handshake latency | 10-100ms (blocking) | Same, but non-blocking |
+| Error handling overhead | Exceptions (~µs) | `expected` (~ns) |
+| Static file throughput | Single-threaded | Multi-threaded |
+
+---
+
+### Open Questions
+
+- [ ] **io_uring vs thread pool** for AsyncFile — depends on deployment target
+- [ ] **Logger queue size** — how many messages to buffer?
+- [ ] **TLS BIO mode** — use OpenSSL memory BIO or socket BIO?
+- [ ] **expected<T, E> adoption strategy** — all at once or per-module?
+
+---
+
+**Last Updated**: 2026-05-23 16:00 AEST---
+
 **Last Updated**: 2026-05-23 15:30 AEST
