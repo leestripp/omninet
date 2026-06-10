@@ -33,6 +33,11 @@ add_executable(test_thread_pool
     test_thread_pool.cpp
 )
 
+# Async Task tests (Phase 3)
+add_executable(test_async_task
+    test_async_task.cpp
+)
+
 # Link with OmniNet and dependencies
 target_link_libraries(omnet_test PRIVATE OmniNet pthread)
 target_link_libraries(test_buffer_protection PRIVATE OmniNet pthread)
@@ -55,12 +60,18 @@ target_link_libraries(test_thread_pool PRIVATE
     pthread
 )
 
+target_link_libraries(test_async_task PRIVATE
+    OmniNet
+    pthread
+)
+
 # Enable C++23
 target_compile_features(omnet_test PRIVATE cxx_std_23)
 target_compile_features(test_buffer_protection PRIVATE cxx_std_23)
 target_compile_features(test_config PRIVATE cxx_std_23)
 target_compile_features(test_token PRIVATE cxx_std_23)
 target_compile_features(test_thread_pool PRIVATE cxx_std_23)
+target_compile_features(test_async_task PRIVATE cxx_std_23)
 
 # Include directories - use parent source dir
 target_include_directories(omnet_test PRIVATE
@@ -73,6 +84,9 @@ target_include_directories(test_token PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 target_include_directories(test_thread_pool PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_include_directories(test_async_task PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
