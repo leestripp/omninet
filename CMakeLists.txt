@@ -141,6 +141,9 @@ target_sources(OmniNet PRIVATE
     # Vector (sqlite-vec)
     src/vector/VectorStore.cpp
     
+    # Thread Pool (Phase 2)
+    src/thread/ThreadPool.cpp
+    
     # Token Management
     src/token/TokenUtils.cpp
     src/token/SessionToken.cpp

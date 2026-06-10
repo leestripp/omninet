@@ -28,6 +28,11 @@ add_executable(test_token
     test_token.cpp
 )
 
+# ThreadPool tests (Phase 2)
+add_executable(test_thread_pool
+    test_thread_pool.cpp
+)
+
 # Link with OmniNet and dependencies
 target_link_libraries(omnet_test PRIVATE OmniNet pthread)
 target_link_libraries(test_buffer_protection PRIVATE OmniNet pthread)
@@ -45,11 +50,17 @@ target_link_libraries(test_token PRIVATE
     pthread
 )
 
-# Enable C++20
-target_compile_features(omnet_test PRIVATE cxx_std_20)
-target_compile_features(test_buffer_protection PRIVATE cxx_std_20)
-target_compile_features(test_config PRIVATE cxx_std_20)
-target_compile_features(test_token PRIVATE cxx_std_20)
+target_link_libraries(test_thread_pool PRIVATE
+    OmniNet
+    pthread
+)
+
+# Enable C++23
+target_compile_features(omnet_test PRIVATE cxx_std_23)
+target_compile_features(test_buffer_protection PRIVATE cxx_std_23)
+target_compile_features(test_config PRIVATE cxx_std_23)
+target_compile_features(test_token PRIVATE cxx_std_23)
+target_compile_features(test_thread_pool PRIVATE cxx_std_23)
 
 # Include directories - use parent source dir
 target_include_directories(omnet_test PRIVATE
@@ -59,6 +70,9 @@ target_include_directories(test_buffer_protection PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 target_include_directories(test_token PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_include_directories(test_thread_pool PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
