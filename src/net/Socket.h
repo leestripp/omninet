@@ -11,6 +11,7 @@
 #include <string_view>
 
 #include "utils/Exception.h"
+#include "utils/Expected.h"
 
 // Platform-specific includes
 #ifdef _WIN32
@@ -70,16 +71,24 @@ public:
     Socket& operator=(Socket&& other) noexcept;
     
     // --- Connection Operations ---
-    
+
     // Connect to a host:port (TCP)
     virtual void connect(const std::string& host, uint16_t port);
-    
+
+    // Connect with type-safe error handling (Phase 8c)
+    [[nodiscard]] virtual OmniNet::Result<void, OmniNet::SocketError>
+    tryConnect(const std::string& host, uint16_t port);
+
     // Bind to address:port (for server)
     virtual void bind(const std::string& address, uint16_t port);
-    
+
+    // Bind with type-safe error handling (Phase 8c)
+    [[nodiscard]] virtual OmniNet::Result<void, OmniNet::SocketError>
+    tryBind(const std::string& address, uint16_t port);
+
     // Listen for connections
     virtual void listen(int backlog = 128);
-    
+
     // Accept incoming connection
     virtual std::unique_ptr<Socket> accept();
     

@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "utils/Exception.h"
+#include "utils/Expected.h"
 
 // Forward declare sqlite3
 struct sqlite3;
@@ -42,13 +43,17 @@ public:
     Database& operator=(const Database&) = delete;
     
     // --- Lifecycle ---
-    
+
     // Open database file
     void open(const std::string& path);
-    
+
+    // Open database file (returns Result for type-safe error handling)
+    [[nodiscard]] OmniNet::Result<void, OmniNet::DbError>
+    tryOpen(const std::string& path);
+
     // Close database
     void close();
-    
+
     // Check if open
     bool isOpen() const;
     
@@ -56,22 +61,30 @@ public:
     sqlite3* handle() const;
     
     // --- Execution ---
-    
+
     // Execute SQL (for CREATE, INSERT, UPDATE, DELETE)
     void execute(const std::string& sql);
-    
+
+    // Execute SQL with type-safe error handling
+    [[nodiscard]] OmniNet::Result<void, OmniNet::DbError>
+    tryExecute(const std::string& sql);
+
     // Execute with format
     void executef(const char* fmt, ...);
-    
+
     // --- Queries ---
-    
+
     // Query with callback for each row
     // Callback returns false to stop iteration
     using RowCallback = std::function<bool(const std::vector<std::string>& columns)>;
     void query(const std::string& sql, RowCallback callback);
-    
+
     // Query returning first row
     std::optional<std::vector<std::string>> queryOne(const std::string& sql);
+
+    // Query returning first row with type-safe error handling
+    [[nodiscard]] OmniNet::Result<std::optional<std::vector<std::string>>, OmniNet::DbError>
+    tryQueryOne(const std::string& sql);
     
     // --- Query Result Iterator ---
     

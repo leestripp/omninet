@@ -59,53 +59,108 @@ Socket& Socket::operator=(Socket&& other) noexcept {
 }
 
 void Socket::connect(const std::string& host, uint16_t port) {
+    auto result = tryConnect(host, port);
+    if (!result) {
+        throw SocketException("Failed to connect to " + host + ":" +
+                              std::to_string(port), 0);
+    }
+}
+
+OmniNet::Result<void, OmniNet::SocketError>
+Socket::tryConnect(const std::string& host, uint16_t port) {
     struct addrinfo hints, *result = nullptr;
     std::memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    
+
     std::string portStr = std::to_string(port);
     int error = getaddrinfo(host.c_str(), portStr.c_str(), &hints, &result);
     if (error != 0) {
-        throw SocketException("Failed to resolve host: " + host, error);
+        // Could not resolve host
+        if (error == EAI_NONAME) {
+            return std::unexpected<OmniNet::SocketError>{
+                OmniNet::SocketError::HostUnreachable};
+        }
+        return std::unexpected<OmniNet::SocketError>{
+            OmniNet::SocketError::InvalidAddress};
     }
-    
+
     for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
         m_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (m_fd == INVALID_SOCKET) continue;
-        
+
         if (::connect(m_fd, rp->ai_addr, static_cast<socklen_t>(rp->ai_addrlen)) == 0) {
             break;
         }
-        
+
         ::close(m_fd);
         m_fd = INVALID_SOCKET;
     }
-    
+
     freeaddrinfo(result);
-    
+
     if (m_fd == INVALID_SOCKET) {
-        throw SocketException("Failed to connect to " + host + ":" + std::to_string(port));
+        // Map errno to SocketError
+        OmniNet::SocketError err = OmniNet::SocketError::Unknown;
+        switch (errno) {
+            case ECONNREFUSED:  err = OmniNet::SocketError::ConnectionRefused; break;
+            case ETIMEDOUT:     err = OmniNet::SocketError::Timeout; break;
+            case ENETUNREACH:   err = OmniNet::SocketError::NetworkUnreachable; break;
+            case EHOSTUNREACH:  err = OmniNet::SocketError::HostUnreachable; break;
+            case EACCES:
+            case EPERM:         err = OmniNet::SocketError::PermissionDenied; break;
+            default:            err = OmniNet::SocketError::Unknown; break;
+        }
+        return std::unexpected<OmniNet::SocketError>{err};
     }
+
+    return {};  // Success
 }
 
 void Socket::bind(const std::string& address, uint16_t port) {
+    auto result = tryBind(address, port);
+    if (!result) {
+        throw SocketException("Failed to bind to " + address + ":" +
+                              std::to_string(port), getError());
+    }
+}
+
+OmniNet::Result<void, OmniNet::SocketError>
+Socket::tryBind(const std::string& address, uint16_t port) {
+    if (m_fd == INVALID_SOCKET) {
+        m_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (m_fd == INVALID_SOCKET) {
+            return std::unexpected<OmniNet::SocketError>{
+                OmniNet::SocketError::NotASocket};
+        }
+    }
+
     struct sockaddr_in addr;
     std::memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    
+
     if (address.empty() || address == "0.0.0.0") {
         addr.sin_addr.s_addr = INADDR_ANY;
     } else {
         if (inet_pton(AF_INET, address.c_str(), &addr.sin_addr) != 1) {
-            throw SocketException("Invalid address: " + address);
+            return std::unexpected<OmniNet::SocketError>{
+                OmniNet::SocketError::InvalidAddress};
         }
     }
-    
+
     if (::bind(m_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-        throw SocketException("Failed to bind to " + address + ":" + std::to_string(port), getError());
+        OmniNet::SocketError err = OmniNet::SocketError::Unknown;
+        switch (errno) {
+            case EADDRINUSE:  err = OmniNet::SocketError::AddressInUse; break;
+            case EACCES:
+            case EPERM:       err = OmniNet::SocketError::PermissionDenied; break;
+            default:          err = OmniNet::SocketError::Unknown; break;
+        }
+        return std::unexpected<OmniNet::SocketError>{err};
     }
+
+    return {};  // Success
 }
 
 void Socket::listen(int backlog) {

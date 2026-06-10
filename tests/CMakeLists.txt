@@ -63,6 +63,11 @@ add_executable(test_async_tls
     test_async_tls.cpp
 )
 
+# std::expected migration tests (Phase 8c)
+add_executable(test_expected
+    test_expected.cpp
+)
+
 # Link with OmniNet and dependencies
 target_link_libraries(omnet_test PRIVATE OmniNet pthread)
 target_link_libraries(test_buffer_protection PRIVATE OmniNet pthread)
@@ -115,6 +120,11 @@ target_link_libraries(test_async_tls PRIVATE
     pthread
 )
 
+target_link_libraries(test_expected PRIVATE
+    OmniNet
+    pthread
+)
+
 # Enable C++23
 target_compile_features(omnet_test PRIVATE cxx_std_23)
 target_compile_features(test_buffer_protection PRIVATE cxx_std_23)
@@ -127,6 +137,7 @@ target_compile_features(test_async_server PRIVATE cxx_std_23)
 target_compile_features(test_async_database PRIVATE cxx_std_23)
 target_compile_features(test_async_logger PRIVATE cxx_std_23)
 target_compile_features(test_async_tls PRIVATE cxx_std_23)
+target_compile_features(test_expected PRIVATE cxx_std_23)
 
 # Include directories - use parent source dir
 target_include_directories(omnet_test PRIVATE
@@ -157,6 +168,9 @@ target_include_directories(test_async_logger PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 target_include_directories(test_async_tls PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_include_directories(test_expected PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 

@@ -203,13 +203,94 @@ void Database::query(const std::string& sql, RowCallback callback) {
 
 std::optional<std::vector<std::string>> Database::queryOne(const std::string& sql) {
     std::optional<std::vector<std::string>> result;
-    
+
     query(sql, [&result](const std::vector<std::string>& row) {
         result = row;
         return false;  // Stop after first row
     });
-    
+
     return result;
+}
+
+// ============================================================================
+// std::expected<T, E> variants (Phase 8c)
+// ============================================================================
+//
+// These methods return type-safe Result<T, E> instead of throwing exceptions.
+// Use these for new code; existing void/bool methods still work.
+//
+
+OmniNet::Result<void, OmniNet::DbError> Database::tryOpen(const std::string& path) {
+    if (m_db != nullptr) {
+        return std::unexpected<OmniNet::DbError>{OmniNet::DbError::AlreadyOpen};
+    }
+
+    sqlite3* newDb = nullptr;
+    if (sqlite3_open(path.c_str(), &newDb) != SQLITE_OK) {
+        std::string error = sqlite3_errmsg(newDb);
+        sqlite3_close(newDb);
+        // For now, map all open errors to Unknown
+        // TODO: parse error code for more specific errors
+        return std::unexpected<OmniNet::DbError>{OmniNet::DbError::Unknown};
+    }
+
+    m_db = newDb;
+
+    // Enable foreign keys (best-effort, ignore errors)
+    sqlite3_exec(m_db, "PRAGMA foreign_keys = ON", nullptr, nullptr, nullptr);
+
+    return {};  // Success
+}
+
+OmniNet::Result<void, OmniNet::DbError> Database::tryExecute(const std::string& sql) {
+    if (m_db == nullptr) {
+        return std::unexpected<OmniNet::DbError>{OmniNet::DbError::NotOpen};
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    char* errorMsg = nullptr;
+    int result = sqlite3_exec(m_db, sql.c_str(), nullptr, nullptr, &errorMsg);
+
+    if (result != SQLITE_OK) {
+        std::string error = errorMsg ? errorMsg : "Unknown error";
+        if (errorMsg) sqlite3_free(errorMsg);
+
+        // Map common SQLite error codes to DbError
+        OmniNet::DbError err = OmniNet::DbError::Unknown;
+        switch (result) {
+            case SQLITE_BUSY:        err = OmniNet::DbError::Busy; break;
+            case SQLITE_LOCKED:      err = OmniNet::DbError::Locked; break;
+            case SQLITE_READONLY:    err = OmniNet::DbError::ReadOnly; break;
+            case SQLITE_CONSTRAINT:  err = OmniNet::DbError::ConstraintViolation; break;
+            default:                 err = OmniNet::DbError::StatementFailed; break;
+        }
+        return std::unexpected<OmniNet::DbError>{err};
+    }
+
+    return {};  // Success
+}
+
+OmniNet::Result<std::optional<std::vector<std::string>>, OmniNet::DbError>
+Database::tryQueryOne(const std::string& sql) {
+    if (m_db == nullptr) {
+        return std::unexpected<OmniNet::DbError>{OmniNet::DbError::NotOpen};
+    }
+
+    std::optional<std::vector<std::string>> result;
+
+    // Use the existing query method (it throws on error)
+    // We catch and convert to Result
+    try {
+        query(sql, [&result](const std::vector<std::string>& row) {
+            result = row;
+            return false;  // Stop after first row
+        });
+    } catch (const DatabaseException& e) {
+        return std::unexpected<OmniNet::DbError>{OmniNet::DbError::StepFailed};
+    }
+
+    return result;  // Success (may be empty optional)
 }
 
 // ============================================================================
