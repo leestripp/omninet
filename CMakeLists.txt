@@ -151,6 +151,9 @@ target_sources(OmniNet PRIVATE
     src/io/EpollContext.cpp
     src/io/AsyncSocket.cpp
     
+    # Async Server (Phase 5)
+    src/server/AsyncServer.cpp
+    
     # Token Management
     src/token/TokenUtils.cpp
     src/token/SessionToken.cpp
