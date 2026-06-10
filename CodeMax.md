@@ -678,7 +678,8 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2026-05-23 | **0.4.0** | C++23 + Async + ThreadPool refactor (7 phases) |
+| 2026-05-23 | **0.4.1** | Async I/O Extensions (4 phases complete) |
+| 2026-05-23 | 0.4.0 | C++23 + Async + ThreadPool refactor (7 phases) |
 | 2026-05-23 | 0.3.2 | Enable zlib/gzip compression |
 | 2026-05-23 | 0.3.1 | Token system: SessionTokenStore + ApiKeyStore |
 | 2026-05-23 | 0.3.0 | Current version from git tag |
@@ -1984,13 +1985,13 @@ tests/test_async_file.cpp
 
 ### Phased Rollout
 
-| Phase | Duration | Deliverable |
-|-------|----------|-------------|
-| **8a. AsyncLogger** | 2-3 days | Non-blocking logging |
-| **8b. TLS Async** | 3-4 days | Secure AsyncServer |
-| **8c. expected<T, E>** | 5-7 days | Modern error handling |
-| **8d. AsyncFile** | 3-4 days | Async static file serving |
-| **Release 0.4.1** | 1 day | Tag, docs, release notes |
+| Phase | Duration | Deliverable | Status |
+|-------|----------|-------------|--------|
+| **8a. AsyncLogger** | 2-3 days | Non-blocking logging | ✅ Done |
+| **8b. TLS Async** | 3-4 days | Secure AsyncServer | ✅ Done |
+| **8c. expected<T, E>** | 5-7 days | Modern error handling | ✅ Done |
+| **8d. AsyncFile** | 3-4 days | Async static file serving | ✅ Done |
+| **Release 0.4.1** | 1 day | Tag, docs, release notes | ✅ Done |
 
 **Total**: ~2-3 weeks (can be parallelized)
 
