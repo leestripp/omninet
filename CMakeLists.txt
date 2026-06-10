@@ -146,8 +146,8 @@ target_sources(OmniNet PRIVATE
     # Thread Pool (Phase 2)
     src/thread/ThreadPool.cpp
     
-    # Async (Phase 3) - header only for now
-    # src/async/Task.h, Executor.h, AsyncHandler.h, Awaitable.h
+    # Async (Phase 3) - mostly header only
+    src/async/AsyncLogger.cpp
     
     # I/O (Phase 4)
     src/io/EpollContext.cpp
