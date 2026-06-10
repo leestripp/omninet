@@ -22,7 +22,129 @@
 
 ---
 
-## Architecture Summary
+## v0.5.0 Plan: Integration & Demos
+
+**Status**: 📋 Planning
+**Target Version**: 0.5.0
+**Estimated Effort**: 2-3 weeks
+
+### Goal
+
+After v0.4.0 (infrastructure) and v0.4.1 (async extensions), the codebase has:
+- ✅ C++23 build, ThreadPool, Async Tasks, I/O, Server
+- ✅ AsyncLogger, AsyncTlsSocket, AsyncFile, AsyncDatabase
+- ✅ std::expected<T, E> migration
+- ✅ 265 tests across 12 test suites
+
+What's missing for a complete v0.5.0:
+- **Real-world demo** using all the new async features
+- **Performance benchmarks** to validate gains
+- **End-to-end documentation** showing patterns
+
+---
+
+### Phase 9a: Async Server Integration Demo
+
+Build a complete demo application showcasing all v0.4.0+ features.
+
+**Files**:
+```
+demos/async_server_demo/
+├── main.cpp           # Server setup with all features
+├── routes.cpp         # Example route handlers
+├── routes.h           # Route declarations
+├── CMakeLists.txt     # Build configuration
+└── README.md          # Usage instructions
+```
+
+**Features demonstrated**:
+- AsyncServer with coroutine handlers
+- AsyncDatabase for queries (no blocking)
+- AsyncLogger for non-blocking logs
+- AsyncFile for static file serving
+- std::expected<T, E> error handling
+- Connection pool for database
+- TLS support via AsyncTlsSocket
+- Gzip compression (auto)
+
+#### Estimated Effort: 3-4 days
+
+---
+
+### Phase 9b: Performance Benchmarks
+
+Validate the performance claims from the refactor plan:
+- 10x throughput vs old one-thread-per-connection
+- 8KB → 1KB memory per connection
+- 1M+ log messages/sec (AsyncLogger)
+- Sub-millisecond error handling (std::expected)
+
+**Files**:
+```
+benchmarks/
+├── echo_server_bench.cpp        # Throughput benchmark
+├── connection_scaling_bench.cpp # Connection scaling
+├── logger_throughput_bench.cpp  # AsyncLogger benchmark
+├── expected_overhead_bench.cpp  # Error handling overhead
+└── CMakeLists.txt
+```
+
+**Targets** (from plan):
+| Metric | v0.4.0 | v0.5.0 Target |
+|--------|--------|---------------|
+| Echo server 1k conn | 5k req/s | 50k req/s |
+| Echo server 10k conn | OOM | 30k req/s |
+| p99 latency | 5ms | 0.5ms |
+| Memory per conn | 8KB | 1KB |
+| Log throughput | 10k msg/s | 1M msg/s |
+
+#### Estimated Effort: 2-3 days
+
+---
+
+### Phase 9c: Documentation Update
+
+Finalize documentation for all new modules:
+- `docs/api/threadpool.md` - ThreadPool usage
+- `docs/api/async.md` - Async::Task and coroutines
+- `docs/api/io.md` - IoContext, AsyncSocket, AsyncFile
+- `docs/api/async-server.md` - AsyncServer usage
+- `docs/api/async-database.md` - DatabasePool, AsyncDatabase
+- `docs/api/async-logger.md` - AsyncLogger
+- `docs/api/async-tls.md` - AsyncTlsSocket
+- `docs/api/expected.md` - std::expected migration guide
+
+**Migration Guide** (most important):
+- `docs/migration/v0.4-to-v0.5.md` - Step-by-step upgrade guide
+- Before/after code examples
+- Compatibility matrix
+
+#### Estimated Effort: 2-3 days
+
+---
+
+### Phased Rollout
+
+| Phase | Duration | Deliverable |
+|-------|----------|-------------|
+| **9a. Integration Demo** | 3-4 days | Complete demo using all features |
+| **9b. Benchmarks** | 2-3 days | Performance validation |
+| **9c. Documentation** | 2-3 days | API docs + migration guide |
+| **Release 0.5.0** | 1 day | Tag, demos, benchmark results |
+
+**Total**: ~2-3 weeks
+
+---
+
+### Open Questions
+
+- [ ] **Demo scope** - single comprehensive demo or per-feature demos?
+- [ ] **Benchmark methodology** - include in CI or separate?
+- [ ] **Documentation format** - markdown, doxygen, or both?
+
+---
+
+**Last Updated**: 2026-05-23 16:30 AEST## Architecture Summary
 
 ```
 OmniNet (Static Library)
@@ -2031,6 +2153,3 @@ All changes are **additive** and **backward-compatible**:
 
 ---
 
-**Last Updated**: 2026-05-23 16:00 AEST---
-
-**Last Updated**: 2026-05-23 15:30 AEST
