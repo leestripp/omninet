@@ -110,8 +110,17 @@ std::string SessionTokenStore::create(
     stmt.bind(3, std::string(userId));
     stmt.bind(4, createdStr);
     stmt.bind(5, expiresStr);
-    stmt.bind(6, ip.empty() ? nullptr : std::string(ip));
-    stmt.bind(7, userAgent.empty() ? nullptr : std::string(userAgent));
+    // C++23: ternary with nullptr/string not allowed; use explicit if
+    if (ip.empty()) {
+        stmt.bind(6, nullptr);
+    } else {
+        stmt.bind(6, std::string(ip));
+    }
+    if (userAgent.empty()) {
+        stmt.bind(7, nullptr);
+    } else {
+        stmt.bind(7, std::string(userAgent));
+    }
     stmt.bind(8, metadataStr);
     
     stmt.step();

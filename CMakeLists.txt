@@ -61,10 +61,32 @@ message(STATUS "OmniNet Version: ${PROJECT_VERSION} (from git tag: ${GIT_TAG})")
 
 project(OmniNet VERSION ${PROJECT_VERSION} LANGUAGES C CXX)
 
-# C++20 required
-set(CMAKE_CXX_STANDARD 20)
+# C++23 required (Phase 1 of async refactor)
+# Compiler requirements: GCC 13+ / Clang 17+ / MSVC 19.36+
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Verify C++23 support and required features
+include(CheckCXXCompilerFlag)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    check_cxx_compiler_flag("-std=c++23" CXX23_SUPPORTED)
+    if(NOT CXX23_SUPPORTED)
+        message(FATAL_ERROR
+            "OmniNet requires C++23 support. "
+            "Please use GCC 13+ or Clang 17+ (current: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
+    endif()
+
+    # Ensure coroutines support
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        check_cxx_compiler_flag("-fcoroutines" HAS_COROUTINES)
+        if(NOT HAS_COROUTINES)
+            message(FATAL_ERROR
+                "Compiler does not support -fcoroutines. "
+                "GCC requires version 10+ for C++20 coroutines.")
+        endif()
+    endif()
+endif()
 
 # Export compile commands for IDE support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -300,7 +322,7 @@ if(Cppcheck_FOUND)
     macro(add_cppcheck_target TARGET_NAME)
         add_custom_target(${TARGET_NAME}
             COMMAND ${CPPCHECK_EXECUTABLE}
-                --std=c++20
+                --std=c++23
                 --enable=all
                 --inconclusive
                 --verbose
@@ -315,7 +337,7 @@ if(Cppcheck_FOUND)
         # Also create a console output version
         add_custom_target(${TARGET_NAME}_console
             COMMAND ${CPPCHECK_EXECUTABLE}
-                --std=c++20
+                --std=c++23
                 --enable=all
                 --inconclusive
                 --quiet

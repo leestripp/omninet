@@ -24,10 +24,21 @@ A modern, high-performance C++ HTTP/WebSocket server library with TLS support, s
 
 ## Requirements
 
-- C++20 compatible compiler (GCC 10+, Clang 12+, MSVC 2019+)
+- C++23 compatible compiler (GCC 13+, Clang 17+, MSVC 19.36+)
 - CMake 3.16+
 - OpenSSL 1.1.1+ (3.x recommended)
 - SQLite3
+
+### C++23 Features Used
+
+OmniNet uses modern C++23 features including:
+- `std::expected` (planned for error handling)
+- `std::move_only_function` (planned for callbacks)
+- `std::flat_map` (planned for header storage)
+- Deducing `this`
+- `std::stacktrace` (planned for error reporting)
+- `if consteval`
+- `std::ranges` improvements
 
 ## Quick Start
 

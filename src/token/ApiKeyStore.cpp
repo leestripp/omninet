@@ -135,7 +135,12 @@ ApiKeyStore::CreateResult ApiKeyStore::create(
     } else {
         stmt.bind(8, nullptr);
     }
-    stmt.bind(9, ip.empty() ? nullptr : std::string(ip));
+    // C++23: ternary with nullptr/string not allowed; use explicit if
+    if (ip.empty()) {
+        stmt.bind(9, nullptr);
+    } else {
+        stmt.bind(9, std::string(ip));
+    }
     stmt.bind(10, metadataStr);
     if (useLimit) {
         stmt.bind(11, static_cast<int64_t>(*useLimit));
