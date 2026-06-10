@@ -137,6 +137,8 @@ target_sources(OmniNet PRIVATE
     src/db/Database.cpp
     src/db/SessionStore.cpp
     src/db/UserStore.cpp
+    src/db/AsyncDatabase.cpp
+    src/db/DatabasePool.cpp
     
     # Vector (sqlite-vec)
     src/vector/VectorStore.cpp
