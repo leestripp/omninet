@@ -147,6 +147,10 @@ target_sources(OmniNet PRIVATE
     # Async (Phase 3) - header only for now
     # src/async/Task.h, Executor.h, AsyncHandler.h, Awaitable.h
     
+    # I/O (Phase 4)
+    src/io/EpollContext.cpp
+    src/io/AsyncSocket.cpp
+    
     # Token Management
     src/token/TokenUtils.cpp
     src/token/SessionToken.cpp
