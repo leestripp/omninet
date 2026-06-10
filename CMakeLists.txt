@@ -153,6 +153,7 @@ target_sources(OmniNet PRIVATE
     # I/O (Phase 4)
     src/io/EpollContext.cpp
     src/io/AsyncSocket.cpp
+    src/io/AsyncFile.cpp
     
     # Async Server (Phase 5)
     src/server/AsyncServer.cpp
