@@ -465,6 +465,10 @@ OmniNet stores data in `~/.omninet/`:
 - [Async I/O API](docs/api/io.md) - Non-blocking I/O with epoll
 - [AsyncServer API](docs/api/async-server.md) - Event-driven HTTP server
 - [Async Database API](docs/api/async-database.md) - Connection pooling
+- [AsyncLogger API](docs/api/async-logger.md) - Non-blocking logger
+- [AsyncTlsSocket API](docs/api/async-tls.md) - Coroutine TLS
+- [std::expected API](docs/api/expected.md) - Type-safe error handling
+- [Migration v0.4→v0.5](docs/migration/v0.4-to-v0.5.md) - Upgrade guide
 
 ## License
 
