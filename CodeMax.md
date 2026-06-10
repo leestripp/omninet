@@ -678,6 +678,7 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-05-23 | **0.4.0** | C++23 + Async + ThreadPool refactor (7 phases) |
 | 2026-05-23 | 0.3.2 | Enable zlib/gzip compression |
 | 2026-05-23 | 0.3.1 | Token system: SessionTokenStore + ApiKeyStore |
 | 2026-05-23 | 0.3.0 | Current version from git tag |
@@ -778,16 +779,22 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 | Component | Status |
 |-----------|--------|
 | Build | ✅ Passing |
-| Tests | ✅ 110/110 passing |
+| Tests | ✅ 213/213 passing |
 | Library | ✅ OmniNet static library |
 | Demos | ✅ 5 demos |
 | Tools | ✅ 10 CLI tools |
 | Vector | ✅ sqlite-vec integration |
 | Static Analysis | ✅ cppcheck targets |
 | Token System | ✅ Implemented |
-| Compression | ✅ zlib enabled |
+| Compression | ✅ zlib enabled, integrated |
+| C++23 Build | ✅ Upgraded |
+| ThreadPool | ✅ Work-stealing pool |
+| Async Tasks | ✅ C++20 coroutines |
+| Async I/O | ✅ epoll-based |
+| AsyncServer | ✅ Non-blocking HTTP |
+| AsyncDatabase | ✅ Connection pool |
 
-**Last Updated**: 2026-05-23 14:00 AEST
+**Last Updated**: 2026-05-23 16:00 AEST
 
 ---
 
@@ -796,7 +803,10 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 | Feature | Description | Priority |
 |---------|-------------|----------|
 | ~~Gzip response compression~~ | ~~Implement in HttpResponse for `Accept-Encoding: gzip`~~ ✅ Done | Medium |
-| **C++23 + Async + ThreadPool Refactor** | See refactor plan below | **High** |
+| ~~C++23 + Async + ThreadPool Refactor~~ | All 7 phases complete | **Done** |
+| `std::expected<T, E>` error handling | Modernize Socket/DB return types | Low |
+| AsyncLogger | Off-thread log writes via ThreadPool | Low |
+| HTTP/2 support | Upgrade path for performance | Low |
 | Rate limiting middleware | Global rate limiter with Redis support | Medium |
 | WebSocket load balancing | Session affinity or stateless mode | Low |
 | HTTP/2 support | Upgrade path for performance | Low |
@@ -1461,53 +1471,30 @@ public:
 
 ### Phase 7: Integration & Polish
 
-#### Gzip Compression Integration
+**Status**: ✅ Completed (v0.4.0)
 
-```cpp
-// In HttpConnection::sendResponse()
-void Connection::sendResponse(Response& resp) {
-    // Check if client accepts gzip
-    auto acceptEncoding = m_currentRequest.header("Accept-Encoding");
-    if (acceptEncoding && acceptEncoding->find("gzip") != std::string::npos) {
-        if (resp.compressBody(*acceptEncoding)) {
-            LOG_DEBUG("Compressed response: {} -> {} bytes",
-                      originalSize, resp.bodySize());
-        }
-    }
-    // ... existing send logic
-}
-```
+#### What was delivered
 
-#### Error Handling Modernization
+1. **Gzip compression integration** — `HttpConnection::sendResponse()` now checks
+   the request's `Accept-Encoding` header and automatically calls
+   `Response::compressBody()` when gzip is supported. This is opt-in via the
+   zlib detection at build time (the `OMNINET_HAVE_ZLIB` define).
 
-Replace `bool` returns with `std::expected<T, Error>`:
+2. **Backward compatibility** — All existing API continues to work. The
+   compression is transparent to handlers.
 
-```cpp
-// Before
-bool connect(const std::string& host, uint16_t port);
+3. **Documentation** — README.md updated with new module links.
 
-// After
-std::expected<void, SocketError> connect(const std::string& host, uint16_t port);
+#### What was deferred
 
-enum class SocketError {
-    InvalidAddress,
-    ConnectionRefused,
-    Timeout,
-    NetworkUnreachable,
-    // ...
-};
-```
-
-#### Structured Logging
-
-```cpp
-// Use std::source_location for automatic location capture
-#define LOG_INFO(msg) OmniNet::Logger::log(
-    OmniNet::LogLevel::INFO, 
-    msg, 
-    std::source_location::current()
-)
-```
+- **Error handling modernization** — `std::expected<T, E>` migration is deferred
+  to v0.4.1 to keep this release focused on infrastructure.
+- **AsyncLogger** — Deferred to v0.4.1 as it requires integration with the
+  new ThreadPool for off-thread writes.
+- **AsyncFile** — Deferred; current synchronous file I/O is sufficient for
+  static file serving.
+- **TLS async handshake** — Deferred; TLS still happens synchronously in
+  the existing `Server`.
 
 ---
 

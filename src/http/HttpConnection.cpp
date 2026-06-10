@@ -350,19 +350,31 @@ bool Connection::readRequest() {
 
 bool Connection::sendResponse(const Response& resp) {
     CONN_DEBUG("sendResponse() called, status=" << static_cast<int>(resp.status()));
-    
-    auto data = resp.buildFull();
+
+    // Check for gzip compression
+    // Note: resp.compressBody is non-const, so we work with a copy
+    Response finalResp = resp;
+    auto acceptEncoding = m_currentRequest.header("Accept-Encoding");
+    if (acceptEncoding) {
+        std::string ae(*acceptEncoding);
+        if (finalResp.compressBody(ae)) {
+            CONN_DEBUG("Response compressed: " << resp.bodySize()
+                      << " -> " << finalResp.bodySize() << " bytes");
+        }
+    }
+
+    auto data = finalResp.buildFull();
     CONN_DEBUG("buildFull returned " << data.size() << " bytes");
-    
+
     if (data.empty()) {
         CONN_DEBUG("buildFull returned empty data!");
         return false;
     }
-    
+
     // Print first few bytes of response for debugging
     std::string preview(data.begin(), data.begin() + std::min(size_t(200), data.size()));
     CONN_DEBUG("Response preview: " << preview);
-    
+
     CONN_DEBUG("Calling socket->sendAll()");
     try {
         m_socket->sendAll(data);
@@ -371,17 +383,17 @@ bool Connection::sendResponse(const Response& resp) {
         CONN_DEBUG("sendAll() failed: " << e.what());
         return false;
     }
-    
+
     m_stats.bytesSent += data.size();
     ++m_stats.requestsProcessed;
-    
+
     // Check for connection close
     m_keepAlive = m_currentRequest.keepAlive();
-    if (resp.header("Connection") == "close") {
+    if (finalResp.header("Connection") == "close") {
         m_keepAlive = false;
         CONN_DEBUG("Response has Connection: close, setting keepAlive=false");
     }
-    
+
     CONN_DEBUG("sendResponse() returning " << m_keepAlive << ", keepAlive=" << m_keepAlive);
     return m_keepAlive;
 }

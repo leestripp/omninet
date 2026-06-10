@@ -460,6 +460,11 @@ OmniNet stores data in `~/.omninet/`:
 - [Logger API](docs/api/logger.md) - Logging system
 - [Dashboard API](docs/api/dashboard.md) - Admin dashboard
 - [Token System API](docs/api/token.md) - Session tokens and API keys
+- [ThreadPool API](docs/api/threadpool.md) - Work-stealing thread pool (C++23)
+- [Async Tasks API](docs/api/async.md) - Coroutine tasks and executors
+- [Async I/O API](docs/api/io.md) - Non-blocking I/O with epoll
+- [AsyncServer API](docs/api/async-server.md) - Event-driven HTTP server
+- [Async Database API](docs/api/async-database.md) - Connection pooling
 
 ## License
 
