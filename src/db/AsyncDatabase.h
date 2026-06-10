@@ -58,6 +58,16 @@ public:
     // Execute SQL that doesn't return rows
     Async::Task<void> execute(std::string_view sql);
 
+    // ----- std::expected variants (delegated to native Database) -----
+
+    // Execute SQL with type-safe error handling
+    [[nodiscard]] OmniNet::Result<void, OmniNet::DbError>
+    tryExecute(std::string_view sql);
+
+    // Query returning first row with type-safe error handling
+    [[nodiscard]] OmniNet::Result<std::optional<std::vector<std::string>>, OmniNet::DbError>
+    tryQueryOne(std::string_view sql);
+
     // ----- Synchronous access (use sparingly) -----
 
     // Get the underlying database (for prepared statements, etc.)

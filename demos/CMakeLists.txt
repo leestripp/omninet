@@ -39,3 +39,10 @@ add_executable(dashboard_demo
 )
 target_link_libraries(dashboard_demo PRIVATE OmniNet)
 target_include_directories(dashboard_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# Async server demo (v0.4.0+ integration)
+add_executable(async_server_demo
+    async_server.cpp
+)
+target_link_libraries(async_server_demo PRIVATE OmniNet Threads::Threads)
+target_include_directories(async_server_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)

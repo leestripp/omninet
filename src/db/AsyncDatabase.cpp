@@ -65,4 +65,16 @@ AsyncDatabase::execute(std::string_view sql) {
     co_return;
 }
 
+OmniNet::Result<void, OmniNet::DbError>
+AsyncDatabase::tryExecute(std::string_view sql) {
+    // Delegate to the native Database's tryExecute
+    return m_db.tryExecute(std::string(sql));
+}
+
+OmniNet::Result<std::optional<std::vector<std::string>>, OmniNet::DbError>
+AsyncDatabase::tryQueryOne(std::string_view sql) {
+    // Delegate to the native Database's tryQueryOne
+    return m_db.tryQueryOne(std::string(sql));
+}
+
 } // namespace OmniNet::DB
