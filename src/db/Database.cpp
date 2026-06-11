@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <iostream>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -226,12 +227,31 @@ OmniNet::Result<void, OmniNet::DbError> Database::tryOpen(const std::string& pat
     }
 
     sqlite3* newDb = nullptr;
-    if (sqlite3_open(path.c_str(), &newDb) != SQLITE_OK) {
-        std::string error = sqlite3_errmsg(newDb);
+    int rc = sqlite3_open(path.c_str(), &newDb);
+    if (rc != SQLITE_OK) {
+        // sqlite3_open() returns an error code AND a sqlite3_errmsg().
+        // We close the handle (sqlite3_open always allocates one, even
+        // on failure) and map the error code to a specific DbError.
+        std::string errorMsg = newDb ? sqlite3_errmsg(newDb) : "out of memory";
         sqlite3_close(newDb);
-        // For now, map all open errors to Unknown
-        // TODO: parse error code for more specific errors
-        return std::unexpected<OmniNet::DbError>{OmniNet::DbError::Unknown};
+
+        // v0.6.0: Map specific SQLite error codes to DbError variants
+        // (was previously all mapped to Unknown)
+        switch (rc) {
+            case SQLITE_CANTOPEN:        return std::unexpected<OmniNet::DbError>{OmniNet::DbError::InvalidPath};
+            case SQLITE_PERM:            return std::unexpected<OmniNet::DbError>{OmniNet::DbError::SystemError};  // permission denied
+            case SQLITE_NOMEM:           return std::unexpected<OmniNet::DbError>{OmniNet::DbError::OutOfMemory};
+            case SQLITE_READONLY:        return std::unexpected<OmniNet::DbError>{OmniNet::DbError::ReadOnly};
+            case SQLITE_CORRUPT:
+            case SQLITE_NOTADB:           return std::unexpected<OmniNet::DbError>{OmniNet::DbError::CorruptDatabase};
+            case SQLITE_BUSY:            return std::unexpected<OmniNet::DbError>{OmniNet::DbError::Busy};
+            default: {
+                // Log the message for debugging (Unknown is a fallback)
+                std::cerr << "[Database] tryOpen failed (code=" << rc
+                          << "): " << errorMsg << std::endl;
+                return std::unexpected<OmniNet::DbError>{OmniNet::DbError::Unknown};
+            }
+        }
     }
 
     m_db = newDb;

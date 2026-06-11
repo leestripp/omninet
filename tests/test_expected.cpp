@@ -143,6 +143,26 @@ TEST(database_tryOpen_twice_fails) {
     std::remove(path.c_str());
 }
 
+TEST(database_tryOpen_invalid_path) {
+    // v0.6.0: tryOpen should map SQLITE_CANTOPEN to DbError::InvalidPath
+    // Try to open a path inside a non-existent directory
+    Database db;
+    auto result = db.tryOpen("/nonexistent/dir/should/not/exist/db.sqlite");
+    ASSERT_TRUE(!result.has_value());
+    // Should be InvalidPath, not Unknown
+    ASSERT_EQ(result.error(), DbError::InvalidPath);
+}
+
+TEST(database_tryOpen_error_messages) {
+    // Sanity: error.toString() doesn't crash and returns a message
+    Database db;
+    auto result = db.tryOpen("/nonexistent/dir/db.sqlite");
+    ASSERT_TRUE(!result.has_value());
+    std::string msg(toString(result.error()));
+    ASSERT_TRUE(!msg.empty());
+    ASSERT_TRUE(msg != "Success");
+}
+
 TEST(database_tryExecute_success) {
     auto path = tmpDbPath();
     std::remove(path.c_str());
