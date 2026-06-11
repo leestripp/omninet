@@ -282,49 +282,70 @@ bool Connection::readRequest() {
             // ...
             // 0\r\n
             // \r\n
-            
-            // Look for end of current chunk ( CRLF )
-            size_t crlfPos = 0;
-            for (size_t i = 0; i + 1 < buffer.size(); ++i) {
-                if (buffer[i] == '\r' && buffer[i + 1] == '\n') {
-                    crlfPos = i;
+
+            // Accumulator for chunked body data (v0.6.0 fix: was discarded
+            // by the previous code, which only set the body on the final
+            // 0-chunk using the entire remaining buffer).
+            std::vector<uint8_t> chunkedBody;
+
+            // Process all chunks currently in the buffer.
+            // The outer loop will read more data if we don't have the
+            // final 0-chunk yet.
+            while (state == State::READING_CHUNKED) {
+                // Look for end of current chunk ( CRLF )
+                size_t crlfPos = 0;
+                bool foundCrlf = false;
+                for (size_t i = 0; i + 1 < buffer.size(); ++i) {
+                    if (buffer[i] == '\r' && buffer[i + 1] == '\n') {
+                        crlfPos = i;
+                        foundCrlf = true;
+                        break;
+                    }
+                }
+
+                if (!foundCrlf) {
+                    // Need more data to find the chunk size line
                     break;
                 }
-            }
-            
-            if (crlfPos > 0) {
+
                 // Try to parse chunk size
                 std::string sizeStr(buffer.begin(), buffer.begin() + crlfPos);
+                size_t chunkSize = 0;
                 try {
-                    size_t chunkSize = std::stoull(sizeStr, nullptr, 16);
-                    CONN_DEBUG("  Chunk size: " << chunkSize);
-                    
-                    if (chunkSize == 0) {
-                        // Final chunk, we're done
-                        m_currentRequest.setBody(std::move(buffer));
-                        ++m_stats.requestsReceived;
-                        return true;
-                    }
-                    
-                    // Need at least: size line + CRLF + chunk data + CRLF
-                    size_t neededSize = crlfPos + 2 + chunkSize + 2;
-                    if (buffer.size() >= neededSize) {
-                        // Extract chunk data (skip size line and trailing CRLF)
-                        std::vector<uint8_t> chunkData(
-                            buffer.begin() + crlfPos + 2,
-                            buffer.begin() + crlfPos + 2 + chunkSize
-                        );
-                        buffer.erase(buffer.begin(), buffer.begin() + neededSize);
-                        
-                        // TODO: Accumulate chunked data properly
-                        // For now, just continue reading
-                        CONN_DEBUG("  Processed chunk of " << chunkSize << " bytes");
-                    }
+                    chunkSize = std::stoull(sizeStr, nullptr, 16);
                 } catch (...) {
                     // Invalid chunk size
                     CONN_DEBUG("  Invalid chunk size, returning false");
                     return false;
                 }
+
+                CONN_DEBUG("  Chunk size: " << chunkSize);
+
+                if (chunkSize == 0) {
+                    // Final chunk - set accumulated body and finish.
+                    m_currentRequest.setBody(std::move(chunkedBody));
+                    ++m_stats.requestsReceived;
+                    return true;
+                }
+
+                // Need at least: size line + CRLF + chunk data + CRLF
+                size_t neededSize = crlfPos + 2 + chunkSize + 2;
+                if (buffer.size() < neededSize) {
+                    // Not enough data for this chunk's payload yet
+                    break;
+                }
+
+                // Extract chunk data (skip size line and trailing CRLF)
+                // and ACCUMULATE it into chunkedBody
+                chunkedBody.insert(
+                    chunkedBody.end(),
+                    buffer.begin() + crlfPos + 2,
+                    buffer.begin() + crlfPos + 2 + chunkSize
+                );
+                buffer.erase(buffer.begin(), buffer.begin() + neededSize);
+
+                CONN_DEBUG("  Processed chunk of " << chunkSize
+                          << " bytes (total=" << chunkedBody.size() << ")");
             }
         }
         
