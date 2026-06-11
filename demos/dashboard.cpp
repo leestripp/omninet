@@ -48,29 +48,39 @@ int main() {
     
     Server server(serverConfig);
     
-    // Mount dashboard
+    // Mount dashboard FIRST so its specific routes (/dashboard, /api/dashboard/*)
+    // are registered before the catch-all /* shadowing them
     dashboard.mount(server);
-    
+
     // Create static file handler for index.html and CSS
     StaticHandler staticHandler(staticDir);
     staticHandler.setDefaultFile("index.html");
-    
-    // Serve root path with index.html
-    server.router().get("/", [&staticHandler](const Request& req, Response& resp) {
-        staticHandler.handle(req, resp);
-    });
-    
-    // Serve static files (CSS, etc)
-    server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
-        staticHandler.handle(req, resp);
-    });
-    
-    // API status endpoint
+
+    // IMPORTANT: Register the API status endpoint BEFORE the catch-all /*
+    // so it isn't shadowed by it
     server.router().get("/api/status", [](const Request& req, Response& resp) {
         (void)req;
         resp.setStatus(StatusCode::OK);
         resp.setContentType("application/json");
         resp.setBody(R"({"status": "running"})");
+    });
+
+    // Serve root path with index.html
+    server.router().get("/", [&staticHandler](const Request& req, Response& resp) {
+        staticHandler.handle(req, resp);
+    });
+
+    // Catch-all LAST, with a check to skip reserved paths so it doesn't
+    // shadow /api/*, /dashboard, or /omninet/* (admin) routes
+    server.router().get("/*", [&staticHandler](const Request& req, Response& resp) {
+        std::string path(req.path());
+        if (path.rfind("/api/", 0) == 0 ||
+            path.rfind("/dashboard", 0) == 0 ||
+            path.rfind("/omninet/", 0) == 0) {
+            resp = Response::notFound();
+            return;
+        }
+        staticHandler.handle(req, resp);
     });
     
     // Start server in background
