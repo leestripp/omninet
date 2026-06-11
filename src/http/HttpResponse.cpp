@@ -215,6 +215,10 @@ std::span<const uint8_t> Response::body() const {
 }
 
 size_t Response::bodySize() const {
+    // When compressed, bodySize() returns the wire size (compressed body)
+    if (m_compressed) {
+        return m_compressedBody.size();
+    }
     return m_body.size();
 }
 
@@ -360,6 +364,10 @@ size_t Response::calculateContentLength() const {
         // Would need to stat the file
         return 0;
     }
+    // When compressed, the wire size is the compressed body size
+    if (m_compressed) {
+        return m_compressedBody.size();
+    }
     return m_body.size();
 }
 
@@ -420,9 +428,12 @@ std::vector<uint8_t> Response::buildFull() const {
             }
         }
     } else {
-        response.insert(response.end(), m_body.begin(), m_body.end());
+        // v0.6.0 fix: when compressed, use m_compressedBody (not m_body)
+        // so the wire bytes match the Content-Encoding: gzip header.
+        const auto& body = m_compressed ? m_compressedBody : m_body;
+        response.insert(response.end(), body.begin(), body.end());
     }
-    
+
     return response;
 }
 

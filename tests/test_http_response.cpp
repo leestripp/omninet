@@ -161,6 +161,56 @@ bool test_response_compress_idempotent() {
     if (resp.bodySize() != firstSize) return false;
     return true;
 }
+
+bool test_response_buildFull_uses_compressed_body() {
+    // v0.6.0 fix: buildFull() must use m_compressedBody (not m_body)
+    // when the response has been compressed.
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    std::string body(1024, 'a');
+    resp.setBody(body);
+
+    if (!resp.compressBody("gzip")) return false;
+
+    auto fullResp = resp.buildFull();
+
+    // Find the header/body boundary
+    std::string fullStr(reinterpret_cast<const char*>(fullResp.data()), fullResp.size());
+    auto headerEnd = fullStr.find("\r\n\r\n");
+    if (headerEnd == std::string::npos) return false;
+    size_t bodyStart = headerEnd + 4;
+    size_t wireBodySize = fullResp.size() - bodyStart;
+
+    // Wire body must match the compressed body size (NOT the original 1024)
+    if (wireBodySize >= 1024) return false;
+
+    // Wire body must start with gzip magic bytes 0x1f 0x8b
+    if (fullResp[bodyStart] != 0x1f || fullResp[bodyStart + 1] != 0x8b) return false;
+
+    // Content-Length header must match the wire body size
+    auto cl = resp.header("Content-Length");
+    if (!cl) return false;
+    if (std::stoul(std::string(*cl)) != wireBodySize) return false;
+
+    return true;
+}
+
+bool test_response_bodySize_after_compress() {
+    // v0.6.0 fix: bodySize() should return compressed size when compressed
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    std::string body(512, 'x');
+    resp.setBody(body);
+
+    if (resp.bodySize() != 512) return false;
+    if (!resp.compressBody("gzip")) return false;
+
+    size_t compressedSize = resp.bodySize();
+    if (compressedSize >= 512) return false;  // compressed should be smaller
+    if (compressedSize == 0) return false;
+
+    return true;
+}
 #endif // OMNINET_HAVE_ZLIB
 
 int main() {
@@ -255,6 +305,22 @@ int main() {
         passed++;
     } else {
         std::cout << "[FAIL] Compress idempotent (no double-compress)" << std::endl;
+        failed++;
+    }
+
+    if (test_response_buildFull_uses_compressed_body()) {
+        std::cout << "[PASS] buildFull uses compressed body (v0.6.0 fix)" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] buildFull uses compressed body (v0.6.0 fix)" << std::endl;
+        failed++;
+    }
+
+    if (test_response_bodySize_after_compress()) {
+        std::cout << "[PASS] bodySize reflects compressed size" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] bodySize reflects compressed size" << std::endl;
         failed++;
     }
 #endif // OMNINET_HAVE_ZLIB
