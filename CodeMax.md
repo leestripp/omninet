@@ -313,7 +313,7 @@ cmake --build build --target cppcheck
 - None
 
 ### TODO 📋
-- [ ] **dashboard_demo POST /api/dashboard/login times out** (v0.5.2 known limitation)
+- [ ] **dashboard_demo POST /api/dashboard/login times out** (v0.5.2 known limitation) ✅ FIXED in v0.6.0 (root cause was `Response::build()` not auto-setting `Content-Length`, fixed in `src/http/HttpResponse.cpp`)
   - `POST /api/dashboard/login -d "username=admin&password=test"` hangs in curl
   - POST works fine in `http_server_demo`'s `/api/echo`, so this is specific
     to the dashboard login flow, not the sync HTTP server
@@ -1070,14 +1070,16 @@ A comprehensive sweep of the codebase found:
 
 ### Phase 10a: Critical Bug Fixes (3-4 days)
 
-**Must fix before any new feature work.**
+**Status: ✅ COMPLETE (2026-06-11)**
 
-| # | File | Issue | Fix |
-|---|------|-------|-----|
-| 1 | `src/http/HttpConnection.cpp:319` | Chunked transfer-encoding body is **discarded** — the code parses chunk size and extracts `chunkData` but never accumulates it into `m_currentRequest`. Only the final 0-chunk sets the (incorrect) body. | Accumulate `chunkData` into `m_currentRequest.setBody()`; only the final 0-chunk should return. |
-| 2 | `src/db/Database.cpp:233` | All `sqlite3_open` errors mapped to `DbError::Unknown` | Parse `sqlite3_errcode()` / `sqlite3_extended_errcode()` and map to specific `DbError` variants (Locked, Busy, Permission, DiskFull, Corrupt, etc.) |
-| 3 | `demos/dashboard.cpp` (POST) | `POST /api/dashboard/login` times out (TODO) | Add `std::cerr` in `DashboardHandler::handleLogin` to trace; likely a session/DB init issue specific to the demo |
-| 4 | `tools/omninet-certs/` | `generate` writes certs to cwd, but `Config::defaultTlsCertPath()` expects `~/.omninet/certs/omninet.crt` | Make `generate` honor `--output-dir` flag (default `~/.omninet/certs/`); or just use the same path the demo's `defaultTlsCertPath()` looks at |
+| # | File | Issue | Fix | Tests |
+|---|------|-------|-----|-------|
+| 1 | `src/http/HttpConnection.cpp` | Chunked transfer-encoding body is **discarded** — the code parses chunk size and extracts `chunkData` but never accumulates it into `m_currentRequest`. Only the final 0-chunk sets the (incorrect) body. | Accumulate `chunkData` into a local `chunkedBody`, process ALL chunks in the buffer in a loop (not just one per recv), set the accumulated body on the final 0-chunk. | Added `tests/test_http_connection.cpp` with 5 tests (single chunk, multiple chunks, regression, GET, invalid size) |
+| 2 | `src/db/Database.cpp:233` | All `sqlite3_open` errors mapped to `DbError::Unknown` | Switch on the return code and map to specific DbError variants (CANTOPEN→InvalidPath, PERM→SystemError, NOMEM→OutOfMemory, READONLY→ReadOnly, CORRUPT/NOTADB→CorruptDatabase, BUSY→Busy). Also log the error message via cerr for debugging. | Added 2 tests in `tests/test_expected.cpp` (invalid_path, error_messages) |
+| 3 | `src/http/HttpResponse.cpp` (root cause) | `Response::build()` did not auto-add `Content-Length`. For empty-body responses (e.g. 401 from dashboard login), HTTP/1.1 keep-alive clients (curl) hung waiting for data that never came. | Auto-add `Content-Length: N` based on body size when not explicitly set and no Transfer-Encoding / file body. Explicit setContentLength() calls are preserved. | Added 3 tests in `tests/test_http_response.cpp` (empty body, with body, explicit). Dashboard demo POST endpoints now work. |
+| 4 | `tools/omninet-certs/main.cpp` | `generate` wrote certs to cwd (`omninet.crt` / `omninet.key`) instead of `Paths::certsDir()`. Made certs invisible to demos that look in `~/.omninet/certs/`. | Use `Paths::certsDir() / (opts.target + ".crt")` and create dir if missing. Matches the other actions (list, info, check). | Manual test: `omninet-certs generate localhost` now writes to `~/.omninet/certs/localhost.crt`; `list` shows it. |
+
+**Result**: 271 → 275 tests passing (+4). All 4 critical bugs from the v0.6.0 sweep fixed.
 
 ### Phase 10b: Async TLS Completion (3-4 days)
 
