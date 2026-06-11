@@ -38,3 +38,4 @@ server.key
 # Note: third_party/ is gitignored - dependencies are fetched at build time
 # Exception: keep third_party/ if you have local non-fetched dependencies
 third_party/
+*.db
