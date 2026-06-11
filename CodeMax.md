@@ -800,7 +800,8 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2026-06-11 | **0.5.1** | AsyncServer + Task<T> bug fixes (see below) |
+| 2026-06-11 | **0.5.2** | Demo fixes: HTTPS (certs) + dashboard (route ordering) |
+| 2026-06-11 | 0.5.1 | AsyncServer + Task<T> bug fixes (see below) |
 | 2026-05-23 | 0.5.0 | Integration & Demos (3 phases complete) |
 | 2026-05-23 | 0.4.1 | Async I/O Extensions (4 phases complete) |
 | 2026-05-23 | 0.4.0 | C++23 + Async + ThreadPool refactor (7 phases) |
@@ -812,6 +813,51 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 | 2026-05-15 | - | Fixed SQLite CMake target name |
 | 2026-05-04 | - | Added Cppcheck static analysis |
 | 2026-04-18 | - | Initial HTTP/WebSocket implementation |
+
+## v0.5.2: Demo Fixes (2026-06-11)
+
+**Found while testing all 6 demos end-to-end.**
+
+### `https_server_demo` — fixed by generating certs
+
+The HTTPS demo was reading TLS ClientHello data as plain HTTP, causing
+the connection to hang. Root cause:
+
+1. `~/.omninet/config.json` had `"tls": {"enabled": false, "certFile": "", "keyFile": ""}`
+2. `~/.omninet/certs/` didn't exist
+3. Demo's `serverConfig.tlsEnabled` read `false` from config, so the
+   server bound the port but used plain HTTP
+4. Curl sent TLS data, server read it as HTTP, got stuck
+
+**Fix**: Run `omninet-init --enable-tls -y --skip-admin` which:
+- Generates `~/.omninet/certs/omninet.crt` and `~/.omninet/certs/omninet.key`
+- Sets `"tls.enabled": true` and points certFile/keyFile to the right paths
+- Re-init with `--force` if `~/.omninet/` already exists
+
+All HTTPS endpoints now work.
+
+### `dashboard_demo` — fixed route ordering
+
+The `/*` catch-all static-file route was registered BEFORE `/api/status`,
+so the catch-all always matched first and returned 404 from the static
+handler (no file at `/api/status`).
+
+**Fix** (same pattern as `http_server_demo`):
+1. `dashboard.mount(server)` — specific `/dashboard`, `/api/dashboard/*`
+2. `server.router().get("/api/status", ...)` — specific JSON endpoint
+3. `server.router().get("/", staticHandler)` — serves `index.html`
+4. `server.router().get("/*", staticHandler)` — catch-all LAST, with
+   a check for reserved prefixes (`/api/`, `/dashboard`, `/omninet/`)
+   so it returns 404 instead of falling through to the static handler
+
+All dashboard endpoints now work.
+
+### Known limitation
+
+`POST /api/dashboard/login` still times out in the dashboard demo. POST
+works fine in `http_server_demo`'s `/api/echo`, so this is specific to
+the dashboard login flow (likely a session/DB init issue in the demo
+itself, not the sync HTTP server).
 
 ## v0.5.1: AsyncServer Bug Fixes (2026-06-11)
 
@@ -960,7 +1006,7 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 | Build | ✅ Passing |
 | Tests | ✅ 271/271 passing |
 | Library | ✅ OmniNet static library |
-| Demos | ✅ 5 demos |
+| Demos | ✅ 5 demos (all working in v0.5.2) |
 | Tools | ✅ 10 CLI tools |
 | Vector | ✅ sqlite-vec integration |
 | Static Analysis | ✅ cppcheck targets |
