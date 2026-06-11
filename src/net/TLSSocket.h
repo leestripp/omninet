@@ -125,6 +125,24 @@ public:
     // Mark handshake as done (used after async handshake completes)
     void markHandshakeDone() { m_handshakeDone = true; }
 
+    // v0.6.0: Result of a single handshake step (for AsyncTlsSocket)
+    enum class HandshakeState {
+        Done,        // Handshake complete
+        WantRead,    // Need to wait for socket readability
+        WantWrite,   // Need to wait for socket writeability
+        Error        // Handshake failed (see OpenSSL error queue)
+    };
+
+    // Initialize the SSL* if not already (no handshake step). Required
+    // before calling stepHandshake().
+    void initHandshake();
+
+    // Perform one handshake step. Returns the resulting state. Caller
+    // should loop: on WantRead/WantWrite, await socket readiness, then
+    // call again. On Done, handshake is complete. On Error, see
+    // ERR_get_error() for details.
+    HandshakeState stepHandshake();
+
     // Get the fd of the underlying socket
     int getRawFd() const { return m_fd; }
     std::optional<std::string> getALPNProtocol();

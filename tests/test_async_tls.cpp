@@ -253,6 +253,51 @@ TEST(handshake_returns_immediately_on_null_socket) {
     // Should complete without throwing
 }
 
+TEST(tls_socket_handshake_state_enum) {
+    // v0.6.0: Verify the new HandshakeState enum on TLSSocket
+    // and that initHandshake/stepHandshake work as expected
+    TestEnv env;
+
+    int sv[2];
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, sv), 0);
+
+    auto sock = std::make_unique<TLSSocket>(sv[0], true);  // server mode
+    // Make the socket non-blocking so SSL_accept returns WANT_READ
+    // immediately instead of blocking waiting for a ClientHello
+    sock->setNonBlocking(true);
+    // initHandshake should not throw and should create the SSL*
+    sock->initHandshake();
+    ASSERT_TRUE(sock->getSSL() != nullptr);
+    // Initial step on a socketpair where the peer hasn't done anything
+    // should return WantRead (server waiting for ClientHello)
+    auto state = sock->stepHandshake();
+    ASSERT_EQ(state, TLSSocket::HandshakeState::WantRead);
+
+    ::close(sv[0]);
+    ::close(sv[1]);
+}
+
+TEST(init_handshake_idempotent) {
+    // initHandshake() should be a no-op if already initialized
+    TestEnv env;
+
+    int sv[2];
+    ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, sv), 0);
+
+    auto sock = std::make_unique<TLSSocket>(sv[0], true);
+    sock->setNonBlocking(true);
+    sock->initHandshake();
+    SSL* first = sock->getSSL();
+    ASSERT_TRUE(first != nullptr);
+
+    // Second call should be a no-op (same SSL*)
+    sock->initHandshake();
+    ASSERT_EQ(sock->getSSL(), first);
+
+    ::close(sv[0]);
+    ::close(sv[1]);
+}
+
 // ============================================================================
 // Main
 // ============================================================================

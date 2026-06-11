@@ -13,31 +13,40 @@ namespace OmniNet::Async {
 // handshake
 // ============================================================================
 //
-// Drives SSL_accept/SSL_connect in a loop, awaiting socket readiness on
-// SSL_ERROR_WANT_READ/WANT_WRITE.
-//
-// Note: This is a client-style handshake. The underlying TLSSocket
-// must have its SSL object initialized first. We use a two-step approach:
-// 1. Call performHandshake() once to initialize the SSL object (may block briefly)
-// 2. Then drive the handshake asynchronously
-//
-// For server-side handshake with full async, the AsyncServer integration
-// is more complex and would need custom SSL initialization.
+// v0.6.0: Truly async TLS handshake. Loops calling SSL_accept/SSL_connect
+// via TLSSocket::stepHandshake(), awaiting socket readiness via the
+// IoContext event loop when the underlying socket isn't ready (instead
+// of blocking in select() like the old TLSSocket::performHandshake()).
 //
 Async::Task<> AsyncTlsSocket::handshake() {
     if (!m_socket || !m_socket->isOpen()) {
         co_return;
     }
 
-    // Use a simpler approach: just do the synchronous handshake
-    // The TLSSocket already has select()-based non-blocking retry logic
-    // For real async, this would need a more complex refactor
-    try {
-        m_socket->performHandshake();
-    } catch (...) {
-        throw;
+    // Initialize the SSL* (idempotent; does nothing if already created)
+    m_socket->initHandshake();
+
+    // Drive the handshake one step at a time, awaiting readiness on the
+    // event loop thread when needed (the key behavior: this coroutine
+    // yields control to the event loop instead of blocking in select()).
+    constexpr int maxIterations = 1000;  // safety bound to prevent infinite loops
+    for (int i = 0; i < maxIterations; ++i) {
+        auto state = m_socket->stepHandshake();
+        switch (state) {
+            case TLSSocket::HandshakeState::Done:
+                co_return;
+            case TLSSocket::HandshakeState::WantRead:
+                co_await IO::when_readable(m_context, *m_socket);
+                break;
+            case TLSSocket::HandshakeState::WantWrite:
+                co_await IO::when_writable(m_context, *m_socket);
+                break;
+            case TLSSocket::HandshakeState::Error:
+                throw std::runtime_error("TLS handshake failed (see OpenSSL errors)");
+        }
     }
-    co_return;
+
+    throw std::runtime_error("TLS handshake timed out");
 }
 
 // ============================================================================

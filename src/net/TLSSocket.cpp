@@ -382,26 +382,26 @@ void TLSSocket::cleanupContext() {
 
 void TLSSocket::doHandshake() {
     if (m_handshakeDone) return;
-    
+
     if (!m_ssl && m_ctx) {
         m_ssl = SSL_new(m_ctx);
         if (!m_ssl) {
             throw TLSException(std::string("Failed to create SSL object"), -1);
         }
         SSL_set_fd(m_ssl, m_fd);
-        
+
         if (!m_sniHostname.empty()) {
             SSL_set_tlsext_host_name(m_ssl, m_sniHostname.c_str());
         }
     }
-    
+
     int ret;
     if (m_serverMode) {
         ret = SSL_accept(m_ssl);
     } else {
         ret = SSL_connect(m_ssl);
     }
-    
+
     if (ret != 1) {
         int err = SSL_get_error(m_ssl, ret);
         if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
@@ -413,13 +413,62 @@ void TLSSocket::doHandshake() {
         while ((e = ERR_get_error()) != 0) {
             char buf[256];
             ERR_error_string_n(e, buf, sizeof(buf));
-            std::cerr << "  - " << buf << " (lib=" << ERR_lib_error_string(e) 
+            std::cerr << "  - " << buf << " (lib=" << ERR_lib_error_string(e)
                       << ", reason=" << ERR_reason_error_string(e) << ")" << std::endl;
         }
         throw TLSException(std::string("TLS handshake failed: ") + Crypto::lastError(), err);
     }
-    
+
     m_handshakeDone = true;
+}
+
+// v0.6.0: Init SSL* if needed (no handshake step)
+void TLSSocket::initHandshake() {
+    if (m_handshakeDone || m_ssl) return;
+
+    if (!m_ctx) {
+        throw TLSException(std::string("SSL_CTX not initialized"), -1);
+    }
+
+    m_ssl = SSL_new(m_ctx);
+    if (!m_ssl) {
+        throw TLSException(std::string("Failed to create SSL object"), -1);
+    }
+    SSL_set_fd(m_ssl, m_fd);
+
+    if (!m_sniHostname.empty()) {
+        SSL_set_tlsext_host_name(m_ssl, m_sniHostname.c_str());
+    }
+}
+
+// v0.6.0: Perform one handshake step, return WANT state
+TLSSocket::HandshakeState TLSSocket::stepHandshake() {
+    if (m_handshakeDone) return HandshakeState::Done;
+    if (!m_ssl) {
+        throw TLSException(std::string("SSL not initialized; call initHandshake first"), -1);
+    }
+
+    int ret = m_serverMode ? SSL_accept(m_ssl) : SSL_connect(m_ssl);
+
+    if (ret == 1) {
+        m_handshakeDone = true;
+        return HandshakeState::Done;
+    }
+
+    int err = SSL_get_error(m_ssl, ret);
+    if (err == SSL_ERROR_WANT_READ) return HandshakeState::WantRead;
+    if (err == SSL_ERROR_WANT_WRITE) return HandshakeState::WantWrite;
+
+    // Real error - log OpenSSL error queue
+    std::cerr << "[TLSSocket] OpenSSL error queue:" << std::endl;
+    unsigned long e;
+    while ((e = ERR_get_error()) != 0) {
+        char buf[256];
+        ERR_error_string_n(e, buf, sizeof(buf));
+        std::cerr << "  - " << buf << " (lib=" << ERR_lib_error_string(e)
+                  << ", reason=" << ERR_reason_error_string(e) << ")" << std::endl;
+    }
+    return HandshakeState::Error;
 }
 
 size_t TLSSocket::sslRecv(std::span<uint8_t> buffer) {
