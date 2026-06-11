@@ -1105,18 +1105,26 @@ A comprehensive sweep of the codebase found:
 
 ### Phase 10d: Test Coverage Gaps (1 week)
 
-**Currently 271 tests. Several important code paths have no coverage.**
+**Currently 281 tests. Several important code paths have no coverage.**
 
-| Test | What it covers | Why |
-|------|----------------|-----|
-| `test_chunked_transfer` | `HttpConnection` chunked body parsing | Phase 10a bug #1 — would have caught the discard bug |
-| `test_compression` | `Response::compressBody` + Accept-Encoding negotiation | Marked ✅ in CodeMax.md but no test exists |
-| `test_websocket_protocol` | Real handshake, framing, masking (client→server must mask), large frames (>125, >65535 bytes, 7-bit vs 8-byte length), fragmentation reassembly, ping/pong, close | Current `test_websocket` only tests the frame codec, not the protocol |
-| `test_sync_http_server` | Real HTTP/1.1 request/response via raw socket (no async) | **Zero coverage** for `HTTP::Server`! All other modules are tested. |
+| Test | What it covers | Status |
+|------|----------------|--------|
+| `test_chunked_transfer` | `HttpConnection` chunked body parsing | ✅ Phase 10a — already exists |
+| `test_compression` | `Response::compressBody` + Accept-Encoding negotiation | 🔲 Missing |
+| `test_websocket_protocol` | Real handshake, framing, masking (client→server must mask), large frames (>125, >65535 bytes, 7-bit vs 8-byte length), fragmentation reassembly, ping/pong, close | 🔲 Missing |
+| `test_sync_http_server` | Real HTTP/1.1 request/response via raw socket (no async) | ✅ 9 tests: start/stop, GET, POST, 404, 405, multiple routes, keep-alive, Content-Length, multi-worker |
+
+**Phase 10d sub-tasks completed:** `test_sync_http_server` (9 tests)
+
+Bug fixes discovered during Phase 10d:
+- `HttpServer::stop()`: `shutdown(SHUT_RDWR)` on server socket before `close()` — `close()` alone cannot interrupt a blocking `accept()` on Linux
+- `HttpServer::runAcceptLoop()`: catch `SocketException` from `accept()` and exit gracefully on stop
+- `HttpServer::handleConnection()`: wrap detached thread lambda in try-catch to prevent `std::terminate()` on uncaught exceptions
+- `Socket`: add `shutdown(int how)` method
 | `test_async_tls_*` | Real handshake + read/write (see Phase 10b) | |
 | `test_demo_integration` | Boot each demo, curl key endpoints, verify response | Catches demo regressions like the v0.5.2 cert/route-ordering bugs |
 
-Target: **271 → ~330 tests**.
+Target: **281 → ~330 tests**.
 
 ### Phase 10e: Public API (2-3 days)
 
@@ -1176,7 +1184,7 @@ Not blocking. Only pursue if benchmarks show LT is the bottleneck.
 |-------|----------|-------------|----------|
 | **10a. Critical bugs** | 3-4 days | Chunked body, SQLite errors, omninet-certs, dashboard POST | 🔴 Critical |
 | **10b. Async TLS** | 3-4 days | Real handshake, cancel, tests | 🟠 High |
-| **10d. Test gaps** | 1 week | Chunked, compression, WS protocol, sync server, demo integration | 🟠 High |
+| **10d. Test gaps** | 1 week | Chunked, compression, WS protocol, sync server, demo integration | 🟡 Partial (10d: test_sync_http_server done ✅) |
 | **10g. Code quality** | 3-5 days | Split large files, remove unused functions | 🟡 Medium |
 | **10i. Documentation** | 1-2 days | CHANGELOG, migration guide, doc accuracy | 🟡 Medium |
 | **10e. Public API** | 2-3 days | `include/OmniNet/` headers, umbrella include | 🟡 Medium |
