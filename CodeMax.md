@@ -313,6 +313,15 @@ cmake --build build --target cppcheck
 - None
 
 ### TODO 📋
+- [ ] **dashboard_demo POST /api/dashboard/login times out** (v0.5.2 known limitation)
+  - `POST /api/dashboard/login -d "username=admin&password=test"` hangs in curl
+  - POST works fine in `http_server_demo`'s `/api/echo`, so this is specific
+    to the dashboard login flow, not the sync HTTP server
+  - Likely cause: session/DB init issue in the demo, or the `UserStore::verify`
+    is blocking on something
+  - All other dashboard endpoints work (GET /api/dashboard/stats, /users, etc.)
+  - To debug: enable DEBUG logging and trace the request, or add cerr in
+    `DashboardHandler::handleLogin` to see how far it gets
 - [x] **Phase 1**: Token Utilities (`src/token/TokenUtils.h/cpp`) ✅
 - [x] **Phase 2**: Session Token Store (`src/token/SessionTokenStore.h/cpp`) ✅
 - [x] **Phase 3**: API Key Store (`src/token/ApiKeyStore.h/cpp`) ✅
