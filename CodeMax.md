@@ -1048,6 +1048,163 @@ itself, not the sync HTTP server).
 
 ---
 
+## v0.6.0 Plan: Bug Fixes, Portability & Quality
+
+**Status**: 📋 Planning
+**Target Version**: 0.6.0
+**Estimated Effort**: 4-6 weeks (can be parallelized)
+**Discovered**: 2026-06-11 bug/issue sweep
+
+### Executive Summary
+
+A comprehensive sweep of the codebase found:
+- **3 real bugs** (TODO comments in `src/`)
+- **1 known limitation** (dashboard demo POST timeout, already in TODO)
+- **2 missing platform implementations** (KqueueContext, IocpContext — only Linux/epoll works)
+- **1 missing public API** (`include/OmniNet/` has only `Test.h`; the plan in CodeMax.md
+  says expose ThreadPool/Async/IoContext, none of which exist there)
+- **7 test coverage gaps** (chunked transfer, compression, WebSocket protocol masking,
+  large frames, sync HTTP::Server, async TLS handshake, demo integration)
+- **1 broken tool** (`omninet-certs generate` writes to cwd, not `~/.omninet/certs/`)
+- **2 performance TODOs** (edge-triggered epoll, truly non-blocking AsyncDatabase)
+
+### Phase 10a: Critical Bug Fixes (3-4 days)
+
+**Must fix before any new feature work.**
+
+| # | File | Issue | Fix |
+|---|------|-------|-----|
+| 1 | `src/http/HttpConnection.cpp:319` | Chunked transfer-encoding body is **discarded** — the code parses chunk size and extracts `chunkData` but never accumulates it into `m_currentRequest`. Only the final 0-chunk sets the (incorrect) body. | Accumulate `chunkData` into `m_currentRequest.setBody()`; only the final 0-chunk should return. |
+| 2 | `src/db/Database.cpp:233` | All `sqlite3_open` errors mapped to `DbError::Unknown` | Parse `sqlite3_errcode()` / `sqlite3_extended_errcode()` and map to specific `DbError` variants (Locked, Busy, Permission, DiskFull, Corrupt, etc.) |
+| 3 | `demos/dashboard.cpp` (POST) | `POST /api/dashboard/login` times out (TODO) | Add `std::cerr` in `DashboardHandler::handleLogin` to trace; likely a session/DB init issue specific to the demo |
+| 4 | `tools/omninet-certs/` | `generate` writes certs to cwd, but `Config::defaultTlsCertPath()` expects `~/.omninet/certs/omninet.crt` | Make `generate` honor `--output-dir` flag (default `~/.omninet/certs/`); or just use the same path the demo's `defaultTlsCertPath()` looks at |
+
+### Phase 10b: Async TLS Completion (3-4 days)
+
+**Real work, not just TODOs.** The async TLS layer exists but the handshake is synchronous.
+
+| Task | File | Notes |
+|------|------|-------|
+| Make `AsyncTlsSocket::handshake()` truly async | `src/async/AsyncTlsSocket.cpp` | Currently calls blocking `m_socket->performHandshake()`. Needs the SSL_accept/SSL_connect retry loop with `co_await when_readable/when_writable` (similar to read_some/write_some). |
+| Implement `AsyncTlsSocket::cancel()` | `src/async/AsyncTlsSocket.h:109` | Currently a no-op (TODO). Track pending operation via `weak_ptr` and unwatch socket. |
+| Add `test_async_tls_handshake` | `tests/test_async_tls.cpp` | Real handshake (loopback) + cancel mid-handshake. Current tests only verify construction. |
+| Add `test_async_tls_read_write` | `tests/test_async_tls.cpp` | Echo data over loopback TLS to verify read_some/write_some actually work end-to-end. |
+
+### Phase 10c: Portability (1-2 weeks)
+
+**Currently Linux-only. Docs claim cross-platform.**
+
+| Task | Effort | Notes |
+|------|--------|-------|
+| Implement `KqueueContext` | 3-4 days | Mirror `EpollIoContext` API; use `EVFILT_READ`/`EVFILT_WRITE` |
+| Implement `IocpContext` (Windows) | 1-2 weeks | Use `CreateIoCompletionPort` + `GetQueuedCompletionStatusEx`. New platform, needs Windows build infra. |
+| Add macOS to CI | 1 day | `KqueueContext` smoke test in CI |
+| Document `AsyncServer` portability | 1 hour | Currently Linux-only by virtue of `accept4(SOCK_NONBLOCK)`; needs `O_NONBLOCK` + `fcntl` on macOS/BSD |
+
+### Phase 10d: Test Coverage Gaps (1 week)
+
+**Currently 271 tests. Several important code paths have no coverage.**
+
+| Test | What it covers | Why |
+|------|----------------|-----|
+| `test_chunked_transfer` | `HttpConnection` chunked body parsing | Phase 10a bug #1 — would have caught the discard bug |
+| `test_compression` | `Response::compressBody` + Accept-Encoding negotiation | Marked ✅ in CodeMax.md but no test exists |
+| `test_websocket_protocol` | Real handshake, framing, masking (client→server must mask), large frames (>125, >65535 bytes, 7-bit vs 8-byte length), fragmentation reassembly, ping/pong, close | Current `test_websocket` only tests the frame codec, not the protocol |
+| `test_sync_http_server` | Real HTTP/1.1 request/response via raw socket (no async) | **Zero coverage** for `HTTP::Server`! All other modules are tested. |
+| `test_async_tls_*` | Real handshake + read/write (see Phase 10b) | |
+| `test_demo_integration` | Boot each demo, curl key endpoints, verify response | Catches demo regressions like the v0.5.2 cert/route-ordering bugs |
+
+Target: **271 → ~330 tests**.
+
+### Phase 10e: Public API (2-3 days)
+
+**`include/OmniNet/` is essentially empty (only `Test.h`).**
+
+The plan in CodeMax.md (`docs/migration/v0.4-to-v0.5.md` was planned but never written) says the public API should expose:
+- `OmniNet/ThreadPool.h`
+- `OmniNet/Async.h` (umbrella for Task, Executor, AsyncHandler)
+- `OmniNet/IoContext.h`
+- `OmniNet/AsyncServer.h`
+- `OmniNet/HttpRequest.h`, `HttpResponse.h`, `Router.h`
+- `OmniNet/Expected.h`
+- `OmniNet/Crypto.h`
+
+Add a top-level `OmniNet.h` that includes the public surface. Mirror the structure that demos use today (`#include "async/Task.h"`) into a stable public API.
+
+### Phase 10f: Truly Non-Blocking AsyncDatabase (2-3 days)
+
+`AsyncDatabase::execute/query/query_one` submit to executor then call `fut.get()` (blocking) inside a coroutine. The coroutine looks async but actually blocks the calling thread. For the `AsyncServer` connection handler running in the event loop, this means **the event loop blocks during DB queries**.
+
+Options:
+1. Use a dedicated DB executor (separate from the event loop's executor) — partial fix, just moves the block
+2. Use `io_uring` for true async I/O (Linux 5.6+) — real fix but adds platform dependency
+3. Use a separate thread pool for DB only, ensure it's NOT the same pool the connection handler uses
+
+The right answer is #2 long-term; #3 is a reasonable near-term improvement.
+
+### Phase 10g: Code Quality (3-5 days)
+
+| Task | Notes |
+|------|-------|
+| Split `ApiKeyStore.cpp` (550 lines) | Extract token hashing helpers, key encoding, SQL into separate files |
+| Split `SessionTokenStore.cpp` (466 lines) | Same as above |
+| Remove `unusedFunction` warnings in `tools/tools_common/` | Either use them or remove them. cppcheck currently shows ~50 unused functions; many are real candidates for deletion. |
+| Add error handling to `dashboard_demo::main` | The server thread is `.join()`ed but exceptions thrown in the thread are silently swallowed. |
+| Add a "lint" CI check that fails the build on new TODOs in `src/` | Prevents future TODO accumulation. |
+
+### Phase 10h: Edge-Triggered epoll (Optional, 2-3 days)
+
+`EpollIoContext` uses level-triggered mode (`EPOLLLT`). The TODO in the original plan mentions edge-triggered (`EPOLLET`) for higher performance but it's more complex (must drain the fd in a loop on each event).
+
+Not blocking. Only pursue if benchmarks show LT is the bottleneck.
+
+### Phase 10i: Documentation (1-2 days)
+
+| Task | Notes |
+|------|-------|
+| Create `CHANGELOG.md` | Auto-generate from git tags: 0.1.0, 0.1.5, 0.2.0, 0.3.0, 0.3.2, 0.4.0, 0.4.1, 0.5.0, 0.5.1, 0.5.2 |
+| Write `docs/migration/v0.5-to-v0.6.md` | The plan was written but never executed |
+| Update `docs/api/async.md` | Mentions `AsyncServer` but didn't document the v0.5.1 route-dispatch fix |
+| Update `docs/api/io.md` | Mentions `KqueueContext`/`IocpContext` which don't exist (misleading) |
+| Verify `README.md` links | |
+
+### Phased Rollout
+
+| Phase | Duration | Deliverable | Priority |
+|-------|----------|-------------|----------|
+| **10a. Critical bugs** | 3-4 days | Chunked body, SQLite errors, omninet-certs, dashboard POST | 🔴 Critical |
+| **10b. Async TLS** | 3-4 days | Real handshake, cancel, tests | 🟠 High |
+| **10d. Test gaps** | 1 week | Chunked, compression, WS protocol, sync server, demo integration | 🟠 High |
+| **10g. Code quality** | 3-5 days | Split large files, remove unused functions | 🟡 Medium |
+| **10i. Documentation** | 1-2 days | CHANGELOG, migration guide, doc accuracy | 🟡 Medium |
+| **10e. Public API** | 2-3 days | `include/OmniNet/` headers, umbrella include | 🟡 Medium |
+| **10f. Non-blocking DB** | 2-3 days | Move DB work off the event loop | 🟢 Low |
+| **10c. Portability** | 1-2 weeks | KqueueContext + (optionally) IocpContext | 🟢 Low |
+| **10h. Edge-triggered epoll** | 2-3 days | EPOLLET mode + benchmark | ⚪ Skip unless benchmark demands |
+
+**Total**: ~5 weeks of focused work, or ~8 weeks with Phase 10c.
+
+### Open Questions
+
+- [ ] **Chunked body fix scope**: Just fix the bug, or also add streaming body support to AsyncServer? (Streaming is a much larger change.)
+- [ ] **KqueueContext priority**: Is macOS support actually needed? If no users are asking, defer to 0.7+.
+- [ ] **Public API freeze**: Once 0.6.0 ships, is the public API stable, or are we OK with breaking changes in 0.7?
+- [ ] **Dashboard demo fate**: Keep it as-is (with the POST bug), deprecate it, or fix it? It's the most complex demo and the most fragile.
+- [ ] **Windows support**: Any actual demand? The Windows IOCP work is 1-2 weeks; defer if no users.
+
+### Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Chunked body fix breaks existing chunked traffic | High | Add test before fixing; add regression test for clients that rely on the buggy behavior (none expected) |
+| Public API move breaks downstream users | Medium | Keep `src/` headers working; add `include/OmniNet/` as parallel API; deprecate `src/` in 0.7 |
+| KqueueContext implementation diverges from EpollContext | Low | Mirror API exactly; add cross-platform test |
+| Test coverage additions uncover more bugs | High | Budget extra time; address bugs as they're found |
+
+---
+
+
+
 ## C++23 / Async / ThreadPool Refactor Plan
 
 **Status**: 📋 Planning  
