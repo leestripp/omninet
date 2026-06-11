@@ -365,18 +365,36 @@ size_t Response::calculateContentLength() const {
 
 std::vector<uint8_t> Response::build() const {
     std::vector<uint8_t> result;
-    
+
     // Status line
     auto statusLine = buildStatusLine();
     result.insert(result.end(), statusLine.begin(), statusLine.end());
-    
-    // Headers
-    auto headers = buildHeaders();
+
+    // Build headers (with auto Content-Length if not set)
+    std::ostringstream hdrOss;
+    // If no Content-Length is set, compute from body size so HTTP/1.1
+    // keep-alive clients can detect end-of-response (v0.6.0 fix: previously
+    // empty-body responses had no Content-Length, causing curl to hang).
+    // We do this in a copy because m_headers is const here.
+    bool needContentLength = !hasHeader("Content-Length") &&
+                            !hasHeader("Transfer-Encoding") &&
+                            !hasFile();
+    size_t autoContentLength = 0;
+    if (needContentLength) {
+        autoContentLength = calculateContentLength();
+    }
+    for (const auto& [name, value] : m_headers) {
+        hdrOss << name << ": " << value << "\r\n";
+    }
+    if (needContentLength) {
+        hdrOss << "Content-Length: " << autoContentLength << "\r\n";
+    }
+    auto headers = hdrOss.str();
     result.insert(result.end(), headers.begin(), headers.end());
-    
+
     // End of headers
     result.insert(result.end(), {'\r', '\n'});
-    
+
     return result;
 }
 
