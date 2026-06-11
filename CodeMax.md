@@ -1083,14 +1083,14 @@ A comprehensive sweep of the codebase found:
 
 ### Phase 10b: Async TLS Completion (3-4 days)
 
-**Real work, not just TODOs.** The async TLS layer exists but the handshake is synchronous.
+**Status: ✅ PARTIAL (2026-06-11) — handshake now truly async; cancel() still TODO**
 
-| Task | File | Notes |
-|------|------|-------|
-| Make `AsyncTlsSocket::handshake()` truly async | `src/async/AsyncTlsSocket.cpp` | Currently calls blocking `m_socket->performHandshake()`. Needs the SSL_accept/SSL_connect retry loop with `co_await when_readable/when_writable` (similar to read_some/write_some). |
-| Implement `AsyncTlsSocket::cancel()` | `src/async/AsyncTlsSocket.h:109` | Currently a no-op (TODO). Track pending operation via `weak_ptr` and unwatch socket. |
-| Add `test_async_tls_handshake` | `tests/test_async_tls.cpp` | Real handshake (loopback) + cancel mid-handshake. Current tests only verify construction. |
-| Add `test_async_tls_read_write` | `tests/test_async_tls.cpp` | Echo data over loopback TLS to verify read_some/write_some actually work end-to-end. |
+| Task | Status | Notes |
+|------|--------|-------|
+| Make `AsyncTlsSocket::handshake()` truly async | ✅ Done | Loops calling `stepHandshake()`, `co_await when_readable/when_writable` on WantRead/WantWrite. No more blocking in select(). |
+| Implement `AsyncTlsSocket::cancel()` | 🔴 TODO | Currently a no-op. Proper cancellation needs a `weak_ptr`-based mechanism in the awaiter (the awaiter's callback captures a coroutine handle; if the handle is destroyed, resuming it is UB). The cleanest design: have AsyncTlsSocket track a "cancelled" flag, the awaiter checks the flag in its callback, and uses a `weak_ptr<Task<>>` to safely skip resume. |
+| Add `test_async_tls_handshake` (real loopback) | ⚠️ Skipped for now | Would need cert files. The 2 new tests (`tls_socket_handshake_state_enum`, `init_handshake_idempotent`) verify the new stepHandshake() API and WantRead state. Full handshake test pending when test certs are wired up. |
+| Add `test_async_tls_read_write` | ⚠️ Skipped for now | Same - pending cert infrastructure. |
 
 ### Phase 10c: Portability (1-2 weeks)
 
