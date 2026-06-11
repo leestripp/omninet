@@ -18,12 +18,34 @@ namespace OmniNet::Async {
 template<typename T> class Task;
 
 // ============================================================================
+// FinalAwaiter
+// ============================================================================
+//
+// Custom awaiter for final_suspend that resumes the continuation. This makes
+// the Task type a "symmetric coroutine" - the continuation is automatically
+// resumed when the coroutine finishes, so `co_await task` works for both
+// sync and async tasks.
+//
+struct FinalAwaiter {
+    bool await_ready() const noexcept { return false; }
+
+    template<typename Promise>
+    void await_suspend(std::coroutine_handle<Promise> h) noexcept {
+        if (h.promise().m_continuation) {
+            h.promise().m_continuation.resume();
+        }
+    }
+
+    void await_resume() const noexcept {}
+};
+
+// ============================================================================
 // Task<T>
 // ============================================================================
 //
 // A lazy coroutine return type that:
 // - Stores the result (or void)
-// - Supports co_await on other tasks
+// - Supports co_await on other tasks (sync and async)
 // - Tracks completion state
 // - Can be converted to std::future<T> for sync code
 //
@@ -53,8 +75,8 @@ public:
         // Suspend initially - task is lazy and runs when resumed
         std::suspend_always initial_suspend() noexcept { return {}; }
 
-        // Always suspend at the end, so we can resume the continuation
-        std::suspend_always final_suspend() noexcept { return {}; }
+        // Symmetric final_suspend: resume the continuation (if any)
+        FinalAwaiter final_suspend() noexcept { return {}; }
 
         // Store return value
         template<typename U>
@@ -133,8 +155,8 @@ public:
     // Called when coroutine is suspended waiting for this task.
     // We arrange for our task's final_suspend to resume us.
     template<typename Promise>
-    bool await_suspend(std::coroutine_handle<Promise> waiter) noexcept {
-        if (!m_handle) return true;
+    void await_suspend(std::coroutine_handle<Promise> waiter) noexcept {
+        if (!m_handle) return;
 
         // Set up the waiter as the continuation
         m_handle.promise().m_continuation = waiter;
@@ -143,7 +165,7 @@ public:
         if (!m_handle.done()) {
             m_handle.resume();
         }
-        return false;  // Don't actually suspend the waiter
+        // Always suspend; final_suspend will resume the waiter
     }
 
     // Get the result after resumption
@@ -212,7 +234,7 @@ public:
         }
 
         std::suspend_always initial_suspend() noexcept { return {}; }
-        std::suspend_always final_suspend() noexcept { return {}; }
+        FinalAwaiter final_suspend() noexcept { return {}; }
 
         void return_void() {}
         void unhandled_exception() noexcept {
@@ -257,13 +279,12 @@ public:
     }
 
     template<typename Promise>
-    bool await_suspend(std::coroutine_handle<Promise> waiter) noexcept {
-        if (!m_handle) return true;
+    void await_suspend(std::coroutine_handle<Promise> waiter) noexcept {
+        if (!m_handle) return;
         m_handle.promise().m_continuation = waiter;
         if (!m_handle.done()) {
             m_handle.resume();
         }
-        return false;
     }
 
     void await_resume() {

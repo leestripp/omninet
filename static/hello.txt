@@ -1,0 +1,2 @@
+Hello from AsyncFile!
+This is a static file served via async I/O.

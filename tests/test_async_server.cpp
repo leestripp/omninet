@@ -1,9 +1,14 @@
 // OmniNet - AsyncServer Unit Tests
+#include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
 #include <iostream>
 #include <memory>
+#include <netinet/in.h>
+#include <string>
+#include <sys/socket.h>
 #include <thread>
+#include <unistd.h>
 
 #include "async/Task.h"
 #include "async/Executor.h"
@@ -140,6 +145,202 @@ TEST(lifecycle_run_stop) {
 
     server.stop();
     ASSERT_TRUE(!server.running());
+}
+
+// Helper: send raw HTTP request and read response
+static std::string http_get(uint16_t port, const std::string& path) {
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return {};
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        ::close(fd);
+        return {};
+    }
+
+    std::string request = "GET " + path + " HTTP/1.1\r\n"
+                          "Host: localhost\r\n"
+                          "Connection: close\r\n"
+                          "\r\n";
+    ::send(fd, request.data(), request.size(), 0);
+
+    std::string response;
+    char buf[4096];
+    while (true) {
+        ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+        if (n <= 0) break;
+        response.append(buf, static_cast<size_t>(n));
+    }
+    ::close(fd);
+    return response;
+}
+
+TEST(async_handler_dispatch_basic) {
+    TestEnv env;
+    AsyncServer::Config cfg;
+    cfg.port = 19010;
+    AsyncServer server(*env.ctx, cfg);
+
+    server.get("/hello", [](const HTTP::Request&, Async::Executor&)
+                       -> Async::Task<HTTP::Response> {
+        HTTP::Response resp;
+        resp.setStatus(HTTP::StatusCode::OK);
+        resp.setContentType("text/plain");
+        resp.setBody("Hello, async world!");
+        co_return resp;
+    });
+
+    server.run_async();
+    std::this_thread::sleep_for(50ms);
+
+    auto response = http_get(19010, "/hello");
+    server.stop();
+
+    ASSERT_TRUE(!response.empty());
+    ASSERT_TRUE(response.find("HTTP/1.1 200") != std::string::npos);
+    ASSERT_TRUE(response.find("Hello, async world!") != std::string::npos);
+}
+
+TEST(async_handler_not_found) {
+    TestEnv env;
+    AsyncServer::Config cfg;
+    cfg.port = 19011;
+    AsyncServer server(*env.ctx, cfg);
+
+    server.run_async();
+    std::this_thread::sleep_for(50ms);
+
+    auto response = http_get(19011, "/nope");
+    server.stop();
+
+    ASSERT_TRUE(!response.empty());
+    ASSERT_TRUE(response.find("404") != std::string::npos);
+}
+
+TEST(async_handler_path_param) {
+    TestEnv env;
+    AsyncServer::Config cfg;
+    cfg.port = 19012;
+    AsyncServer server(*env.ctx, cfg);
+
+    server.get("/users/:id", [](const HTTP::Request& req, Async::Executor&)
+                          -> Async::Task<HTTP::Response> {
+        HTTP::Response resp;
+        resp.setContentType("text/plain");
+        resp.setBody("user:" + std::string(req.path()));
+        co_return resp;
+    });
+
+    server.run_async();
+    std::this_thread::sleep_for(50ms);
+
+    auto response = http_get(19012, "/users/42");
+    server.stop();
+
+    ASSERT_TRUE(!response.empty());
+    ASSERT_TRUE(response.find("200") != std::string::npos);
+    ASSERT_TRUE(response.find("user:/users/42") != std::string::npos);
+}
+
+TEST(async_handler_wildcard) {
+    TestEnv env;
+    AsyncServer::Config cfg;
+    cfg.port = 19013;
+    AsyncServer server(*env.ctx, cfg);
+
+    server.get("/static/*", [](const HTTP::Request& req, Async::Executor&)
+                          -> Async::Task<HTTP::Response> {
+        HTTP::Response resp;
+        resp.setBody("static:" + std::string(req.path()));
+        co_return resp;
+    });
+
+    server.run_async();
+    std::this_thread::sleep_for(50ms);
+
+    auto response = http_get(19013, "/static/foo/bar.txt");
+    server.stop();
+
+    ASSERT_TRUE(!response.empty());
+    ASSERT_TRUE(response.find("200") != std::string::npos);
+    ASSERT_TRUE(response.find("static:/static/foo/bar.txt") != std::string::npos);
+}
+
+TEST(async_handler_chain) {
+    // Test that the AsyncServer correctly awaits a chained async coroutine
+    TestEnv env;
+    AsyncServer::Config cfg;
+    cfg.port = 19014;
+    AsyncServer server(*env.ctx, cfg);
+
+    // Handler that does co_await on another coroutine (which uses co_await internally)
+    server.get("/chain", [](const HTTP::Request&, Async::Executor& exec)
+                         -> Async::Task<HTTP::Response> {
+        // Inner coroutine: an async task that uses co_await
+        auto inner = [&exec]() -> Async::Task<std::string> {
+            // co_await on an executor submit (returns future, we wrap as coroutine)
+            auto fut = exec.submit([]() {
+                std::this_thread::sleep_for(10ms);
+                return std::string("inner-result");
+            });
+            // co_await equivalent: dispatch to executor and return
+            // For a real test we'd use an async I/O awaiter. Here we use the
+            // fact that co_return from inside a coroutine is supported.
+            std::string v = fut.get();
+            co_return v;
+        };
+
+        // Await the inner coroutine
+        std::string result = co_await inner();
+
+        HTTP::Response resp;
+        resp.setBody("chain:" + result);
+        co_return resp;
+    });
+
+    server.run_async();
+    std::this_thread::sleep_for(50ms);
+
+    auto response = http_get(19014, "/chain");
+    server.stop();
+
+    ASSERT_TRUE(!response.empty());
+    ASSERT_TRUE(response.find("200") != std::string::npos);
+    ASSERT_TRUE(response.find("chain:inner-result") != std::string::npos);
+}
+
+TEST(async_handler_stats) {
+    TestEnv env;
+    AsyncServer::Config cfg;
+    cfg.port = 19015;
+    AsyncServer server(*env.ctx, cfg);
+
+    server.get("/x", [](const HTTP::Request&, Async::Executor&)
+                    -> Async::Task<HTTP::Response> {
+        HTTP::Response resp;
+        resp.setBody("x");
+        co_return resp;
+    });
+
+    server.run_async();
+    std::this_thread::sleep_for(50ms);
+
+    auto r1 = http_get(19015, "/x");
+    auto r2 = http_get(19015, "/x");
+    auto r3 = http_get(19015, "/nope");
+
+    const auto& stats = server.stats();
+    server.stop();
+
+    ASSERT_TRUE(!r1.empty());
+    ASSERT_TRUE(!r2.empty());
+    ASSERT_TRUE(!r3.empty());
+    ASSERT_TRUE(stats.connectionsTotal.load() >= 3);
+    ASSERT_TRUE(stats.requestsTotal.load() >= 3);
 }
 
 // ============================================================================

@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <regex>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -39,7 +40,7 @@ namespace OmniNet::Server {
 //
 // Architecture:
 //   - One event loop thread (IoContext) for accept and I/O multiplexing
-//   - One thread pool for handler execution
+//   - One thread pool for handler execution (CPU-bound work, DB queries)
 //   - Each connection is handled by an async coroutine
 //   - No thread-per-connection model
 //
@@ -96,7 +97,11 @@ public:
 
     // --- Routing ---
 
-    // Register an async handler for a route pattern
+    // Register an async handler for a route pattern.
+    // Pattern supports:
+    //   - Exact path:     "/api/users"
+    //   - Path parameter: "/api/users/:id"   (single segment)
+    //   - Wildcard:       "/static/*"        (any subpath)
     void get(std::string_view pattern, Async::AsyncHandler handler);
     void post(std::string_view pattern, Async::AsyncHandler handler);
     void put(std::string_view pattern, Async::AsyncHandler handler);
@@ -106,7 +111,7 @@ public:
     void options(std::string_view pattern, Async::AsyncHandler handler);
     void any(std::string_view pattern, Async::AsyncHandler handler);
 
-    // Get the underlying router
+    // Get the underlying router (for compatibility / advanced usage)
     HTTP::Router& router() { return m_router; }
 
     // --- Lifecycle ---
@@ -133,20 +138,43 @@ public:
     IO::IoContext& context() { return m_context; }
 
 private:
-    // Async accept loop - runs in the IoContext event loop
+    // A single async route entry
+    struct AsyncRoute {
+        HTTP::Method method;
+        std::string pattern;
+        std::regex regex;
+        std::vector<std::string> paramNames;
+        Async::AsyncHandler handler;
+    };
+
+    // --- Internals ---
+
+    // Convert a pattern like "/users/:id" to a regex (delegates to Router's logic)
+    static std::string patternToRegex(
+        std::string pattern,
+        std::vector<std::string>& paramNames
+    );
+
+    // Add an async route
+    void addRoute(HTTP::Method method, std::string pattern, Async::AsyncHandler handler);
+
+    // Find a matching async route for the given method and path
+    const AsyncRoute* findAsyncRoute(HTTP::Method method, std::string_view path);
+
+    // Async accept loop - coroutine that lives in the event loop
     Async::Task<> accept_loop();
 
-    // Handle a single connection
+    // Handle a single connection (async coroutine)
     Async::Task<> handle_connection(std::unique_ptr<Socket> socket);
-
-    // Process a single request from a connection
-    Async::Task<> process_request(IO::AsyncSocket& sock);
 
     // Read an HTTP request from the socket
     Async::Task<bool> read_request(IO::AsyncSocket& sock, HTTP::Request& req);
 
     // Write an HTTP response to the socket
-    Async::Task<> write_response(IO::AsyncSocket& sock, const HTTP::Response& resp);
+    Async::Task<bool> write_response(IO::AsyncSocket& sock, const HTTP::Response& resp);
+
+    // Spawn a coroutine and keep it alive
+    void spawnTask(Async::Task<> task);
 
     // Configuration
     Config m_config;
@@ -154,11 +182,19 @@ private:
     // IoContext for event loop
     IO::IoContext& m_context;
 
-    // Router for request dispatch
+    // Router for request dispatch (kept for compatibility)
     HTTP::Router m_router;
+
+    // Async routes
+    std::vector<AsyncRoute> m_asyncRoutes;
+    std::mutex m_routesMutex;
 
     // Listening socket
     std::unique_ptr<Socket> m_listenSocket;
+
+    // Active coroutines (kept alive while running)
+    std::mutex m_tasksMutex;
+    std::vector<std::shared_ptr<Async::Task<>>> m_activeTasks;
 
     // State
     std::atomic<bool> m_running{false};

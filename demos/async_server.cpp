@@ -62,15 +62,30 @@ struct AppContext {
         logger->setLevel(LogLevel::INFO);
         logger->setLogFile("/tmp/async_server_demo.log");
 
-        // Database pool (in-memory for demo)
-        dbPool = std::make_unique<DatabasePool>(*exec, ":memory:");
+        // Database pool (file-backed so connections share data; in-memory
+        // SQLite databases are per-connection and wouldn't work with a pool)
+        const char* dbPath = std::getenv("ASYNC_DEMO_DB");
+        std::string path = dbPath ? dbPath : "/tmp/async_server_demo.db";
+        // Start fresh each run
+        std::remove(path.c_str());
+        dbPool = std::make_unique<DatabasePool>(*exec, path);
 
-        // Seed database
-        AsyncDatabase db(*exec, ":memory:");
-        db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)");
-        db.execute("INSERT INTO users (id, name, email) VALUES (1, 'Alice', 'alice@example.com')");
-        db.execute("INSERT INTO users (id, name, email) VALUES (2, 'Bob', 'bob@example.com')");
-        db.execute("INSERT INTO users (id, name, email) VALUES (3, 'Charlie', 'charlie@example.com')");
+        // Seed database (acquire a connection from the pool so the seeded
+        // data lives in the same database that handlers will query)
+        auto seedDb = dbPool->acquire();
+        if (seedDb) {
+            // execute() returns a coroutine Task; we must wait for it to
+            // complete (blocking_get) so the CREATE/INSERT actually run
+            OmniNet::Async::blocking_get(seedDb->execute(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)"));
+            OmniNet::Async::blocking_get(seedDb->execute(
+                "INSERT INTO users (id, name, email) VALUES (1, 'Alice', 'alice@example.com')"));
+            OmniNet::Async::blocking_get(seedDb->execute(
+                "INSERT INTO users (id, name, email) VALUES (2, 'Bob', 'bob@example.com')"));
+            OmniNet::Async::blocking_get(seedDb->execute(
+                "INSERT INTO users (id, name, email) VALUES (3, 'Charlie', 'charlie@example.com')"));
+            dbPool->release(seedDb);
+        }
 
         setupDone = true;
     }
