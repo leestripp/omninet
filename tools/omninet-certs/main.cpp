@@ -321,10 +321,19 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         
-        // Save to files
-        fs::path certPath = opts.target + ".crt";
-        fs::path keyPath = opts.target + ".key";
-        
+        // Save to files in the certs directory (v0.6.0 fix: was writing
+        // to cwd, leaving the generated certs invisible to the demos
+        // that look in Paths::certsDir() / "omninet.crt")
+        fs::path certPath = Paths::certsDir() / (opts.target + ".crt");
+        fs::path keyPath = Paths::certsDir() / (opts.target + ".key");
+
+        // Ensure certs directory exists
+        std::error_code ec;
+        fs::create_directories(Paths::certsDir(), ec);
+        if (ec) {
+            out.warning("Could not create certs dir: " + ec.message());
+        }
+
         FILE* fp = fopen(certPath.string().c_str(), "w");
         if (fp) {
             PEM_write_X509(fp, cert);
@@ -333,7 +342,7 @@ int main(int argc, char* argv[]) {
         } else {
             out.error("Failed to save certificate to: " + certPath.string());
         }
-        
+
         fp = fopen(keyPath.string().c_str(), "w");
         if (fp) {
             PEM_write_PrivateKey(fp, pkey, nullptr, nullptr, 0, nullptr, nullptr);
