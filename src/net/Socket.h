@@ -120,6 +120,10 @@ public:
     
     // Close the socket
     virtual void close();
+
+    // Shutdown the socket (SHUT_RD, SHUT_WR, or SHUT_RDWR).
+    // Useful for interrupting blocking accept() calls.
+    void shutdown(int how);
     
     // Get underlying file descriptor
     SOCKET fd() const;

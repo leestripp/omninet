@@ -78,6 +78,11 @@ add_executable(test_http_connection
     test_http_connection.cpp
 )
 
+# HTTP Server sync tests (v0.6.0 - Phase 10d, zero coverage before this file)
+add_executable(test_sync_http_server
+    test_sync_http_server.cpp
+)
+
 # HTTP Response tests
 add_executable(test_http_response
     test_http_response.cpp
@@ -150,6 +155,11 @@ target_link_libraries(test_http_connection PRIVATE
     pthread
 )
 
+target_link_libraries(test_sync_http_server PRIVATE
+    OmniNet
+    pthread
+)
+
 target_link_libraries(test_http_response PRIVATE
     OmniNet
     pthread
@@ -170,6 +180,7 @@ target_compile_features(test_async_tls PRIVATE cxx_std_23)
 target_compile_features(test_expected PRIVATE cxx_std_23)
 target_compile_features(test_async_file PRIVATE cxx_std_23)
 target_compile_features(test_http_connection PRIVATE cxx_std_23)
+target_compile_features(test_sync_http_server PRIVATE cxx_std_23)
 target_compile_features(test_http_response PRIVATE cxx_std_23)
 
 # Include directories - use parent source dir

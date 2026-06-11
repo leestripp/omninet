@@ -75,13 +75,16 @@ void Server::startAsync() {
 
 void Server::stop() {
     if (!m_running) return;
-    
+
     m_stopping = true;
     m_running = false;
-    
-    // Close server socket
+
+    // Shutdown the listening socket before closing to interrupt any
+    // blocking accept() call (v0.6.0 fix: without shutdown, close()
+    // alone can't interrupt accept() on Linux)
+    m_serverSocket->shutdown(SHUT_RDWR);
     m_serverSocket->close();
-    
+
     // Join workers
     for (auto& worker : m_workers) {
         if (worker.joinable()) {
@@ -198,13 +201,23 @@ void Server::runAcceptLoop() {
     SERVER_DEBUG("Accept loop started");
     while (m_running) {
         SERVER_DEBUG("Waiting for connection...");
-        auto client = m_serverSocket->accept();
-        if (client) {
-            SERVER_DEBUG("Connection accepted! Spawning handler thread");
-            ++m_stats.connectionsTotal;
-            handleConnection(std::move(client));
-        } else {
-            SERVER_DEBUG("accept() returned null (no connection or timeout)");
+        try {
+            auto client = m_serverSocket->accept();
+            if (client) {
+                SERVER_DEBUG("Connection accepted! Spawning handler thread");
+                ++m_stats.connectionsTotal;
+                handleConnection(std::move(client));
+            } else {
+                SERVER_DEBUG("accept() returned null (no connection or timeout)");
+            }
+        } catch (const SocketException& e) {
+            // accept() threw (e.g., socket was shut down during stop()).
+            // Check if we're stopping; if so, exit the loop gracefully.
+            if (m_stopping || !m_running) {
+                SERVER_DEBUG("Accept loop shutting down: " << e.what());
+                break;
+            }
+            SERVER_DEBUG("accept() error (will retry): " << e.what());
         }
     }
     SERVER_DEBUG("Accept loop ended");
@@ -231,45 +244,51 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
     // Spawn a new thread to handle this connection
     // This allows the accept loop to immediately continue accepting new connections
     std::thread([this, socket = std::move(socket)]() mutable {
-        SERVER_DEBUG("Connection thread started, socket fd=" << socket->fd());
-        
-        Connection conn(std::move(socket));
-        
-        conn.setHandler([this](const Request& req, Response& resp) {
-            SERVER_DEBUG("Handler called - Method: " << req.methodString() << ", Path: " << req.path());
-            
-            // Add CORS headers if enabled
-            if (m_corsEnabled) {
-                resp.setAccessControlAllowOrigin(m_corsAllowedOrigins);
-                resp.setAccessControlAllowMethods(m_corsAllowedMethods);
-                resp.setAccessControlAllowHeaders(m_corsAllowedHeaders);
-            }
-            
-            // Let router handle the request
-            SERVER_DEBUG("Calling router.handle()");
-            m_router.handle(req, resp);
-            SERVER_DEBUG("Router.handle() returned, response status=" << static_cast<int>(resp.status()));
-        });
-        
-        conn.setErrorHandler([this](const Request& req, Response& resp, std::exception_ptr e) {
-            SERVER_DEBUG("Error handler called");
-            if (m_errorHandler) {
-                m_errorHandler(req, resp);
-            } else {
-                resp = Response::internalError();
-            }
-        });
-        
-        conn.setRequestTimeout(m_config.requestTimeout);
-        conn.setKeepAliveTimeout(m_config.keepAliveTimeout);
-        conn.setMaxRequestSize(m_config.maxRequestSize);
-        
-        SERVER_DEBUG("Calling conn.processRequests()");
-        ++m_stats.requestsActive;
-        conn.processRequests();
-        --m_stats.requestsActive;
-        ++m_stats.requestsTotal;
-        SERVER_DEBUG("processRequests() returned, connection thread ending");
+        try {
+            SERVER_DEBUG("Connection thread started, socket fd=" << socket->fd());
+
+            Connection conn(std::move(socket));
+
+            conn.setHandler([this](const Request& req, Response& resp) {
+                SERVER_DEBUG("Handler called - Method: " << req.methodString() << ", Path: " << req.path());
+
+                // Add CORS headers if enabled
+                if (m_corsEnabled) {
+                    resp.setAccessControlAllowOrigin(m_corsAllowedOrigins);
+                    resp.setAccessControlAllowMethods(m_corsAllowedMethods);
+                    resp.setAccessControlAllowHeaders(m_corsAllowedHeaders);
+                }
+
+                // Let router handle the request
+                SERVER_DEBUG("Calling router.handle()");
+                m_router.handle(req, resp);
+                SERVER_DEBUG("Router.handle() returned, response status=" << static_cast<int>(resp.status()));
+            });
+
+            conn.setErrorHandler([this](const Request& req, Response& resp, std::exception_ptr e) {
+                SERVER_DEBUG("Error handler called");
+                if (m_errorHandler) {
+                    m_errorHandler(req, resp);
+                } else {
+                    resp = Response::internalError();
+                }
+            });
+
+            conn.setRequestTimeout(m_config.requestTimeout);
+            conn.setKeepAliveTimeout(m_config.keepAliveTimeout);
+            conn.setMaxRequestSize(m_config.maxRequestSize);
+
+            SERVER_DEBUG("Calling conn.processRequests()");
+            ++m_stats.requestsActive;
+            conn.processRequests();
+            --m_stats.requestsActive;
+            ++m_stats.requestsTotal;
+            SERVER_DEBUG("processRequests() returned, connection thread ending");
+        } catch (const std::exception& e) {
+            SERVER_DEBUG("Connection thread exception: " << e.what());
+        } catch (...) {
+            SERVER_DEBUG("Connection thread unknown exception");
+        }
     }).detach();
 }
 

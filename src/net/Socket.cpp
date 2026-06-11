@@ -358,6 +358,12 @@ void Socket::close() {
     }
 }
 
+void Socket::shutdown(int how) {
+    if (m_fd != INVALID_SOCKET) {
+        ::shutdown(m_fd, how);
+    }
+}
+
 SOCKET Socket::fd() const {
     return m_fd;
 }
