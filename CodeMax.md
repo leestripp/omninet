@@ -144,7 +144,7 @@ Finalize documentation for all new modules:
 
 ---
 
-**Last Updated**: 2026-05-23 16:30 AEST## Architecture Summary
+**Last Updated**: 2026-06-11 12:35 AEST## Architecture Summary
 
 ```
 OmniNet (Static Library)
@@ -800,7 +800,8 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 
 | Date | Version | Changes |
 |------|---------|---------|
-| 2026-05-23 | **0.5.0** | Integration & Demos (3 phases complete) |
+| 2026-06-11 | **0.5.1** | AsyncServer + Task<T> bug fixes (see below) |
+| 2026-05-23 | 0.5.0 | Integration & Demos (3 phases complete) |
 | 2026-05-23 | 0.4.1 | Async I/O Extensions (4 phases complete) |
 | 2026-05-23 | 0.4.0 | C++23 + Async + ThreadPool refactor (7 phases) |
 | 2026-05-23 | 0.3.2 | Enable zlib/gzip compression |
@@ -811,6 +812,60 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 | 2026-05-15 | - | Fixed SQLite CMake target name |
 | 2026-05-04 | - | Added Cppcheck static analysis |
 | 2026-04-18 | - | Initial HTTP/WebSocket implementation |
+
+## v0.5.1: AsyncServer Bug Fixes (2026-06-11)
+
+**Discovered**: Testing the async_server_demo revealed 5 critical bugs.
+
+### Critical fixes
+
+1. **AsyncServer was discarding async handlers** (`src/server/AsyncServer.cpp`)
+   - The `get()/post()/etc.` methods registered a no-op sync handler and
+     threw away the `AsyncHandler` (literally marked with `TODO`).
+   - **Fix**: Handlers are now stored in `m_asyncRoutes` and dispatched
+     to on each request.
+
+2. **AsyncServer accept loop was a no-op**
+   - `accept_loop()` did `co_return;` immediately (marked `TODO`).
+   - **Fix**: An async `accept_loop()` coroutine now watches the listen
+     socket via `IoContext::watch()` and spawns a `handle_connection()`
+     coroutine per accept.
+
+3. **Task<T>::await_suspend returned `false`** (`src/async/Task.h`)
+   - Awaiting a coroutine that used `co_await` internally silently failed.
+     The continuation was set but never resumed.
+   - **Fix**: `final_suspend` now resumes the continuation (symmetric
+     coroutine pattern), `await_suspend` returns `void` (always suspend).
+   - This was the root cause: the AsyncServer's `co_await handlerTask`
+     never woke up.
+
+4. **`async_server_demo` seeded a separate in-memory DB**
+   - The handlers queried the pool's DB (empty), so queries returned
+     "no such table: users".
+   - **Fix**: Seed via a connection from the pool; use a file-backed DB
+     (`/tmp/async_server_demo.db`) since SQLite in-memory DBs are
+     per-connection and don't share data.
+
+5. **`async_server_demo` seed code didn't await `execute()`**
+   - `execute()` is a coroutine; the seed code created a `Task` and
+     immediately destroyed it without running.
+   - **Fix**: Use `OmniNet::Async::blocking_get()` to wait for each.
+
+### AsyncServer features added
+
+- Async `accept_loop()` watching the listen socket
+- `handle_connection()` using `AsyncSocket` for non-blocking I/O
+- Path parameter matching (`:id` → `([^/]+)`)
+- Wildcard matching (`*` → `.*`)
+- HTTP/1.1 keep-alive support (loop while `req.keepAlive()`)
+- Use `Response::buildFull()` (headers + body) instead of `build()`
+
+### Test results
+
+- AsyncServer tests: **6 → 12** (added 6: dispatch, 404, :id, *, chained
+  coroutine, stats; all use real HTTP requests over a raw socket)
+- Total tests: **213 → 271** (all passing)
+- All 8 async_server_demo endpoints verified working
 
 ---
 
@@ -903,7 +958,7 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 | Component | Status |
 |-----------|--------|
 | Build | ✅ Passing |
-| Tests | ✅ 213/213 passing |
+| Tests | ✅ 271/271 passing |
 | Library | ✅ OmniNet static library |
 | Demos | ✅ 5 demos |
 | Tools | ✅ 10 CLI tools |
@@ -915,10 +970,10 @@ if (validation.valid && store.hasScope(*validation.key, "read")) {
 | ThreadPool | ✅ Work-stealing pool |
 | Async Tasks | ✅ C++20 coroutines |
 | Async I/O | ✅ epoll-based |
-| AsyncServer | ✅ Non-blocking HTTP |
+| AsyncServer | ✅ Working (12 tests, v0.5.1 fix) |
 | AsyncDatabase | ✅ Connection pool |
 
-**Last Updated**: 2026-05-23 16:00 AEST
+**Last Updated**: 2026-06-11 12:35 AEST
 
 ---
 
