@@ -99,6 +99,70 @@ bool test_response_explicit_content_length_preserved() {
     return true;
 }
 
+#ifdef OMNINET_HAVE_ZLIB
+// v0.6.0: Compression tests (Phase 10d test gaps)
+bool test_response_compress_with_gzip_support() {
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    resp.setContentType("text/plain");
+    std::string body(1024, 'a');  // compressible body
+    resp.setBody(body);
+
+    bool compressed = resp.compressBody("gzip, deflate");
+    if (!compressed) return false;
+
+    // Should now have Content-Encoding: gzip
+    auto enc = resp.header("Content-Encoding");
+    if (!enc || *enc != "gzip") return false;
+
+    // The build() should have the gzip header
+    auto data = resp.build();
+    std::string response(reinterpret_cast<const char*>(data.data()), data.size());
+    if (response.find("Content-Encoding: gzip") == std::string::npos) return false;
+    return true;
+}
+
+bool test_response_no_compress_without_gzip() {
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    resp.setBody("Hello world");
+
+    // "deflate" only - no gzip in Accept-Encoding
+    bool compressed = resp.compressBody("deflate, br");
+    if (compressed) return false;
+
+    // No Content-Encoding header
+    auto enc = resp.header("Content-Encoding");
+    if (enc.has_value()) return false;
+    return true;
+}
+
+bool test_response_no_compress_empty_body() {
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    // Empty body
+
+    bool compressed = resp.compressBody("gzip");
+    if (compressed) return false;
+    return true;
+}
+
+bool test_response_compress_idempotent() {
+    // Calling compressBody twice should not re-compress or change state
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    resp.setBody(std::string(512, 'b'));
+
+    if (!resp.compressBody("gzip")) return false;
+    auto firstSize = resp.bodySize();
+
+    // Second call should be a no-op
+    if (resp.compressBody("gzip")) return false;
+    if (resp.bodySize() != firstSize) return false;
+    return true;
+}
+#endif // OMNINET_HAVE_ZLIB
+
 int main() {
     std::cout << "Running HTTP Response tests..." << std::endl;
 
@@ -160,6 +224,40 @@ int main() {
         std::cout << "[FAIL] Explicit Content-Length preserved" << std::endl;
         failed++;
     }
+
+#ifdef OMNINET_HAVE_ZLIB
+    if (test_response_compress_with_gzip_support()) {
+        std::cout << "[PASS] Compress body with gzip support" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] Compress body with gzip support" << std::endl;
+        failed++;
+    }
+
+    if (test_response_no_compress_without_gzip()) {
+        std::cout << "[PASS] No compress without gzip in Accept-Encoding" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] No compress without gzip in Accept-Encoding" << std::endl;
+        failed++;
+    }
+
+    if (test_response_no_compress_empty_body()) {
+        std::cout << "[PASS] No compress empty body" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] No compress empty body" << std::endl;
+        failed++;
+    }
+
+    if (test_response_compress_idempotent()) {
+        std::cout << "[PASS] Compress idempotent (no double-compress)" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] Compress idempotent (no double-compress)" << std::endl;
+        failed++;
+    }
+#endif // OMNINET_HAVE_ZLIB
 
     std::cout << std::endl;
     std::cout << "HTTP Response tests: " << passed << " passed, " << failed << " failed" << std::endl;
