@@ -187,19 +187,29 @@ find_package(SQLite3 REQUIRED)
 target_link_libraries(OmniNet PUBLIC SQLite::SQLite3)
 
 # Optional zlib for gzip compression
+# v0.6.0 fix (bug #3): declare OMNINET_HAVE_ZLIB as a cache option so
+# consumers can override it via -DOMNINET_HAVE_ZLIB=OFF. Previously the
+# variable was just set inline, making the cache value useless and forcing
+# consumers who wanted to disable gzip to post-process the target.
+option(OMNINET_HAVE_ZLIB "Enable gzip response compression via zlib" ON)
 # Use find_library/find_path for compatibility with standard zlib1g-dev package
 find_path(ZLIB_INCLUDE_DIR NAMES zlib.h)
 find_library(ZLIB_LIBRARY NAMES z)
 if(ZLIB_INCLUDE_DIR AND ZLIB_LIBRARY)
-    set(Zlib_FOUND TRUE)
-    add_library(Zlib::Zlib SHARED IMPORTED)
-    set_target_properties(Zlib::Zlib PROPERTIES
-        IMPORTED_LOCATION "${ZLIB_LIBRARY}"
-        INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIR}"
-    )
-    target_link_libraries(OmniNet PUBLIC Zlib::Zlib)
-    target_compile_definitions(OmniNet PUBLIC OMNINET_HAVE_ZLIB=1)
-    message(STATUS "zlib found - gzip compression enabled")
+    if(OMNINET_HAVE_ZLIB)
+        set(Zlib_FOUND TRUE)
+        add_library(Zlib::Zlib SHARED IMPORTED)
+        set_target_properties(Zlib::Zlib PROPERTIES
+            IMPORTED_LOCATION "${ZLIB_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIR}"
+        )
+        target_link_libraries(OmniNet PUBLIC Zlib::Zlib)
+        target_compile_definitions(OmniNet PUBLIC OMNINET_HAVE_ZLIB=1)
+        message(STATUS "zlib found - gzip compression enabled")
+    else()
+        target_compile_definitions(OmniNet PUBLIC OMNINET_HAVE_ZLIB=0)
+        message(STATUS "zlib found - gzip compression disabled (per OMNINET_HAVE_ZLIB=OFF)")
+    endif()
 else()
     target_compile_definitions(OmniNet PUBLIC OMNINET_HAVE_ZLIB=0)
     message(STATUS "zlib not found - gzip compression disabled")

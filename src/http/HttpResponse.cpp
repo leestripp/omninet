@@ -244,65 +244,46 @@ const std::filesystem::path& Response::filePath() const {
 
 #if OMNINET_HAVE_ZLIB
 
+// v0.6.0 fix (bug #1): removed the manual 10-byte gzip header and
+// 8-byte CRC+ISIZE trailer. The `windowBits = 15 + 16` passed to
+// deflateInit2() already tells zlib to write a complete gzip member
+// (header + deflate stream + CRC32 + ISIZE). The previous code did
+// both, producing a "double-wrapped" gzip that browsers and gunzip
+// reject with "invalid compressed data--format violated".
+//
+// The old `static_cast<uint32_t>(size)` for ISIZE was also wrong for
+// any payload over 4 GiB; the zlib path would have been correct.
 static std::vector<uint8_t> gzipCompress(const uint8_t* data, size_t size) {
     std::vector<uint8_t> compressed;
-    
-    // 16-byte header + compressed data + 8-byte trailer
+    if (size == 0) {
+        // Don't emit a 20-byte "empty gzip member" for an empty body
+        return compressed;
+    }
     compressed.reserve(size + 32);
-    
-    // gzip header
-    compressed.insert(compressed.end(), {
-        0x1f, 0x8b,                    // Magic number
-        0x08,                        // Compression method (deflate)
-        0x00,                        // Flags
-        0x00, 0x00, 0x00, 0x00,      // Modification time
-        0x00,                        // Extra flags
-        0xff                         // Operating system (Unix)
-    });
-    
-    // Initialize deflate
-    z_stream strm;
-    strm.zalloc = Z_NULL;
-    strm.zfree = Z_NULL;
-    strm.opaque = Z_NULL;
-    
-    // Window size = 15 (same as gzip), +16 for gzip format
-    if (deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 
+
+    // Use zlib's gzip wrapper directly: windowBits = 15+16 makes
+    // deflateInit2/deflate write the full gzip member (header + deflate
+    // data + CRC32 + ISIZE) for us. Do NOT also write a manual header/trailer.
+    z_stream strm{};
+    if (deflateInit2(&strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
                      15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
         return {};
     }
-    
-    strm.next_in = const_cast<uint8_t*>(data);
+
+    strm.next_in  = const_cast<uint8_t*>(data);
     strm.avail_in = static_cast<uInt>(size);
-    
-    // Process in chunks
+
     uint8_t outBuffer[8192];
     int ret;
-    
     do {
-        strm.next_out = outBuffer;
+        strm.next_out  = outBuffer;
         strm.avail_out = sizeof(outBuffer);
-        
         ret = deflate(&strm, Z_FINISH);
-        
         size_t produced = sizeof(outBuffer) - strm.avail_out;
         compressed.insert(compressed.end(), outBuffer, outBuffer + produced);
-        
-    } while (ret != Z_STREAM_END);
-    
+    } while (ret == Z_OK || ret == Z_BUF_ERROR);
+
     deflateEnd(&strm);
-    
-    // Append CRC32 and size (little-endian)
-    uint32_t crc = crc32(0L, data, static_cast<uInt>(size));
-    uint32_t origSize = static_cast<uint32_t>(size);
-    
-    compressed.insert(compressed.end(), 
-        reinterpret_cast<uint8_t*>(&crc),
-        reinterpret_cast<uint8_t*>(&crc) + 4);
-    compressed.insert(compressed.end(),
-        reinterpret_cast<uint8_t*>(&origSize),
-        reinterpret_cast<uint8_t*>(&origSize) + 4);
-    
     return compressed;
 }
 

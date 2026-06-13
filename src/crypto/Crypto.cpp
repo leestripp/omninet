@@ -66,8 +66,19 @@ std::vector<uint8_t> Crypto::randomBytes(size_t count) {
         // Fallback to /dev/urandom if OpenSSL fails
         FILE* f = fopen("/dev/urandom", "rb");
         if (f) {
-            fread(result.data(), 1, count, f);
+            // v0.6.0 fix (bug #4): check fread() return value. Previously
+            // ignored; a short read would leave part of the buffer
+            // uninitialized, and the caller would never know.
+            size_t got = fread(result.data(), 1, count, f);
             fclose(f);
+            if (got != count) {
+                throw std::runtime_error(
+                    "Crypto::randomBytes: short read from /dev/urandom");
+            }
+        } else {
+            throw std::runtime_error(
+                "Crypto::randomBytes: OpenSSL RAND_bytes failed and "
+                "/dev/urandom is unavailable");
         }
     }
     return result;
@@ -140,22 +151,33 @@ std::vector<uint8_t> Crypto::hmacSha256(
     std::span<const uint8_t> key,
     std::span<const uint8_t> message
 ) {
-    // Use OpenSSL 3.x compatible HMAC API (HMAC_CTX)
+    // v0.6.0 fix (bug #5): use OpenSSL 3.0+ EVP_MAC API instead of the
+    // deprecated HMAC_CTX_* family (scheduled for removal in OpenSSL 4.0).
     std::vector<uint8_t> result(EVP_MAX_MD_SIZE);
-    unsigned int resultLen = 0;
-    
-    HMAC_CTX* ctx = HMAC_CTX_new();
+    size_t resultLen = 0;
+
+    EVP_MAC* mac = EVP_MAC_fetch(nullptr, "HMAC", nullptr);
+    if (!mac) return {};
+    EVP_MAC_CTX* ctx = EVP_MAC_CTX_new(mac);
+    EVP_MAC_free(mac);
     if (!ctx) return {};
-    
-    if (HMAC_Init_ex(ctx, key.data(), static_cast<int>(key.size()), EVP_sha256(), nullptr) == 1 &&
-        HMAC_Update(ctx, message.data(), message.size()) == 1 &&
-        HMAC_Final(ctx, result.data(), &resultLen) == 1) {
-        result.resize(resultLen);
-    } else {
+
+    char digest[] = "SHA256";
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_construct_utf8_string("digest", digest, 0),
+        OSSL_PARAM_construct_end()
+    };
+
+    bool ok = EVP_MAC_init(ctx, key.data(), key.size(), params) == 1
+           && EVP_MAC_update(ctx, message.data(), message.size()) == 1
+           && EVP_MAC_final(ctx, result.data(), &resultLen, result.size()) == 1;
+    EVP_MAC_CTX_free(ctx);
+
+    if (!ok) {
         result.clear();
+    } else {
+        result.resize(resultLen);
     }
-    
-    HMAC_CTX_free(ctx);
     return result;
 }
 

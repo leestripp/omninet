@@ -7,7 +7,22 @@ find_package(Threads REQUIRED)
 
 # Include common library
 add_subdirectory(tools_common)
-
+# Helper macro to add a tool with standard settings
+macro(add_omninet_tool name)
+    add_executable(${name} ${name}/main.cpp)
+    target_compile_features(${name} PRIVATE cxx_std_20)
+    # v0.6.0 fix (bug #2): use CMAKE_CURRENT_SOURCE_DIR/../src so the
+    # include resolves to OmniNet's own src/ in both standalone builds
+    # AND when OmniNet is consumed as a FetchContent subproject.
+    # Previously ${CMAKE_SOURCE_DIR}/src pointed to the *consumer's* src/
+    # in subproject mode, breaking #include "intrusion/IntrusionDetector.h"
+    # in tools/omninet-firewall/main.cpp.
+    target_include_directories(${name} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../src
+        ${TOOLS_DIR}
+        ${CMAKE_BINARY_DIR}/_deps/nlohmann_json-src/include
+    )
+endmacro()
 # Tools directory (for includes)
 set(TOOLS_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 

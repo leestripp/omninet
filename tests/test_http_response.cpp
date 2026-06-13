@@ -1,6 +1,10 @@
 // OmniNet HTTP Response Tests
 #include "http/HttpResponse.h"
+#include "http/HttpResponse.h"
 #include <iostream>
+#include <vector>
+#include <cstring>
+#include <zlib.h>
 #include <vector>
 #include <cstring>
 
@@ -211,6 +215,63 @@ bool test_response_bodySize_after_compress() {
 
     return true;
 }
+
+bool test_response_decompress_roundtrip() {
+    // v0.6.0 fix (bug #1): the gzip output must be valid gzip that
+    // decompresses to the original. Previously the code double-wrapped
+    // (manual gzip header + zlib's own gzip wrapper via windowBits=15+16),
+    // producing output that browsers rejected with "Content Encoding Error".
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    std::string original = "The quick brown fox jumps over the lazy dog. "
+                          "Repeat: The quick brown fox jumps over the lazy dog. "
+                          "Repeat again: The quick brown fox jumps over the lazy dog.";
+    resp.setBody(original);
+
+    if (!resp.compressBody("gzip")) return false;
+
+    auto fullResp = resp.buildFull();
+    std::string fullStr(reinterpret_cast<const char*>(fullResp.data()), fullResp.size());
+    auto headerEnd = fullStr.find("\r\n\r\n");
+    if (headerEnd == std::string::npos) return false;
+    size_t bodyStart = headerEnd + 4;
+    std::string compressedBody(fullStr.begin() + bodyStart, fullStr.end());
+
+    // First two bytes must be the gzip magic
+    if (compressedBody.size() < 2) return false;
+    if (static_cast<uint8_t>(compressedBody[0]) != 0x1f ||
+        static_cast<uint8_t>(compressedBody[1]) != 0x8b) return false;
+
+    // There must NOT be a second gzip header near the start (bug #1
+    // symptom: double-wrapped output had 0x1f 0x8b 0x08 appearing twice)
+    if (compressedBody.size() >= 12) {
+        if (static_cast<uint8_t>(compressedBody[10]) == 0x1f &&
+            static_cast<uint8_t>(compressedBody[11]) == 0x8b) return false;
+    }
+
+    // Decompress using zlib and verify the result matches the original
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));
+    // windowBits = 15+32 tells inflate to accept gzip (15) AND zlib (32) headers
+    if (inflateInit2(&strm, 15 + 32) != Z_OK) return false;
+
+    char decoded[4096];
+    strm.next_in = (Bytef*)compressedBody.data();
+    strm.avail_in = compressedBody.size();
+    strm.next_out = (Bytef*)decoded;
+    strm.avail_out = sizeof(decoded);
+
+    int ret = inflate(&strm, Z_FINISH);
+    inflateEnd(&strm);
+    if (ret != Z_STREAM_END) return false;
+
+    size_t decodedSize = sizeof(decoded) - strm.avail_out;
+    if (decodedSize != original.size()) return false;
+    if (memcmp(decoded, original.data(), original.size()) != 0) return false;
+
+    return true;
+}
+
 #endif // OMNINET_HAVE_ZLIB
 
 int main() {
@@ -321,6 +382,14 @@ int main() {
         passed++;
     } else {
         std::cout << "[FAIL] bodySize reflects compressed size" << std::endl;
+        failed++;
+    }
+
+    if (test_response_decompress_roundtrip()) {
+        std::cout << "[PASS] Decompress round-trip (bug #1 fix)" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] Decompress round-trip (bug #1 fix)" << std::endl;
         failed++;
     }
 #endif // OMNINET_HAVE_ZLIB
