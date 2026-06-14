@@ -44,8 +44,15 @@ namespace {
             now.time_since_epoch()
         ) % 1000;
         
+        // v0.6.0 fix (bug #7): use localtime_r instead of localtime.
+        // std::localtime returns a pointer to a shared static buffer,
+        // which is a data race when called from multiple threads
+        // (Logger can be called from worker threads; AsyncLogger by
+        // definition is multi-threaded).
+        std::tm tm_buf{};
+        ::localtime_r(&time, &tm_buf);
         std::ostringstream oss;
-        oss << std::put_time(std::localtime(&time), "%Y-%m-%d %H:%M:%S");
+        oss << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S");
         oss << '.' << std::setfill('0') << std::setw(3) << ms.count();
         return oss.str();
     }

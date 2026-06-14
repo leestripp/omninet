@@ -49,7 +49,20 @@ if(WIN32)
     )
 endif()
 
-# Version definitions - passed from parent project or use defaults
+# v0.6.0 fix (bug #11): OMNINET_VERSION_* is already added as PUBLIC
+# compile definitions on the OmniNet target by the root CMakeLists.txt.
+# tools_common re-adding them caused redefinition warnings in every
+# tool TU (visible as "<command-line>: warning: 'OMNINET_VERSION_*'
+# redefined"). Removed both the if(DEFINED PROJECT_VERSION_MAJOR)
+# block and the unconditional fallback — tools inherit the version
+# via their OmniNet dependency.
+
+# Build type - always define as a string
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="debug")
+else()
+    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="release")
+endif()
 # These come from the root CMakeLists.txt if available
 if(DEFINED PROJECT_VERSION_MAJOR)
     target_compile_definitions(omninet_tools_common PUBLIC

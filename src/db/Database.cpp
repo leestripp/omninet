@@ -175,14 +175,22 @@ void Database::execute(const std::string& sql) {
 void Database::executef(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    
+
     char* buffer = nullptr;
-    vasprintf(&buffer, fmt, args);
+    // v0.6.0 fix (bug #9): check vasprintf() return value. If it
+    // fails (e.g., out of memory, malformed format args), buffer is
+    // left as nullptr and we'd previously call execute(nullptr) which
+    // is undefined behavior. Now throw a clear exception.
+    int len = vasprintf(&buffer, fmt, args);
     va_end(args);
-    
+    if (len < 0) {
+        throw std::runtime_error(
+            "Database::executef: vasprintf failed (format error or OOM)");
+    }
+
     std::string sql(buffer);
     free(buffer);
-    
+
     execute(sql);
 }
 

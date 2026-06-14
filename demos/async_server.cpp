@@ -22,6 +22,12 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <memory>
 #include <string>
 
 using namespace OmniNet;
@@ -307,7 +313,16 @@ static std::string readFile(const std::string& path) {
 // ============================================================================
 
 int main() {
-    std::cout << "=== OmniNet Async Server Integration Demo ===" << std::endl;
+    // Create static directory and sample files
+    // v0.6.0 fix (bug #10): use std::filesystem::create_directories
+    // instead of system("mkdir -p static") — avoids both the ignored
+    // return value and the shell dependency.
+    std::error_code ec;
+    std::filesystem::create_directories("static", ec);
+    if (ec) {
+        std::fprintf(stderr, "warning: could not create static/ directory: %s\n",
+                     ec.message().c_str());
+    }
     std::cout << "Showcasing v0.4.0+ features\n" << std::endl;
 
     OmniNet::init();

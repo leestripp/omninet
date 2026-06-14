@@ -12,9 +12,14 @@
 #include <sstream>
 #include <streambuf>
 
-// OpenSSL includes for HMAC-SHA256
+// OpenSSL includes for HMAC-SHA256 (v0.6.0: hmacSha256 now delegates
+// to Crypto::hmacSha256 which uses the EVP_MAC API, so HMAC_CTX
+// is no longer needed here)
+#include <openssl/evp.h>
+#include "crypto/Crypto.h"
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
+#include "crypto/Crypto.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -747,37 +752,25 @@ bool writeFile(const std::string& path, std::span<const uint8_t> data) {
 }
 
 // ============================================================================
-// HMAC-SHA256 (using OpenSSL 3.x compatible API)
-// ============================================================================
-
+// HMAC-SHA256 (v0.6.0 fixes bugs #8 + #12)
+// Previously this was a duplicate of Crypto::hmacSha256 using the
+// deprecated HMAC_CTX_* API. Now delegates to Crypto (which uses the
+// modern EVP_MAC API) to avoid the duplication and the OpenSSL 3.0
+// deprecation warnings.
 std::string hmacSha256(std::string_view key, std::string_view message) {
-    std::vector<uint8_t> keyBytes(key.data(), key.data() + key.size());
-    std::vector<uint8_t> msgBytes(message.data(), message.data() + message.size());
-    
-    // Use OpenSSL 3.x compatible HMAC API
-    unsigned char result[EVP_MAX_MD_SIZE];
-    unsigned int resultLen = 0;
-    
-    HMAC_CTX* ctx = HMAC_CTX_new();
-    if (!ctx) return "";
-    
-    if (HMAC_Init_ex(ctx, keyBytes.data(), static_cast<int>(keyBytes.size()), EVP_sha256(), nullptr) == 1 &&
-        HMAC_Update(ctx, msgBytes.data(), static_cast<int>(msgBytes.size())) == 1 &&
-        HMAC_Final(ctx, result, &resultLen) == 1) {
-        // Convert to hex string manually
-        static const char hex[] = "0123456789abcdef";
-        std::string hexStr;
-        hexStr.reserve(resultLen * 2);
-        for (unsigned int i = 0; i < resultLen; i++) {
-            hexStr += hex[(result[i] >> 4) & 0xf];
-            hexStr += hex[result[i] & 0xf];
-        }
-        HMAC_CTX_free(ctx);
-        return hexStr;
+    auto raw = Crypto::hmacSha256(
+        std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(key.data()), key.size()),
+        std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(message.data()), message.size())
+    );
+    // Convert to hex string
+    static const char hex[] = "0123456789abcdef";
+    std::string hexStr;
+    hexStr.reserve(raw.size() * 2);
+    for (auto b : raw) {
+        hexStr += hex[(b >> 4) & 0xf];
+        hexStr += hex[b & 0xf];
     }
-    
-    HMAC_CTX_free(ctx);
-    return "";
+    return hexStr;
 }
 
 } // namespace OmniNet::Utils

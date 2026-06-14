@@ -185,9 +185,16 @@ std::string AsyncLogger::format_entry(const LogEntry& entry) {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                   entry.timestamp.time_since_epoch()) % 1000;
 
+    // v0.6.0 fix (bug #7): use localtime_r instead of localtime.
+    // AsyncLogger is by design multi-threaded (background writer
+    // thread + calling threads); std::localtime's shared static
+    // buffer is a data race.
+    std::tm tm_buf{};
+    ::localtime_r(&time, &tm_buf);
+
     std::ostringstream oss;
     oss << "[" << OmniNet::toString(entry.level) << "] "
-        << "[" << std::put_time(std::localtime(&time), "%Y-%m-%d %H:%M:%S")
+        << "[" << std::put_time(&tm_buf, "%Y-%m-%d %H:%M:%S")
         << "." << std::setfill('0') << std::setw(3) << ms.count() << "] "
         << "[" << std::this_thread::get_id() << "] "
         << entry.message;
