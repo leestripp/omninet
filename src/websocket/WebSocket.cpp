@@ -1,6 +1,7 @@
 // OmniNet - WebSocket Implementation
 #include "utils/Utils.h"
 #include "WebSocket.h"
+#include "WebSocket.h"
 #include "http/HttpServer.h"
 
 #include <thread>
@@ -10,11 +11,18 @@ namespace OmniNet::WebSocket {
 // ============================================================================
 // Connection
 // ============================================================================
-
 Connection::Connection(std::unique_ptr<Socket> socket, std::string_view resource)
     : m_socket(std::move(socket))
     , m_resource(resource)
-    , m_isServer(true) {}
+    , m_isServer(true) {
+    // v0.7.0 fix (prompt.txt Bug #3): the server-side constructor
+    // was leaving m_open = false (the default), which made
+    // addClient() reject the connection with "id=0" because it
+    // checks isOpen() first. The fix is to mark the connection
+    // open as soon as the socket is wired up — the underlying
+    // socket is already connected (it came from accept()).
+    m_open = true;
+}
 
 Connection::Connection(const std::string& url, std::string_view protocol)
     : m_resource("/")
@@ -69,11 +77,21 @@ void Connection::sendPong(std::span<const uint8_t> payload) {
 
 void Connection::close(CloseCode code, std::string_view reason) {
     if (!m_open) return;
-    
+
+    // v0.7.0 fix: don't try to send a close frame if there's no
+    // socket. This happens for test mocks (MockConnection uses
+    // a null socket) and for clients that were never connected.
+    if (!m_socket) {
+        m_open = false;
+        return;
+    }
     Frame frame;
     frame.opcode = Opcode::CLOSE;
     auto closeData = buildCloseFrame({code, std::string(reason)});
     frame.payload.assign(closeData.begin(), closeData.end());
+    sendFrame(frame);
+
+    m_open = false;
     sendFrame(frame);
     
     m_open = false;
@@ -292,6 +310,57 @@ void Connection::processFrame(const Frame& frame) {
     }
 }
 
+// v0.7.0 (prompt.txt): blocking read loop. Reads frames from
+// the socket, decodes them via FrameCodec, and dispatches via
+// processFrame() until the socket closes or an error occurs.
+// Single-threaded — must be called from the thread that owns
+// the Connection.
+void Connection::readLoop() {
+    std::vector<uint8_t> buffer;
+    buffer.reserve(4096);
+    std::vector<uint8_t> leftover;  // partial frame from previous read
+
+    while (m_socket && m_socket->isOpen()) {
+        // Read available data.
+        std::vector<uint8_t> chunk;
+        try {
+            chunk = m_socket->recvAll(65536);
+        } catch (...) {
+            break;  // socket error
+        }
+        if (chunk.empty()) {
+            break;  // connection closed
+        }
+
+        // Append new data to any leftover from previous iteration.
+        if (!leftover.empty()) {
+            leftover.insert(leftover.end(), chunk.begin(), chunk.end());
+            chunk = std::move(leftover);
+            leftover.clear();
+        }
+
+        // Decode as many frames as possible from the buffer.
+        size_t offset = 0;
+        while (offset < chunk.size()) {
+            std::span<const uint8_t> view(chunk.data() + offset,
+                                          chunk.size() - offset);
+            size_t consumed = 0;
+            auto frame = FrameCodec::decode(view, consumed);
+            if (!frame) {
+                // Need more data — save the remainder for next time.
+                leftover.assign(chunk.begin() + offset, chunk.end());
+                break;
+            }
+            offset += consumed;
+            // processFrame() dispatches to onText/onBinary/onClose.
+            processFrame(*frame);
+            if (frame->isClose()) {
+                return;  // close frame received
+            }
+        }
+    }
+}
+
 void Connection::handleControlFrame(const Frame& frame) {
     if (frame.isPing()) {
         if (m_pingHandler) {
@@ -346,52 +415,88 @@ void Server::on(std::string path, std::function<void(Connection&)> handler) {
     endpoint.path = std::move(path);
     endpoint.handler = std::move(handler);
     m_endpoints.push_back(std::move(endpoint));
-    
-    // Store WebSocket handler for this path
-    auto& wsHandler = m_endpoints.back().handler;
+
+    // Copy the handler and path for the lambdas (the endpoint
+    // vector may be moved/reallocated in future calls to on()).
+    auto wsHandler = m_endpoints.back().handler;
     std::string wsPath = m_endpoints.back().path;
-    
-    // Register with HTTP server to handle WebSocket upgrade
-    m_httpServer->any(wsPath, [this, wsPath, wsHandler](const OmniNet::HTTP::Request& req, 
-                                                       OmniNet::HTTP::Response& resp) {
-        // Handle WebSocket upgrade
+
+    // 1) Register the HTTP route for the upgrade request.
+    //    The handler validates the upgrade headers, computes the
+    //    accept key, and sets a 101 Switching Protocols response.
+    //    It marks the response as a protocol switch (v0.7.0) so
+    //    the HTTP server knows to hand the raw socket off after
+    //    writing the 101 — this is the fix for prompt.txt Bug #1
+    //    (Content-Length suppression) and Bug #2 (handler never
+    //    called).
+    m_httpServer->any(wsPath, [wsPath](const OmniNet::HTTP::Request& req,
+                                      OmniNet::HTTP::Response& resp) {
+        // Validate Upgrade header (case-insensitive per RFC 7230)
         auto upgrade = req.header("Upgrade");
         if (!upgrade || Utils::toLower(*upgrade) != "websocket") {
             resp = OmniNet::HTTP::Response::badRequest("WebSocket upgrade required");
             return;
         }
-        
-        // Get the Sec-WebSocket-Key
+
+        // Sec-WebSocket-Key is mandatory (RFC 6455 §4.1)
         auto key = req.header("Sec-WebSocket-Key");
         if (!key) {
             resp = OmniNet::HTTP::Response::badRequest("Missing Sec-WebSocket-Key");
             return;
         }
-        
-        // Compute accept key and build response
+
+        // Build the 101 response. The HTTP server suppresses
+        // Content-Length for 101 (RFC 6455 §1.3, v0.7.0 fix) and
+        // hands the socket to the post-upgrade callback after
+        // writing.
         auto acceptKey = Handshake::computeAcceptKey(std::string(*key));
-        
-        std::string response = "HTTP/1.1 101 Switching Protocols\r\n";
-        response += "Upgrade: websocket\r\n";
-        response += "Connection: Upgrade\r\n";
-        response += "Sec-WebSocket-Accept: " + acceptKey + "\r\n";
-        response += "\r\n";
-        
-        // We need to get the socket from the connection
-        // Since the handler is set after connection creation, we need a different approach
-        // For now, create a WebSocket connection and pass a null socket (will be handled in real implementation)
-        // This is a placeholder - in a full implementation, the HTTP server would expose the socket
-        
-        // Note: Full WebSocket integration requires modifying HttpServer to support upgrade
-        // For now, return a response indicating WebSocket upgrade is needed
         resp.setStatus(static_cast<OmniNet::HTTP::StatusCode>(101));
         resp.setHeader("Upgrade", std::string("websocket"));
         resp.setHeader("Connection", std::string("Upgrade"));
         resp.setHeader("Sec-WebSocket-Accept", acceptKey);
-        
-        // The actual WebSocket handling would happen here after response is sent
-        // For demo purposes, we'll leave the connection intact for external WebSocket libraries
+        resp.markProtocolSwitch();  // v0.7.0: trigger socket handoff
     });
+
+    // 2) Register the post-upgrade callback. Called by HttpServer
+    //    AFTER the 101 response is written, with the raw socket.
+    //    We:
+    //      a) create the server-side WebSocket::Connection
+    //      b) call addClient() so broadcast() reaches this client
+    //         (fixes prompt.txt Bug #3)
+    //      c) spawn a thread to run the per-path handler (the
+    //         handler typically loops processing frames)
+    //
+    //    We use shared_ptr<Connection> because Connection has
+    //    std::mutex/std::condition_variable members and is NOT
+    //    movable. The thread owns the shared_ptr; when the
+    //    handler returns, it calls removeClient() and the
+    //    Connection is destroyed.
+    m_httpServer->setPostUpgradeHandler(wsPath,
+        [this, wsPath, wsHandler](std::unique_ptr<Socket> socket,
+                                  const OmniNet::HTTP::Request& req) {
+            // Create the server-side WebSocket Connection.
+            auto conn = std::make_shared<Connection>(std::move(socket),
+                                                     req.path());
+
+            // Register with the broadcast map BEFORE starting the
+            // handler thread so connectionCount() and broadcast()
+            // work immediately.
+            ClientId id = addClient(*conn, wsPath);
+
+            // Spawn the handler thread. It owns the Connection.
+            std::thread([this, id, conn, wsHandler]() {
+                try {
+                    wsHandler(*conn);
+                } catch (...) {
+                    // Swallow user-code exceptions; the connection
+                    // is about to be cleaned up anyway.
+                }
+                // Unregister from the broadcast map. The
+                // shared_ptr goes out of scope after this lambda
+                // returns, destroying the Connection.
+                removeClient(id);
+            }).detach();
+        });
 }
 
 void Server::start() {

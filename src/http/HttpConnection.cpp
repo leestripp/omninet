@@ -67,9 +67,25 @@ bool Connection::handleNextRequest() {
         
         CONN_DEBUG("Sending response, status=" << static_cast<int>(resp.status()));
         // Send response
-        return sendResponse(resp);
+        bool keepAlive = sendResponse(resp);
+
+        // v0.7.0 (prompt.txt Bug #2 + #5): post-upgrade handoff.
+        // If the handler marked the response as a protocol switch
+        // (e.g. 101 Switching Protocols for WebSocket) AND a
+        // post-upgrade callback was registered, release the socket
+        // and hand it to the callback. The Connection stops
+        // processing more HTTP requests on this connection.
+        if (resp.isProtocolSwitch() && m_postUpgradeCallback) {
+            CONN_DEBUG("Protocol switch: handing socket to post-upgrade callback");
+            auto cb = std::move(m_postUpgradeCallback);
+            auto sock = releaseSocket();
+            cb(std::move(sock), m_currentRequest);
+            return false;  // socket is now owned by the callback
+        }
+
+        return keepAlive;
     }
-    
+
     CONN_DEBUG("No handler set!");
     return false;
 }
@@ -113,6 +129,14 @@ void Connection::setKeepAliveTimeout(std::chrono::seconds timeout) {
 
 void Connection::setMaxRequestSize(size_t maxSize) {
     m_maxRequestSize = maxSize;
+}
+
+// v0.7.0 (prompt.txt Bug #2 + #5): register a post-upgrade
+// handoff. After writing the next response, if it's a protocol
+// switch (101), the socket is released and passed to this
+// callback instead of looping back to read more HTTP requests.
+void Connection::setPostUpgradeCallback(PostUpgradeCallback cb) {
+    m_postUpgradeCallback = std::move(cb);
 }
 
 void Connection::onRequest(Handler handler) {

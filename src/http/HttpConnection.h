@@ -68,7 +68,16 @@ public:
     
     // Take ownership of socket (for WebSocket upgrade)
     std::unique_ptr<Socket> releaseSocket();
-    
+
+    // v0.7.0 (prompt.txt Bug #2 + #5): post-upgrade handoff.
+    // After writing the response, if the response is a protocol
+    // switch (101 Switching Protocols), the Connection releases
+    // its socket and calls this callback with it. The callback
+    // takes ownership. One-shot: consumed on first use.
+    using PostUpgradeCallback =
+        std::function<void(std::unique_ptr<Socket>, const Request&)>;
+    void setPostUpgradeCallback(PostUpgradeCallback cb);
+
     // Statistics
     struct Stats {
         size_t requestsReceived = 0;
@@ -87,6 +96,12 @@ private:
     std::unique_ptr<Socket> m_socket;
     Handler m_handler;
     ErrorHandler m_errorHandler;
+
+    // v0.7.0 (prompt.txt Bug #2 + #5): post-upgrade callback.
+    // Set by HttpServer after the route handler returns. When
+    // processRequests() writes a protocol-switch response, it
+    // releases the socket and calls this callback.
+    PostUpgradeCallback m_postUpgradeCallback;
     
     std::chrono::seconds m_requestTimeout{30};
     std::chrono::seconds m_keepAliveTimeout{5};

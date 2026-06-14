@@ -93,6 +93,11 @@ add_executable(test_websocket_broadcast
     test_websocket_broadcast.cpp
 )
 
+# WebSocket end-to-end echo test (v0.7.0, prompt.txt regression test)
+add_executable(test_websocket_echo
+    test_websocket_echo.cpp
+)
+
 # Link with OmniNet and dependencies
 target_link_libraries(omnet_test PRIVATE OmniNet pthread)
 target_link_libraries(test_buffer_protection PRIVATE OmniNet pthread)
@@ -175,6 +180,11 @@ target_link_libraries(test_websocket_broadcast PRIVATE
     pthread
 )
 
+target_link_libraries(test_websocket_echo PRIVATE
+    OmniNet
+    pthread
+)
+
 # Enable C++23
 target_compile_features(omnet_test PRIVATE cxx_std_23)
 target_compile_features(test_buffer_protection PRIVATE cxx_std_23)
@@ -194,6 +204,7 @@ target_compile_features(test_sync_http_server PRIVATE cxx_std_23)
 target_compile_features(test_http_response PRIVATE cxx_std_23)
 
 target_compile_features(test_websocket_broadcast PRIVATE cxx_std_23)
+target_compile_features(test_websocket_echo PRIVATE cxx_std_23)
 
 # Include directories - use parent source dir
 target_include_directories(omnet_test PRIVATE

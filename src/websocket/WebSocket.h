@@ -136,6 +136,14 @@ public:
     
     // Process incoming frame
     void processFrame(const Frame& frame);
+
+    // v0.7.0 (prompt.txt): blocking read loop. Reads frames from
+    // the socket, decodes them via FrameCodec, and dispatches via
+    // processFrame() until the connection closes or an error
+    // occurs. Used by the per-path handler thread in
+    // WebSocket::Server::on(). Not thread-safe — call from a
+    // single thread that owns the Connection.
+    void readLoop();
     
     // Handle control frame
     void handleControlFrame(const Frame& frame);

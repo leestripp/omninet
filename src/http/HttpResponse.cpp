@@ -365,9 +365,17 @@ std::vector<uint8_t> Response::build() const {
     // keep-alive clients can detect end-of-response (v0.6.0 fix: previously
     // empty-body responses had no Content-Length, causing curl to hang).
     // We do this in a copy because m_headers is const here.
+    // v0.7.0 fix (prompt.txt Bug #1 + Issue #4): suppress
+    // Content-Length for status codes that MUST NOT have a body
+    // (RFC 7230 §3.3.2, RFC 6455 §1.3 for 101). 101 Switching
+    // Protocols, 204 No Content, and 304 Not Modified all have
+    // empty bodies and Content-Length MUST NOT be present.
     bool needContentLength = !hasHeader("Content-Length") &&
                             !hasHeader("Transfer-Encoding") &&
-                            !hasFile();
+                            !hasFile() &&
+                            m_status != StatusCode::SWITCHING_PROTOCOLS &&
+                            m_status != StatusCode::NO_CONTENT &&
+                            m_status != StatusCode::NOT_MODIFIED;
     size_t autoContentLength = 0;
     if (needContentLength) {
         autoContentLength = calculateContentLength();
@@ -417,6 +425,10 @@ std::vector<uint8_t> Response::buildFull() const {
 
     return response;
 }
+
+// v0.7.0 (prompt.txt Bug #2): protocol-switch handoff
+void Response::markProtocolSwitch() { m_protocolSwitch = true; }
+bool Response::isProtocolSwitch() const { return m_protocolSwitch; }
 
 // ============================================================================
 // Static Factory Methods

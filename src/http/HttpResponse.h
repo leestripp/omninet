@@ -161,7 +161,16 @@ public:
     
     // Build for sending (includes file content if set)
     std::vector<uint8_t> buildFull() const;
-    
+
+    // v0.7.0 (prompt.txt Bug #2): protocol-switch handoff.
+    // When marked, the HTTP server writes the response and then
+    // hands the raw socket to a post-upgrade callback registered
+    // for the same path (via HttpServer::setPostUpgradeHandler)
+    // instead of looping back to read another HTTP request. Used
+    // by WebSocket::Server::on() for the HTTP→WebSocket switch.
+    void markProtocolSwitch();
+    bool isProtocolSwitch() const;
+
     // --- Static Helpers ---
     
     // Common response factories
@@ -195,7 +204,10 @@ private:
     
     bool m_compressed = false;
     std::vector<uint8_t> m_compressedBody;
-    
+
+    // v0.7.0: see markProtocolSwitch() above.
+    bool m_protocolSwitch = false;
+
     // Build status line
     std::string buildStatusLine() const;
     

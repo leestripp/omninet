@@ -134,7 +134,19 @@ public:
     // exception can't crash the accept loop.
     using ReadyCallback = std::function<void(uint16_t boundPort)>;
     void setOnReady(ReadyCallback cb);
-    
+
+    // v0.7.0 (prompt.txt Bug #2 + #5): post-upgrade socket handoff.
+    // When a request to `path` results in a 101 response (marked via
+    // Response::markProtocolSwitch), the server writes the 101 and
+    // then calls `cb` with the raw socket instead of looping back to
+    // read another HTTP request. The callback takes ownership of
+    // the socket. Used by WebSocket::Server::on() for the
+    // HTTP→WebSocket protocol switch.
+    using PostUpgradeCallback =
+        std::function<void(std::unique_ptr<Socket> socket,
+                           const Request& req)>;
+    void setPostUpgradeHandler(std::string path, PostUpgradeCallback cb);
+
     // --- CORS ---
     
     void enableCORS(
@@ -220,6 +232,10 @@ private:
     
     // v0.7.0 (Phase 11c): onReady callback
     ReadyCallback m_onReady;
+
+    // v0.7.0 (prompt.txt Bug #2 + #5): post-upgrade handoff map.
+    // Keyed by request path. Consumed on first use (one-shot).
+    std::unordered_map<std::string, PostUpgradeCallback> m_postUpgradeHandlers;
     
     // Statistics
     Stats m_stats;

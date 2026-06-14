@@ -209,6 +209,14 @@ void Server::setOnReady(ReadyCallback cb) {
     m_onReady = std::move(cb);
 }
 
+// v0.7.0 (prompt.txt Bug #2 + #5): register a post-upgrade
+// handoff for `path`. When a request to this path results in a
+// 101 response, the server writes the 101 and then calls `cb`
+// with the raw socket. The callback takes ownership.
+void Server::setPostUpgradeHandler(std::string path, PostUpgradeCallback cb) {
+    m_postUpgradeHandlers[std::move(path)] = std::move(cb);
+}
+
 void Server::enableCORS(
     std::string_view allowedOrigins,
     std::string_view allowedMethods,
@@ -333,7 +341,7 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
 
             Connection conn(std::move(socket));
 
-            conn.setHandler([this](const Request& req, Response& resp) {
+            conn.setHandler([this, &conn](const Request& req, Response& resp) {
                 SERVER_DEBUG("Handler called - Method: " << req.methodString() << ", Path: " << req.path());
 
                 // Add CORS headers if enabled
@@ -347,6 +355,25 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
                 SERVER_DEBUG("Calling router.handle()");
                 m_router.handle(req, resp);
                 SERVER_DEBUG("Router.handle() returned, response status=" << static_cast<int>(resp.status()));
+
+                // v0.7.0 (prompt.txt Bug #2 + #5): protocol switch.
+                // If the route handler set a 101 response (via
+                // Response::markProtocolSwitch) and a post-upgrade
+                // callback is registered for this path, wire it up
+                // on the Connection. After writing the 101, the
+                // Connection will release the socket and call the
+                // callback (which creates the WebSocket::Connection
+                // and runs the per-path handler).
+                if (resp.isProtocolSwitch()) {
+                    auto it = m_postUpgradeHandlers.find(std::string(req.path()));
+                    if (it != m_postUpgradeHandlers.end()) {
+                        SERVER_DEBUG("Protocol switch: registering post-upgrade for " << req.path());
+                        conn.setPostUpgradeCallback(std::move(it->second));
+                        m_postUpgradeHandlers.erase(it);
+                    } else {
+                        SERVER_DEBUG("Protocol switch requested but no post-upgrade handler for " << req.path());
+                    }
+                }
             });
 
             conn.setErrorHandler([this](const Request& req, Response& resp, std::exception_ptr e) {
