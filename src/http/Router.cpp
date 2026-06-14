@@ -80,6 +80,54 @@ void Router::options(std::string pattern, Handler handler) {
     addRoute(Method::OPTIONS, std::move(pattern), std::move(handler));
 }
 
+// v0.7.0 (Phase 11e): JSON handler overloads.
+// The user's JsonHandler is wrapped in a plain Handler that parses
+// the body once; on failure, returns 400 and the user handler is
+// NOT called.
+static Handler wrapJsonHandler(JsonHandler jh) {
+    auto h = std::move(jh);
+    return [h = std::move(h)](const Request& req, Response& resp) {
+        try {
+            auto body = req.bodyAsString();
+            auto parsed = nlohmann::json::parse(body);
+            h(parsed, resp);
+        } catch (const nlohmann::json::exception& e) {
+            resp = Response::badRequest(
+                std::string("Invalid JSON: ") + e.what());
+        } catch (...) {
+            resp = Response::badRequest("Invalid request body");
+        }
+    };
+}
+
+void Router::get(std::string pattern, JsonHandler handler) {
+    addRoute(Method::GET, std::move(pattern), wrapJsonHandler(std::move(handler)));
+}
+
+void Router::post(std::string pattern, JsonHandler handler) {
+    addRoute(Method::POST, std::move(pattern), wrapJsonHandler(std::move(handler)));
+}
+
+void Router::put(std::string pattern, JsonHandler handler) {
+    addRoute(Method::PUT, std::move(pattern), wrapJsonHandler(std::move(handler)));
+}
+
+void Router::delete_(std::string pattern, JsonHandler handler) {
+    addRoute(Method::DELETE, std::move(pattern), wrapJsonHandler(std::move(handler)));
+}
+
+void Router::patch(std::string pattern, JsonHandler handler) {
+    addRoute(Method::PATCH, std::move(pattern), wrapJsonHandler(std::move(handler)));
+}
+
+void Router::head(std::string pattern, JsonHandler handler) {
+    addRoute(Method::HEAD, std::move(pattern), wrapJsonHandler(std::move(handler)));
+}
+
+void Router::options(std::string pattern, JsonHandler handler) {
+    addRoute(Method::OPTIONS, std::move(pattern), wrapJsonHandler(std::move(handler)));
+}
+
 void Router::any(std::string pattern, Handler handler) {
     auto h = std::move(handler);
     for (int m = static_cast<int>(Method::GET); m <= static_cast<int>(Method::TRACE); ++m) {

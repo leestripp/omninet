@@ -406,4 +406,104 @@ bool Server::isRunning() const {
     return m_httpServer->isRunning();
 }
 
+// ----------------------------------------------------------------------
+// v0.7.0 (Phase 11b): client tracking + broadcast
+// ----------------------------------------------------------------------
+
+Server::ClientId Server::addClient(Connection& conn, std::string_view path) {
+    if (!conn.isOpen()) return 0;
+    ClientId id = m_nextClientId.fetch_add(1, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(m_clientsMutex);
+    m_clients.emplace(id, std::make_pair(std::string(path), &conn));
+    return id;
+}
+
+void Server::removeClient(ClientId id) {
+    std::lock_guard<std::mutex> lock(m_clientsMutex);
+    m_clients.erase(id);
+}
+
+void Server::sendTo(ClientId id, std::string_view text) {
+    Connection* conn = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_clientsMutex);
+        auto it = m_clients.find(id);
+        if (it == m_clients.end()) return;  // unknown id = no-op
+        conn = it->second.second;
+    }
+    if (conn && conn->isOpen()) {
+        try {
+            conn->sendText(std::string(text));
+        } catch (...) {
+            // Send failed: remove the dead client.
+            removeClient(id);
+        }
+    } else {
+        removeClient(id);
+    }
+}
+
+void Server::broadcast(std::string_view text) {
+    // Snapshot the ids under the lock, then send outside the lock to
+    // minimize contention. A dead client is removed on send failure.
+    std::vector<ClientId> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_clientsMutex);
+        snapshot.reserve(m_clients.size());
+        for (const auto& [id, _] : m_clients) snapshot.push_back(id);
+    }
+    for (ClientId id : snapshot) {
+        sendTo(id, text);
+    }
+}
+
+void Server::broadcastText(std::string_view text) {
+    broadcast(text);
+}
+
+void Server::broadcast(std::string_view text, std::string_view path) {
+    std::vector<ClientId> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(m_clientsMutex);
+        snapshot.reserve(m_clients.size());
+        for (const auto& [id, entry] : m_clients) {
+            if (entry.first == path) snapshot.push_back(id);
+        }
+    }
+    for (ClientId id : snapshot) {
+        sendTo(id, text);
+    }
+}
+
+std::vector<Server::ClientId> Server::clients() const {
+    std::lock_guard<std::mutex> lock(m_clientsMutex);
+    std::vector<ClientId> out;
+    out.reserve(m_clients.size());
+    for (const auto& [id, _] : m_clients) out.push_back(id);
+    return out;
+}
+
+std::vector<Server::ClientId> Server::clients(std::string_view path) const {
+    std::lock_guard<std::mutex> lock(m_clientsMutex);
+    std::vector<ClientId> out;
+    for (const auto& [id, entry] : m_clients) {
+        if (entry.first == path) out.push_back(id);
+    }
+    return out;
+}
+
+size_t Server::connectionCount() const {
+    std::lock_guard<std::mutex> lock(m_clientsMutex);
+    return m_clients.size();
+}
+
+size_t Server::connectionCount(std::string_view path) const {
+    std::lock_guard<std::mutex> lock(m_clientsMutex);
+    size_t count = 0;
+    for (const auto& [_, entry] : m_clients) {
+        if (entry.first == path) ++count;
+    }
+    return count;
+}
+
 } // namespace OmniNet::WebSocket

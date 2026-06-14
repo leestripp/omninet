@@ -13,6 +13,7 @@
 
 #include "http/HttpRequest.h"
 #include "http/HttpResponse.h"
+#include <nlohmann/json.hpp>
 
 namespace OmniNet::HTTP {
 
@@ -21,6 +22,10 @@ namespace OmniNet::HTTP {
 // ============================================================================
 
 using Handler = std::function<void(const Request&, Response&)>;
+
+// v0.7.0 (Phase 11e): JSON handler — body is auto-parsed; 400 on bad JSON.
+// The application doesn't need to call Json::parse() themselves.
+using JsonHandler = std::function<void(const nlohmann::json&, Response&)>;
 
 // ============================================================================
 // Route Definition
@@ -59,6 +64,18 @@ public:
     
     // Any method
     void any(std::string pattern, Handler handler);
+
+    // v0.7.0 (Phase 11e): JSON handler overloads. Body is auto-parsed;
+    // 400 Bad Request is returned on parse failure before the user's
+    // handler is called.
+    void get(std::string pattern, JsonHandler handler);
+    void post(std::string pattern, JsonHandler handler);
+    void put(std::string pattern, JsonHandler handler);
+    void delete_(std::string pattern, JsonHandler handler);
+    void patch(std::string pattern, JsonHandler handler);
+    void head(std::string pattern, JsonHandler handler);
+    void options(std::string pattern, JsonHandler handler);
+    void any(std::string pattern, JsonHandler handler);
     
     // Group routes with shared prefix
     void group(std::string prefix, std::function<void(Router&)> configure);

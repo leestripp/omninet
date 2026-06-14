@@ -46,7 +46,19 @@ void Server::start() {
     
     m_running = true;
     m_stopping = false;
-    
+
+    // v0.7.0 (Phase 11c): fire the onReady callback now that the
+    // socket is bound. The callback receives the actual bound port
+    // (useful for ephemeral ports). Wrapped in try/catch so a user
+    // exception doesn't kill the accept loop.
+    if (m_onReady) {
+        try {
+            m_onReady(m_serverSocket->localPort());
+        } catch (...) {
+            SERVER_DEBUG("onReady callback threw (swallowed)");
+        }
+    }
+
     // Start worker threads
     size_t workers = m_config.workerCount;
     if (workers == 0) {
@@ -160,6 +172,12 @@ void Server::setErrorHandler(Handler handler) {
     m_errorHandler = std::move(handler);
 }
 
+// v0.7.0 (Phase 11c): register a callback for when the server is
+// fully bound and ready to accept.
+void Server::setOnReady(ReadyCallback cb) {
+    m_onReady = std::move(cb);
+}
+
 void Server::enableCORS(
     std::string_view allowedOrigins,
     std::string_view allowedMethods,
@@ -191,6 +209,14 @@ const Server::Config& Server::config() const {
 
 uint16_t Server::port() const {
     return m_config.port;
+}
+
+// v0.7.0 (Phase 11a): actual bound port (getsockname()). 0 before
+// start(). For an OS-assigned port (Config::port = 0), this is the
+// only way to learn which port the kernel picked.
+uint16_t Server::boundPort() const {
+    if (!m_serverSocket) return 0;
+    return m_serverSocket->localPort();
 }
 
 std::string Server::address() const {

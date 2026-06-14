@@ -121,6 +121,16 @@ public:
     void setNotFoundHandler(Handler handler);
     void setErrorHandler(Handler handler);
     
+    // --- Lifecycle callbacks ---
+    
+    // v0.7.0 (Phase 11c): invoked once after the listening socket
+    // is bound, before the accept loop starts. The argument is the
+    // actual bound port (useful when Config::port = 0 for ephemeral
+    // ports). The callback is wrapped in try/catch so a user-thrown
+    // exception can't crash the accept loop.
+    using ReadyCallback = std::function<void(uint16_t boundPort)>;
+    void setOnReady(ReadyCallback cb);
+    
     // --- CORS ---
     
     void enableCORS(
@@ -154,6 +164,13 @@ public:
     
     const Config& config() const;
     uint16_t port() const;
+    // v0.7.0 (Phase 11a): returns the actual port the server is bound
+    // to. Useful when Config::port = 0 (OS assigns an ephemeral port)
+    // and the application needs to announce the real port (e.g. for
+    // service discovery, supervisors, JSON-RPC over dynamic ports).
+    // Returns 0 before start(). The existing port() returns the
+    // *configured* port (unchanged for backward compatibility).
+    uint16_t boundPort() const;
     std::string address() const;
     
 private:
@@ -190,6 +207,9 @@ private:
     // Error handlers
     Handler m_notFoundHandler;
     Handler m_errorHandler;
+    
+    // v0.7.0 (Phase 11c): onReady callback
+    ReadyCallback m_onReady;
     
     // Statistics
     Stats m_stats;

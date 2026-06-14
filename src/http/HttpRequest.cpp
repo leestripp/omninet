@@ -354,6 +354,32 @@ std::string_view Request::referer() const {
     return headerOr("referer", "");
 }
 
+// v0.7.0 (Phase 11d): header helpers for auth + tracing.
+// Thin wrappers around header(); return empty view if absent.
+
+std::string_view Request::authHeader() const {
+    return headerOr("Authorization", "");
+}
+
+std::string_view Request::bearerToken() const {
+    // Authorization: Bearer <token>
+    auto auth = authHeader();
+    static constexpr std::string_view kBearer = "Bearer ";
+    if (auth.size() > kBearer.size() &&
+        (auth.substr(0, kBearer.size()) == kBearer)) {
+        return auth.substr(kBearer.size());
+    }
+    return {};
+}
+
+std::string_view Request::traceId() const {
+    return headerOr("X-Trace-Id", "");
+}
+
+std::string_view Request::requestId() const {
+    return headerOr("X-Request-Id", "");
+}
+
 bool Request::keepAlive() const {
     auto conn = headerOr("connection", "");
     std::string lc = Utils::toLower(conn);

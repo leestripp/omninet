@@ -48,21 +48,19 @@ public:
     Connection& operator=(const Connection&) = delete;
     
     // --- Lifecycle ---
-    
-    // Send text message
-    void sendText(const std::string& message);
-    
-    // Send binary message
-    void sendBinary(std::span<const uint8_t> data);
-    
-    // Send ping (with optional payload)
-    void sendPing(std::span<const uint8_t> payload = {});
-    
-    // Send pong
-    void sendPong(std::span<const uint8_t> payload = {});
-    
-    // Send close frame
-    void close(CloseCode code = CloseCode::NORMAL, std::string_view reason = {});
+
+    // v0.7.0 (Phase 11b): virtual so test mocks can subclass and
+    // override (the broadcast tests use a MockConnection that tracks
+    // sends and can simulate failure).
+    virtual void sendText(const std::string& message);
+
+    virtual void sendBinary(std::span<const uint8_t> data);
+
+    virtual void sendPing(std::span<const uint8_t> payload = {});
+
+    virtual void sendPong(std::span<const uint8_t> payload = {});
+
+    virtual void close(CloseCode code = CloseCode::NORMAL, std::string_view reason = {});
     
     // Receive message
     // Returns nullopt if connection closed
@@ -75,8 +73,9 @@ public:
     std::optional<std::vector<uint8_t>> receiveBinary();
     
     // --- State ---
-    
-    bool isOpen() const;
+
+    // v0.7.0 (Phase 11b): virtual for testability.
+    virtual bool isOpen() const;
     std::string_view resource() const;
     std::string remoteAddress() const;
     
@@ -185,31 +184,75 @@ class Server {
 public:
     Server();
     explicit Server(const OmniNet::HTTP::Server::Config& config);
-    
+
     // Register WebSocket endpoint
     // Handler is called for each new connection
     void on(
         std::string path,
         std::function<void(Connection& ws)> handler
     );
-    
+
     // Start/stop
     void start();
     void stop();
     bool isRunning() const;
-    
+
+    // ------------------------------------------------------------------
+    // v0.7.0 (Phase 11b): Client tracking + broadcast / fan-out
+    // ------------------------------------------------------------------
+    // The application calls addClient() from its per-connection handler
+    // (after the WebSocket handshake completes) to register the
+    // connection with the server. The server then tracks it and can
+    // broadcast to it. removeClient() is called either explicitly or
+    // automatically when a broadcast() to that client fails.
+
+    using ClientId = uint64_t;
+
+    // Register a connection under `path` and return its id.
+    // Returns 0 on failure (e.g. null/closed connection).
+    ClientId addClient(Connection& conn, std::string_view path);
+
+    // Unregister a client. Safe to call with an unknown id (no-op).
+    void removeClient(ClientId id);
+
+    // Send a text message to a single client. No-op for unknown ids.
+    void sendTo(ClientId id, std::string_view text);
+
+    // Send a text message to all registered clients.
+    // On per-client send failure, the client is auto-removed and
+    // the loop continues (one dead client doesn't break the rest).
+    void broadcast(std::string_view text);
+    void broadcastText(std::string_view text);  // alias for clarity
+
+    // Send a text message to all clients registered on a specific path.
+    void broadcast(std::string_view text, std::string_view path);
+
+    // Snapshot of currently-registered client ids.
+    std::vector<ClientId> clients() const;
+    std::vector<ClientId> clients(std::string_view path) const;
+
+    // Number of currently-registered clients (feature #3).
+    size_t connectionCount() const;
+    size_t connectionCount(std::string_view path) const;
+
 private:
     struct Endpoint {
         std::string path;
         std::function<void(Connection&)> handler;
     };
-    
+
     std::vector<Endpoint> m_endpoints;
     std::unique_ptr<OmniNet::HTTP::Server> m_httpServer;
     std::unique_ptr<OmniNet::HTTP::Router> m_router;
-    
+
     // Store WebSocket handlers for connection upgrade
     std::unordered_map<std::string, std::function<void(Connection&)>> m_wsHandlers;
+
+    // v0.7.0 (Phase 11b): client tracking for broadcast.
+    mutable std::mutex m_clientsMutex;
+    std::unordered_map<ClientId,
+        std::pair<std::string, Connection*>> m_clients;  // id -> (path, conn)
+    std::atomic<ClientId> m_nextClientId{1};
 };
 
 } // namespace OmniNet::WebSocket

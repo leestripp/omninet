@@ -2431,3 +2431,316 @@ All changes are **additive** and **backward-compatible**:
 
 ---
 
+
+## v0.7.0 Plan: Hive-Agent Feature Requests
+
+**Status**: 📋 Planning → 🚧 In Progress
+**Target Version**: 0.7.0
+**Estimated Effort**: 1-2 weeks
+**Discovered**: 2026-06-14 from hive-agent (consumer of OmniNet)
+**Source**: `prompt.txt` (6 feature requests, prioritized)
+
+### Executive Summary
+
+The hive-agent project uses OmniNet to run a long-lived daemon that
+serves JSON-RPC 2.0 over HTTP POST + WebSocket. Six features were
+requested to simplify their integration code. The hive-agent reports
+that bugs #1–12 are all closed; this plan covers the *new* features.
+
+| # | Feature | Severity | Consumer workaround |
+|---|---------|----------|---------------------|
+| 1 | `boundPort()` for ephemeral port binding | **Medium** | Requires explicit `--port` |
+| 2 | WebSocket broadcast / fan-out | **High** | Tracks connections in their own `unordered_map` |
+| 3 | `connectionCount()` / `clients()` for WS | **High** | Same as #2 |
+| 4 | `onReady(uint16_t)` lifecycle callback | Low | Polls `isRunning()` + sleep |
+| 5 | Header forwarding helpers | Low | Parses `req.header()` inline |
+| 6 | `Router` typed body parsing | Low | Wraps `Json::parse` themselves |
+
+**Priority from hive-agent**: #1 alone, or #1+#2 together (which subsumes #3).
+
+### Scope
+
+- **In scope** (#1, #2, #3, #4): new public API + tests.
+- **In scope** (#5, #6): small convenience additions to existing classes.
+- **Out of scope**: full WebSocket upgrade integration into `HttpServer`
+  (currently a placeholder). For #2/#3 to work, we need a path for
+  the WS `Server` to track live connections. The current `Server::on()`
+  registers an HTTP handler that sends `101 Switching Protocols` but
+  never actually passes the underlying socket to a `Connection`.
+  **Decision**: implement #2/#3 using a connection map *in the WS Server*,
+  populated by the application calling `server.addClient(wsConn, path)`
+  after the handshake. This works around the half-finished upgrade
+  and unblocks hive-agent's actual use case.
+
+### Phase 11a: `Server::boundPort()` (smallest, unblocks most)
+
+**Files**: `src/http/HttpServer.h`, `src/http/HttpServer.cpp`,
+`tests/test_sync_http_server.cpp`.
+
+**API**:
+```cpp
+class Server {
+public:
+    // NEW: actual bound port (via getsockname); 0 before start().
+    uint16_t boundPort() const;
+};
+```
+
+**Implementation**:
+- `m_serverSocket` is a `std::unique_ptr<ServerSocket>`.
+- `Socket::localPort()` already does `getsockname() + ntohs()`.
+- Just delegate: `return m_serverSocket ? m_serverSocket->localPort() : 0;`
+- ~5 lines, no new state.
+
+**Tests** (add to `test_sync_http_server.cpp`):
+| Test | Description |
+|------|-------------|
+| `bound_port_zero_before_start` | Returns 0 before `start()` |
+| `bound_port_matches_configured` | When `port=18099`, returns 18099 |
+| `bound_port_ephemeral` | When `port=0`, returns the OS-assigned port (≠0) |
+| `bound_port_listenable` | `boundPort()` is the same port a client can connect to |
+
+**Effort**: 1 hour.
+
+### Phase 11b: WebSocket `broadcast()` / fan-out
+
+**Files**: `src/websocket/WebSocket.h`, `src/websocket/WebSocket.cpp`,
+`tests/test_websocket_broadcast.cpp` (new).
+
+**API**:
+```cpp
+namespace OmniNet::WebSocket {
+
+class Server {
+public:
+    using ClientId = uint64_t;
+
+    // Register/unregister a connection (called by the app after handshake).
+    ClientId addClient(Connection& conn, std::string_view path);
+    void removeClient(ClientId id);
+
+    // Send to one, or to all on a path.
+    void sendTo(ClientId id, std::string_view text);
+    void broadcast(std::string_view text);
+    void broadcastText(std::string_view text);  // alias for clarity
+    void broadcast(std::string_view text, std::string_view path);
+
+    // Active connection set.
+    std::vector<ClientId> clients() const;
+    std::vector<ClientId> clients(std::string_view path) const;
+    size_t connectionCount() const;          // feature #3
+    size_t connectionCount(std::string_view path) const;
+
+private:
+    std::mutex m_clientsMutex;
+    std::unordered_map<ClientId,
+        std::pair<std::string, Connection*>> m_clients;  // path -> conn
+    std::atomic<ClientId> m_nextClientId{1};
+};
+
+}
+```
+
+**Behavior**:
+- `broadcast()` catches per-client send errors (one dead client doesn't
+  break the others). On error, the client is auto-removed.
+- `removeClient()` is also called automatically by `Connection`'s
+  close handler if `setOnClose(autoRemove)` was set.
+- `clients()` returns a snapshot copy (caller can iterate without holding
+  the mutex).
+
+**Tests** (`tests/test_websocket_broadcast.cpp`, ~7 tests):
+| Test | Description |
+|------|-------------|
+| `add_remove_client` | `addClient` returns unique IDs, `removeClient` works |
+| `connection_count` | `connectionCount()` reflects map size |
+| `broadcast_basic` | Send to 3 mock clients, all 3 receive |
+| `broadcast_by_path` | 2 clients on `/a`, 1 on `/b`; broadcast to `/a` reaches 2 |
+| `broadcast_one_dead` | One client's `sendText` throws; others still receive |
+| `clients_snapshot` | `clients()` returns copy, safe to iterate |
+| `send_to_unknown_id` | `sendTo(invalid_id)` is a no-op, no throw |
+
+**Effort**: 4-6 hours.
+
+### Phase 11c: `Server::onReady(uint16_t boundPort)` callback
+
+**Files**: `src/http/HttpServer.h`, `src/http/HttpServer.cpp`,
+`tests/test_sync_http_server.cpp`.
+
+**API**:
+```cpp
+class Server {
+public:
+    using ReadyCallback = std::function<void(uint16_t boundPort)>;
+    void setOnReady(ReadyCallback cb);
+    // ...
+private:
+    ReadyCallback m_onReady;
+};
+```
+
+**Implementation**:
+- In `start()`, after `m_serverSocket->bindAndListen(...)` and after
+  `m_running = true`, call `m_onReady` (if set) with the bound port.
+- Wrap the call in try/catch (the callback is user code, can't let
+  it crash the accept loop).
+- `startAsync()` needs the same: spawn the thread, the callback fires
+  inside the thread, so it happens *before* `startAsync()` returns
+  (the user can rely on it being called by the time `startAsync()`
+  returns + scheduling delay).
+
+**Tests**:
+| Test | Description |
+|------|-------------|
+| `on_ready_fires` | Callback invoked exactly once after start |
+| `on_ready_receives_bound_port` | Callback arg matches `boundPort()` |
+| `on_ready_not_set` | No callback = no crash |
+| `on_ready_throws` | Callback that throws is caught, server still runs |
+| `on_ready_async_fires` | `startAsync()` eventually fires the callback |
+
+**Effort**: 2-3 hours.
+
+### Phase 11d: `Request` header helpers (auth + tracing)
+
+**Files**: `src/http/HttpRequest.h`, `src/http/HttpRequest.cpp`,
+`tests/test_http_request.cpp`.
+
+**API**:
+```cpp
+class Request {
+public:
+    // Returns the value of the Authorization header, or empty view.
+    std::string_view authHeader() const;
+
+    // Returns the bearer token (strips "Bearer " prefix), or empty.
+    std::string_view bearerToken() const;
+
+    // Returns X-Trace-Id, or empty.
+    std::string_view traceId() const;
+
+    // Returns X-Request-Id, or empty.
+    std::string_view requestId() const;
+};
+```
+
+**Implementation**: thin wrappers around `header("Authorization")` etc.
+~20 lines.
+
+**Tests** (4 tests, simple):
+| Test | Description |
+|------|-------------|
+| `auth_header_present` | Returns "Bearer xyz" |
+| `bearer_token_strips_prefix` | "Bearer xyz" → "xyz" |
+| `bearer_token_non_bearer` | "Basic xyz" → "" (only Bearer scheme) |
+| `trace_id_present` | Returns X-Trace-Id value |
+
+**Effort**: 1-2 hours.
+
+### Phase 11e: Router typed body parsing (JSON handlers)
+
+**Files**: `src/http/Router.h`, `src/http/Router.cpp`,
+`tests/test_router_json.cpp` (new).
+
+**API**:
+```cpp
+class Router {
+public:
+    using JsonHandler = std::function<void(const nlohmann::json&, Response&)>;
+
+    // Typed overloads — body auto-parsed; 400 on bad JSON.
+    void get(std::string pattern, JsonHandler handler);    // for completeness
+    void post(std::string pattern, JsonHandler handler);
+    void put(std::string pattern, JsonHandler handler);
+    void patch(std::string pattern, JsonHandler handler);
+    // ... etc
+};
+```
+
+**Implementation**:
+- Wrap the user's `JsonHandler` into a `Handler` that:
+  1. Reads `req.body()` (already a `std::string_view`)
+  2. Calls `nlohmann::json::parse(body)` in try/catch
+  3. On success: invokes the user handler with the parsed JSON
+  4. On failure: `resp = Response::badRequest("Invalid JSON: " + e.what())`
+- Header: `#include <nlohmann/json.hpp>`
+- Requires the application to call `omni::init()` (already initializes
+  nlohmann/json via FetchContent, no new deps).
+
+**Tests** (~6 tests):
+| Test | Description |
+|------|-------------|
+| `json_handler_valid` | `{"a":1}` → handler called with parsed JSON |
+| `json_handler_invalid` | `{not json}` → 400, handler not called |
+| `json_handler_empty_body` | `""` → 400 |
+| `json_handler_no_content_type` | Body parsed even without `Content-Type: application/json` |
+| `json_handler_complex` | Nested objects/arrays round-trip |
+| `json_post_and_get` | Both `post(pat, JsonHandler)` and `get(pat, JsonHandler)` work |
+
+**Effort**: 3-4 hours.
+
+### Phased Rollout
+
+| Phase | Feature | Effort | Tests | Status |
+|-------|---------|--------|-------|--------|
+| **11a** | `Server::boundPort()` | 1h | +4 | ⏳ |
+| **11b** | WS broadcast + clients | 5h | +7 | ⏳ |
+| **11c** | `Server::onReady()` | 3h | +5 | ⏳ |
+| **11d** | Header helpers | 2h | +4 | ⏳ |
+| **11e** | Router JSON handlers | 4h | +6 | ⏳ |
+| **Tag & release** | 0.7.0-rc1 | 1h | — | ⏳ |
+
+**Total**: ~15-20 hours of focused work; 1-2 calendar days.
+
+### Files Touched
+
+```
+src/http/HttpServer.h            (11a, 11c)
+src/http/HttpServer.cpp          (11a, 11c)
+src/http/HttpRequest.h           (11d)
+src/http/HttpRequest.cpp         (11d)
+src/http/Router.h                (11e)
+src/http/Router.cpp              (11e)
+src/websocket/WebSocket.h        (11b)
+src/websocket/WebSocket.cpp      (11b)
+tests/test_sync_http_server.cpp  (11a, 11c — extend existing)
+tests/test_http_request.cpp      (11d — extend existing)
+tests/test_websocket_broadcast.cpp (11b — new)
+tests/test_router_json.cpp       (11e — new)
+tests/CMakeLists.txt             (add 2 new test targets)
+```
+
+### Test Plan Summary
+
+- 4 tests for #1 (`boundPort`)
+- 7 tests for #2/#3 (broadcast + clients)
+- 5 tests for #4 (`onReady`)
+- 4 tests for #5 (header helpers)
+- 6 tests for #6 (JSON handlers)
+- **= 26 new tests**, plus the existing 152 (post-bugfix-12) = **178 total**
+
+### Backward Compatibility
+
+All changes are **purely additive**:
+- New methods on existing classes (no signature changes)
+- `Router::post(...)` already exists with a `Handler` signature;
+  the new `post(pat, JsonHandler)` is an overload (C++ resolves by
+  the lambda's signature; `Handler` is `std::function<void(const Request&, Response&)>`
+  and `JsonHandler` is `std::function<void(const json&, Response&)>` —
+  unambiguous).
+- No headers moved, no namespaces renamed.
+
+### Risk & Open Questions
+
+- [ ] **`addClient` registration timing** (Phase 11b): the consumer
+      has to call this after the handshake. The current WS `Server::on()`
+      placeholder doesn't expose a callback for "handshake complete".
+      The consumer (hive-agent) is fine with a manual `addClient` call
+      from inside their per-connection handler — that's the only sane
+      option given the half-finished upgrade code. Document this clearly.
+- [ ] **`startAsync()` + `onReady`** (Phase 11c): there's a race where
+      `startAsync()` returns *before* the callback fires (the thread
+      has to be scheduled and run the bind). Document that the user
+      must wait for the callback or poll `boundPort()` to be non-zero.
+- [ ] **JSON handler for non-POST methods** (Phase 11e): GET shouldn't
+      usually have a body. The overload exists for completeness but
+      the wrapper just returns 400 on empty body. Document this.

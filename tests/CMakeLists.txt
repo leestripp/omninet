@@ -88,6 +88,11 @@ add_executable(test_http_response
     test_http_response.cpp
 )
 
+# WebSocket broadcast tests (v0.7.0 Phase 11b)
+add_executable(test_websocket_broadcast
+    test_websocket_broadcast.cpp
+)
+
 # Link with OmniNet and dependencies
 target_link_libraries(omnet_test PRIVATE OmniNet pthread)
 target_link_libraries(test_buffer_protection PRIVATE OmniNet pthread)
@@ -165,6 +170,11 @@ target_link_libraries(test_http_response PRIVATE
     pthread
 )
 
+target_link_libraries(test_websocket_broadcast PRIVATE
+    OmniNet
+    pthread
+)
+
 # Enable C++23
 target_compile_features(omnet_test PRIVATE cxx_std_23)
 target_compile_features(test_buffer_protection PRIVATE cxx_std_23)
@@ -182,6 +192,8 @@ target_compile_features(test_async_file PRIVATE cxx_std_23)
 target_compile_features(test_http_connection PRIVATE cxx_std_23)
 target_compile_features(test_sync_http_server PRIVATE cxx_std_23)
 target_compile_features(test_http_response PRIVATE cxx_std_23)
+
+target_compile_features(test_websocket_broadcast PRIVATE cxx_std_23)
 
 # Include directories - use parent source dir
 target_include_directories(omnet_test PRIVATE

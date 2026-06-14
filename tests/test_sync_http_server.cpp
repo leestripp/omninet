@@ -488,6 +488,208 @@ TEST(server_multiple_workers) {
 }
 
 // ============================================================================
+// v0.7.0 Phase 11a: boundPort() tests
+// ============================================================================
+
+TEST(bound_port_zero_before_start) {
+    // boundPort() must return 0 before start() is called.
+    Server::Config cfg;
+    cfg.port = 18100;
+    Server server(cfg);
+    ASSERT_EQ(server.boundPort(), 0);
+}
+
+TEST(bound_port_matches_configured) {
+    // When the server binds to an explicit port, boundPort() must
+    // return that same port.
+    Server::Config cfg;
+    cfg.port = 18101;
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/x", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+    });
+
+    JoinableThread t([&]() { server.start(); });
+    std::this_thread::sleep_for(200ms);
+
+    ASSERT_TRUE(server.isRunning());
+    ASSERT_EQ(server.boundPort(), 18101);
+
+    server.stop();
+}
+
+TEST(bound_port_ephemeral) {
+    // When Config::port = 0, the OS assigns an ephemeral port.
+    // boundPort() must return that real, non-zero port.
+    Server::Config cfg;
+    cfg.port = 0;             // OS-assigned
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/x", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+    });
+
+    JoinableThread t([&]() { server.start(); });
+    std::this_thread::sleep_for(200ms);
+
+    uint16_t actual = server.boundPort();
+    ASSERT_TRUE(server.isRunning());
+    ASSERT_TRUE(actual != 0);          // kernel picked something
+    ASSERT_TRUE(actual >= 1024);       // ephemeral range
+
+    server.stop();
+}
+
+TEST(bound_port_listenable) {
+    // boundPort() must be a port that a real client can connect to.
+    Server::Config cfg;
+    cfg.port = 0;
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/probe", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+        resp.setBody("ok");
+    });
+
+    JoinableThread t([&]() { server.start(); });
+    std::this_thread::sleep_for(200ms);
+
+    uint16_t actual = server.boundPort();
+    ASSERT_TRUE(actual != 0);
+
+    // Connect to the reported port
+    int fd = tcp_connect(actual);
+    ASSERT_TRUE(fd >= 0);  // if this fails, boundPort() lied
+
+    std::string req = "GET /probe HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    std::string response = send_raw(fd, req);
+    ::close(fd);
+
+    ASSERT_EQ(parse_status(response), 200);
+    ASSERT_TRUE(response.find("ok") != std::string::npos);
+
+    server.stop();
+}
+
+
+// ============================================================================
+// v0.7.0 Phase 11c: onReady() tests
+// ============================================================================
+
+#include <atomic>
+
+TEST(on_ready_fires) {
+    // Callback should fire exactly once after start().
+    Server::Config cfg;
+    cfg.port = 18200;
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/x", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+    });
+
+    std::atomic<int> callCount{0};
+    uint16_t receivedPort = 0;
+    server.setOnReady([&](uint16_t port) {
+        ++callCount;
+        receivedPort = port;
+    });
+
+    JoinableThread t([&]() { server.start(); });
+    std::this_thread::sleep_for(200ms);
+
+    ASSERT_EQ(callCount.load(), 1);
+    ASSERT_EQ(receivedPort, 18200);
+
+    server.stop();
+}
+
+TEST(on_ready_receives_bound_port) {
+    // onReady's argument must match boundPort().
+    Server::Config cfg;
+    cfg.port = 0;  // ephemeral
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/x", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+    });
+
+    uint16_t cbPort = 0;
+    server.setOnReady([&](uint16_t port) { cbPort = port; });
+
+    JoinableThread t([&]() { server.start(); });
+    std::this_thread::sleep_for(200ms);
+
+    ASSERT_TRUE(cbPort != 0);
+    ASSERT_EQ(cbPort, server.boundPort());
+
+    server.stop();
+}
+
+TEST(on_ready_not_set) {
+    // No callback = no crash.
+    Server::Config cfg;
+    cfg.port = 18201;
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/x", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+    });
+
+    // No setOnReady call
+    JoinableThread t([&]() { server.start(); });
+    std::this_thread::sleep_for(200ms);
+    ASSERT_TRUE(server.isRunning());
+    server.stop();
+}
+
+TEST(on_ready_throws) {
+    // A callback that throws is caught; server keeps running.
+    Server::Config cfg;
+    cfg.port = 18202;
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/x", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+    });
+
+    server.setOnReady([](uint16_t) {
+        throw std::runtime_error("user code blew up");
+    });
+
+    JoinableThread t([&]() { server.start(); });
+    std::this_thread::sleep_for(200ms);
+    ASSERT_TRUE(server.isRunning());  // didn't die
+    server.stop();
+}
+
+TEST(on_ready_async_fires) {
+    // startAsync() eventually fires the callback.
+    Server::Config cfg;
+    cfg.port = 18203;
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/x", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+    });
+
+    std::atomic<bool> called{false};
+    server.setOnReady([&](uint16_t) { called = true; });
+
+    server.startAsync();
+
+    // Poll for the callback (up to 2 seconds).
+    for (int i = 0; i < 20 && !called.load(); ++i) {
+        std::this_thread::sleep_for(100ms);
+    }
+    ASSERT_TRUE(called.load());
+
+    server.stop();
+}
+
+
+// ============================================================================
 // Main
 // ============================================================================
 

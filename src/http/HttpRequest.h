@@ -121,6 +121,21 @@ public:
     std::string_view host() const;
     std::string_view userAgent() const;
     std::string_view referer() const;
+
+    // v0.7.0 (Phase 11d): header helpers for auth + tracing.
+    // Thin wrappers around header(); return empty view if absent.
+
+    // Raw Authorization header (e.g. "Bearer xxx" or "Basic xxx").
+    std::string_view authHeader() const;
+
+    // Bearer token (strips "Bearer " prefix); empty if no Bearer scheme.
+    std::string_view bearerToken() const;
+
+    // X-Trace-Id, used for distributed tracing.
+    std::string_view traceId() const;
+
+    // X-Request-Id, per-request correlation id.
+    std::string_view requestId() const;
     
     // --- Connection ---
     
