@@ -25,18 +25,6 @@ macro(add_omninet_tool name)
 endmacro()
 # Tools directory (for includes)
 set(TOOLS_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-
-# Helper macro to add a tool with standard settings
-macro(add_omninet_tool name)
-    add_executable(${name} ${name}/main.cpp)
-    target_compile_features(${name} PRIVATE cxx_std_20)
-    target_include_directories(${name} PRIVATE
-        ${CMAKE_SOURCE_DIR}/src
-        ${TOOLS_DIR}
-        ${CMAKE_BINARY_DIR}/_deps/nlohmann_json-src/include
-    )
-endmacro()
-
 # ============================================================================
 # Tool: omninet-status
 # ============================================================================
