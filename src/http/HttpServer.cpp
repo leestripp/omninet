@@ -6,6 +6,11 @@
 #include <chrono>
 #include <iostream>
 
+#ifndef _WIN32
+#include <fcntl.h>   // fcntl(), F_GETFL, F_SETFL, O_NONBLOCK
+#include <unistd.h>  // pipe(), close(), write()
+#endif
+
 // Debug logging
 #define DEBUG_SERVER 1
 #if DEBUG_SERVER
@@ -24,13 +29,29 @@ namespace OmniNet::HTTP {
 
 Server::Server(Config config)
     : m_config(std::move(config)) {
-    
+
     m_serverSocket = std::make_unique<ServerSocket>();
     m_adminHandler = std::make_unique<Admin::Handler>();
+
+    // v0.7.0: create the self-pipe for instant accept-loop wakeup.
+    // Both ends are set non-blocking so stop() can write without
+    // ever blocking (even if the pipe is full from a previous run).
+#ifndef _WIN32
+    if (::pipe(m_wakeupPipe) == 0) {
+        int flags = fcntl(m_wakeupPipe[0], F_GETFL, 0);
+        if (flags >= 0) fcntl(m_wakeupPipe[0], F_SETFL, flags | O_NONBLOCK);
+        flags = fcntl(m_wakeupPipe[1], F_GETFL, 0);
+        if (flags >= 0) fcntl(m_wakeupPipe[1], F_SETFL, flags | O_NONBLOCK);
+    }
+#endif
 }
 
 Server::~Server() {
     stop();
+#ifndef _WIN32
+    if (m_wakeupPipe[0] != -1) { ::close(m_wakeupPipe[0]); m_wakeupPipe[0] = -1; }
+    if (m_wakeupPipe[1] != -1) { ::close(m_wakeupPipe[1]); m_wakeupPipe[1] = -1; }
+#endif
 }
 
 void Server::start() {
@@ -91,9 +112,19 @@ void Server::stop() {
     m_stopping = true;
     m_running = false;
 
-    // Shutdown the listening socket before closing to interrupt any
-    // blocking accept() call (v0.6.0 fix: without shutdown, close()
-    // alone can't interrupt accept() on Linux)
+    // v0.7.0: wake the accept loop INSTANTLY via the self-pipe trick.
+    // Writing to m_wakeupPipe[1] makes poll() return immediately so
+    // runAcceptLoop() can observe m_running=false and exit. No polling
+    // delay, no reliance on shutdown() unblocking accept().
+#ifndef _WIN32
+    if (m_wakeupPipe[1] != -1) {
+        const char byte = 'x';
+        ssize_t w = ::write(m_wakeupPipe[1], &byte, 1);
+        (void)w;  // EAGAIN is fine — the loop will still time out and exit
+    }
+#endif
+
+    // Defense-in-depth: also shutdown/close the listening socket.
     m_serverSocket->shutdown(SHUT_RDWR);
     m_serverSocket->close();
 
@@ -225,15 +256,26 @@ std::string Server::address() const {
 
 void Server::runAcceptLoop() {
     SERVER_DEBUG("Accept loop started");
-    // v0.7.0 fix: use a short poll interval (100ms) so the loop can
-    // observe m_running=false and exit cleanly during stop(). Without
-    // this, accept() blocks indefinitely on some platforms even after
-    // shutdown(SHUT_RDWR), causing the test binary to hang.
+    // v0.7.0: self-pipe trick. The accept loop polls BOTH the
+    // listening socket AND m_wakeupPipe[0]. When stop() writes to
+    // m_wakeupPipe[1], poll() returns immediately and we exit —
+    // instant clean shutdown, no polling delay.
     while (m_running) {
         SERVER_DEBUG("Waiting for connection...");
         std::unique_ptr<Socket> client;
         try {
-            client = m_serverSocket->acceptWithTimeout(std::chrono::milliseconds(100));
+#ifndef _WIN32
+            if (m_wakeupPipe[0] != -1) {
+                client = m_serverSocket->acceptOrWakeup(
+                    m_wakeupPipe[0], std::chrono::milliseconds(1000));
+            } else {
+                client = m_serverSocket->acceptWithTimeout(
+                    std::chrono::milliseconds(100));
+            }
+#else
+            client = m_serverSocket->acceptWithTimeout(
+                std::chrono::milliseconds(100));
+#endif
         } catch (const SocketException& e) {
             // accept() threw (e.g., socket was shut down during stop()).
             // Check if we're stopping; if so, exit the loop gracefully.
@@ -244,8 +286,18 @@ void Server::runAcceptLoop() {
             SERVER_DEBUG("accept() error (will retry): " << e.what());
             continue;
         }
+#ifndef _WIN32
+        // Drain the wakeup pipe so the next stop() can write again.
+        if (m_wakeupPipe[0] != -1) {
+            char drain[16];
+            while (::read(m_wakeupPipe[0], drain, sizeof(drain)) > 0) {}
+        }
+        // If stop() was called (m_running false), exit now — don't
+        // accept any more connections.
+        if (!m_running) break;
+#endif
         if (!client) {
-            // Timeout — just loop and re-check m_running.
+            // Timeout or wakeup — just loop and re-check m_running.
             continue;
         }
         SERVER_DEBUG("Connection accepted! Spawning handler thread");

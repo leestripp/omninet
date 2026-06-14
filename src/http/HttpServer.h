@@ -13,6 +13,10 @@
 #include <thread>
 #include <vector>
 
+#ifndef _WIN32
+#include <unistd.h>  // pipe(), close() — POSIX self-pipe trick
+#endif
+
 #include "net/Socket.h"
 #include "net/TLSSocket.h"
 #include "http/Router.h"
@@ -192,7 +196,13 @@ private:
     // State
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_stopping{false};
-    
+
+    // v0.7.0: self-pipe trick for instant accept-loop shutdown.
+    // m_wakeupPipe[0] = read end (added to poll() in accept loop)
+    // m_wakeupPipe[1] = write end (written to by stop())
+    // Created in constructor, closed in destructor.
+    int m_wakeupPipe[2]{-1, -1};
+
     std::mutex m_acceptMutex;
     std::condition_variable m_acceptCv;
     std::vector<std::unique_ptr<Socket>> m_pendingConnections;

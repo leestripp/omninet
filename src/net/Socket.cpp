@@ -17,6 +17,7 @@
 #include <sys/time.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <poll.h>
 #include <unistd.h>
 #endif
 
@@ -562,6 +563,36 @@ std::unique_ptr<Socket> ServerSocket::acceptWithTimeout(std::chrono::millisecond
         return accept();
     }
     return nullptr;
+}
+
+std::unique_ptr<Socket> ServerSocket::acceptOrWakeup(
+    int wakeupFd, std::chrono::milliseconds timeout) {
+
+    // v0.7.0: self-pipe trick. poll() both the listen fd and the
+    // wakeup fd. When stop() writes to the wakeup pipe, poll()
+    // returns immediately and we exit the accept loop cleanly.
+    struct pollfd fds[2];
+    fds[0].fd = m_fd;
+    fds[0].events = POLLIN;
+    fds[1].fd = wakeupFd;
+    fds[1].events = POLLIN;
+
+    int ret = ::poll(fds, 2, static_cast<int>(timeout.count()));
+    if (ret < 0) {
+        if (errno == EINTR) return nullptr;  // interrupted — caller retries
+        throw SocketException(std::string("poll() failed"), getError());
+    }
+    if (ret == 0) return nullptr;  // timeout
+
+    // Wakeup fd is ready — caller should drain it and check m_running.
+    if (fds[1].revents & POLLIN) return nullptr;
+
+    // Listen fd is ready — accept the connection.
+    if (fds[0].revents & POLLIN) {
+        return accept();
+    }
+
+    return nullptr;  // spurious wakeup, retry
 }
 
 void ServerSocket::setReusePort(bool enabled) {

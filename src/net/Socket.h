@@ -211,7 +211,19 @@ public:
     
     // Accept with timeout (nullopt if timeout)
     std::unique_ptr<Socket> acceptWithTimeout(std::chrono::milliseconds timeout);
-    
+
+    // v0.7.0: Accept with wakeup — polls BOTH the listening socket
+    // AND `wakeupFd`. Returns nullptr in three cases:
+    //   1. timeout expired (no connection, no wakeup)
+    //   2. wakeupFd became readable (caller should drain it)
+    //   3. spurious wakeup
+    // Returns the accepted client socket only if the listen fd was
+    // actually ready. Used by Server::runAcceptLoop() to implement
+    // the self-pipe trick for instant clean shutdown — stop() writes
+    // to wakeupFd and the loop wakes up immediately.
+    std::unique_ptr<Socket> acceptOrWakeup(int wakeupFd,
+                                           std::chrono::milliseconds timeout);
+
     // Set if kernel should prefer TIME_WAIT recycling
     void setReusePort(bool enabled);
 };
