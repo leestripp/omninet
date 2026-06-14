@@ -90,10 +90,25 @@ void Connection::setErrorHandler(ErrorHandler handler) {
 
 void Connection::setRequestTimeout(std::chrono::seconds timeout) {
     m_requestTimeout = timeout;
+    // v0.7.0 fix: also apply to socket so a slow client can't block
+    // the connection thread forever on the very first request.
+    // If keepAliveTimeout was set first, it's shorter and wins.
+    if (m_socket && m_keepAliveTimeout.count() == 0) {
+        m_socket->setRecvTimeout(
+            std::chrono::duration_cast<std::chrono::milliseconds>(timeout));
+    }
 }
 
 void Connection::setKeepAliveTimeout(std::chrono::seconds timeout) {
     m_keepAliveTimeout = timeout;
+    // v0.7.0 fix: apply the timeout to the socket so recv() doesn't
+    // block forever in keep-alive mode. Without this, the server's
+    // recv() in readRequest() never wakes up when the client closes
+    // the socket, causing the test binary to hang at server.stop().
+    if (m_socket) {
+        m_socket->setRecvTimeout(
+            std::chrono::duration_cast<std::chrono::milliseconds>(timeout));
+    }
 }
 
 void Connection::setMaxRequestSize(size_t maxSize) {

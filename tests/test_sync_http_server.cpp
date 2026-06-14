@@ -447,7 +447,7 @@ TEST(server_content_length_set) {
     std::string cl = get_header(response, "Content-Length");
     ASSERT_TRUE(!cl.empty());  // Content-Length must be present
     // Body is 17 bytes: {"key": "value"}
-    ASSERT_EQ(std::stoi(cl), 17);
+    ASSERT_EQ(std::stoi(cl), 16);
 
     server.stop();
 }

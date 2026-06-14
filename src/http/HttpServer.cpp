@@ -225,17 +225,15 @@ std::string Server::address() const {
 
 void Server::runAcceptLoop() {
     SERVER_DEBUG("Accept loop started");
+    // v0.7.0 fix: use a short poll interval (100ms) so the loop can
+    // observe m_running=false and exit cleanly during stop(). Without
+    // this, accept() blocks indefinitely on some platforms even after
+    // shutdown(SHUT_RDWR), causing the test binary to hang.
     while (m_running) {
         SERVER_DEBUG("Waiting for connection...");
+        std::unique_ptr<Socket> client;
         try {
-            auto client = m_serverSocket->accept();
-            if (client) {
-                SERVER_DEBUG("Connection accepted! Spawning handler thread");
-                ++m_stats.connectionsTotal;
-                handleConnection(std::move(client));
-            } else {
-                SERVER_DEBUG("accept() returned null (no connection or timeout)");
-            }
+            client = m_serverSocket->acceptWithTimeout(std::chrono::milliseconds(100));
         } catch (const SocketException& e) {
             // accept() threw (e.g., socket was shut down during stop()).
             // Check if we're stopping; if so, exit the loop gracefully.
@@ -244,7 +242,15 @@ void Server::runAcceptLoop() {
                 break;
             }
             SERVER_DEBUG("accept() error (will retry): " << e.what());
+            continue;
         }
+        if (!client) {
+            // Timeout — just loop and re-check m_running.
+            continue;
+        }
+        SERVER_DEBUG("Connection accepted! Spawning handler thread");
+        ++m_stats.connectionsTotal;
+        handleConnection(std::move(client));
     }
     SERVER_DEBUG("Accept loop ended");
 }
