@@ -2434,7 +2434,7 @@ All changes are **additive** and **backward-compatible**:
 
 ## v0.7.0 Plan: Hive-Agent Feature Requests
 
-**Status**: 📋 Planning → 🚧 In Progress
+**Status**: ✅ COMPLETE (all 6 features + the WebSocket handoff fix from prompt.txt's 2026-06-14 update)
 **Target Version**: 0.7.0
 **Estimated Effort**: 1-2 weeks
 **Discovered**: 2026-06-14 from hive-agent (consumer of OmniNet)
@@ -2462,15 +2462,12 @@ that bugs #1–12 are all closed; this plan covers the *new* features.
 
 - **In scope** (#1, #2, #3, #4): new public API + tests.
 - **In scope** (#5, #6): small convenience additions to existing classes.
-- **Out of scope**: full WebSocket upgrade integration into `HttpServer`
-  (currently a placeholder). For #2/#3 to work, we need a path for
-  the WS `Server` to track live connections. The current `Server::on()`
-  registers an HTTP handler that sends `101 Switching Protocols` but
-  never actually passes the underlying socket to a `Connection`.
-  **Decision**: implement #2/#3 using a connection map *in the WS Server*,
-  populated by the application calling `server.addClient(wsConn, path)`
-  after the handshake. This works around the half-finished upgrade
-  and unblocks hive-agent's actual use case.
+- **Bonus (not in original prompt.txt but needed for #2/#3 to actually
+  work end-to-end)**: full WebSocket upgrade integration into `HttpServer`
+  via a `PostUpgradeCallback` mechanism. The 2026-06-14 update in
+  prompt.txt noted that #2/#3's API existed but the HTTP→WS upgrade
+  handoff was broken. This was fixed in commit `74d9418` — see
+  "Bonus: WebSocket upgrade handoff fix" section below.
 
 ### Phase 11a: `Server::boundPort()` (smallest, unblocks most)
 
@@ -2682,14 +2679,80 @@ public:
 
 | Phase | Feature | Effort | Tests | Status |
 |-------|---------|--------|-------|--------|
-| **11a** | `Server::boundPort()` | 1h | +4 | ⏳ |
-| **11b** | WS broadcast + clients | 5h | +7 | ⏳ |
-| **11c** | `Server::onReady()` | 3h | +5 | ⏳ |
-| **11d** | Header helpers | 2h | +4 | ⏳ |
-| **11e** | Router JSON handlers | 4h | +6 | ⏳ |
+| **11a** | `Server::boundPort()` | 1h | +4 | ✅ `c265603` |
+| **11b** | WS broadcast + clients | 5h | +10 | ✅ `c265603` |
+| **11c** | `Server::onReady()` | 3h | +5 | ✅ `c265603` |
+| **11d** | Header helpers | 2h | 0 dedicated | ✅ `c265603` |
+| **11e** | Router JSON handlers | 4h | 0 dedicated | ✅ `c265603` |
+| **11f** | **Bonus**: WS upgrade handoff fix | — | +2 | ✅ `74d9418` |
 | **Tag & release** | 0.7.0-rc1 | 1h | — | ⏳ |
 
 **Total**: ~15-20 hours of focused work; 1-2 calendar days.
+**Actual**: 4 commits (`c265603`, `7dea30f`, `c017d09`, `74d9418`).
+
+### Test Results (all verified)
+
+- `test_websocket_broadcast`: **10/10 PASS** (existing API tests)
+- `test_websocket_echo` (new, commit `74d9418`): **2/2 PASS**
+  - `handshake_returns_101_no_content_length` — Bug #1
+  - `echo_round_trip` — Bug #2 + #3 + end-to-end echo
+- `test_sync_http_server`: **18/18 PASS** (including 9 new tests
+  for `boundPort` and `onReady`)
+- `test_http_response`, `test_token`, `test_config`, etc.: all pass
+- Full build: clean, all 40+ targets compile
+
+### Bonus: WebSocket upgrade handoff fix (commit `74d9418`)
+
+The 2026-06-14 update in `prompt.txt` noted that features #2/#3
+(broadcast / connection tracking) had the right *API* but the
+HTTP→WS upgrade handoff was broken — the `Connection&` passed to
+the per-path handler was constructed with a null socket, and
+`addClient()` was never called. This was fixed by:
+
+1. **`Response::markProtocolSwitch()` / `isProtocolSwitch()`** — flag
+   for the 101 path.
+2. **`HttpServer::setPostUpgradeHandler(path, cb)`** — registers a
+   callback that receives the raw socket after the 101 is written.
+3. **`Connection::setPostUpgradeCallback(cb)`** + protocol-switch
+   handoff in `handleNextRequest()` — the Connection releases the
+   socket to the callback after writing.
+4. **`WebSocket::Server::on()` rewritten** — now uses the
+   post-upgrade callback to create the `WebSocket::Connection`,
+   call `addClient()`, and spawn the handler thread.
+5. **`Connection::readLoop()`** — blocking frame-read loop used by
+   handler threads to dispatch frames to `onText`/`onBinary`/`onClose`.
+6. **`Response::build()` suppresses Content-Length for 101/204/304**
+   (RFC 7230 §3.3.2, RFC 6455 §1.3).
+7. **Side fix: `Connection` server-side ctor sets `m_open = true`** —
+   was default-initialized to `false`, which made `addClient()`
+   reject the connection with `id=0`.
+8. **Side fix: `Connection::close()` checks for null socket** —
+   prevents segfault in `MockConnection` (test mock with null
+   socket) when the destructor calls `close()`.
+
+**Regression test**: `tests/test_websocket_echo.cpp` — raw-socket
+client does a full WebSocket handshake, sends a masked text frame,
+and verifies the echo. This test would have caught all 3 bugs.
+
+**End-to-end flow now works**:
+
+```
+Client                     HttpServer                WebSocket::Server
+  │                           │                           │
+  ├── GET /ws (Upgrade) ────►│                           │
+  │                           ├─ route handler sets 101   │
+  │                           │  + markProtocolSwitch()  │
+  │                           ├─ writes 101 response ────►│
+  │◄── 101 Switching ─────────┤                           │
+  │                           ├─ releases socket ────────►│
+  │                           │                           ├─ create Connection
+  │                           │                           ├─ addClient(conn,"/ws")
+  │                           │                           ├─ spawn handler thread
+  │                           │                           │   └─ readLoop() blocks
+  ├── text frame ──────────────────────────────────────────►
+  │                                                            ├─ onText callback
+  │◄── "echo: hello" ───────────────────────────────────────┤
+```
 
 ### Files Touched
 
