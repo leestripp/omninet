@@ -302,52 +302,27 @@ cmake --build build --target cppcheck
 - [x] User authentication
 - [x] Admin dashboard
 - [x] CLI tools (10 tools)
-- [x] Demos (5 demos)
-- [x] Unit tests (110 tests)
-- [x] sqlite-vec integration
 ### In Progress 🔄
-### In Progress 🔄
-- [x] **test_websocket_echo hangs in cleanup** (discovered 2026-06-11, commit `3ec18cc`)
-  - **Symptom**: The echo round-trip itself works correctly — debug
-    tracing shows all 8 steps complete and the server sends back
-    `"echo: hello"`. But the test hangs afterward, never printing
-    `PASS`, and the process has to be killed after 30+ seconds.
-  - **Deeper analysis (2026-06-11)**: The hang is in
-    `sleep_for(500ms)` AFTER the echo. Confirmed via `std::flush`:
-    the "pre-sleep" print fires but the "post-sleep" never does.
-    The test thread is being starved by the accept thread which
-    is spinning in a tight loop. When the test closes the client
-    socket, the kernel sends a FIN. The accept thread's `poll()`
-    sees this as a pending connection (POLLIN), calls `accept()`
-    which returns the closed connection, the handler fails, and
-    the loop repeats. This 100% CPU usage starves the test thread.
-  - **Partial fix landed (commit `dc84414`)**: `Server::stop()`
-    no longer calls `m_serverSocket->close()` — closing an fd
-    while another thread is blocked in `poll()` on it is
-    undefined behavior on Linux (poll may never return). The
-    `shutdown()` call is sufficient. This fixed the *post-test*
-    hang in `ws.stop()` / `JoinableThread` destructor, but the
-    *pre-stop* sleep hang is a separate issue (accept thread
-    spinning on the closed-but-not-yet-cleaned-up connection).
-  - **Still open**: The accept thread needs to handle the case
-    where `accept()` returns a connection whose peer has
-    already closed. Options:
-    1. Add a `poll(POLLIN | POLLERR | POLLHUP)` check in
-       `acceptOrWakeup` and only call `accept()` if POLLIN is
-       set (currently it does this, but POLLERR from the
-       closed peer might also trigger the accept)
-    2. After `accept()`, do a `recv(fd, ..., MSG_PEEK | MSG_DONTWAIT)`
-       and if it returns 0, close the fd and continue (don't
-       spawn a handler thread for a dead connection)
-    3. Set `SO_LINGER` with l_linger=0 on the listening socket
-       so closed connections are RST instead of FIN, which the
-       kernel removes from the accept queue immediately
-  - **Test results** (after partial fix):
-    - test_websocket_broadcast: 10/10 PASS (no regression)
-    - test_sync_http_server: 18/18 PASS (no regression)
-    - test_websocket_echo: still hangs (deeper fix needed)
-### In Progress 🔄
-- None
+- [x] **prompt.txt Bug #5: WebSocket post-upgrade handler race** ✅ FIXED in `0c4f471`
+  - **Problem**: WebSocket::Server::on() called m_httpServer->any() then
+    m_httpServer->setPostUpgradeHandler() — a TOCTOU race. When N clients
+    connect in ~1ms, ~1 of N got a working WebSocket; N-1 got 404.
+    Additionally, m_postUpgradeHandlers.erase(it) made the registration
+    single-shot, breaking multi-client even without the race.
+  - **Fix** (commit `0c4f471`):
+    1. Added `ProtocolSwitchHandlers` struct + `registerProtocolSwitch()`
+       in HttpServer — one call, one lock, atomic registration.
+    2. Connection loop checks `m_protocolSwitches` FIRST (before Router).
+       If protocol-switch handler found, invoke `on_upgrade` directly.
+       Only call Router if NOT a protocol switch (prevents 404 from
+       overriding 101 when Router has no /echo route).
+    3. Post-upgrade callback is persistent (no erase) — multi-client works.
+    4. WebSocket::Server::on() uses `registerProtocolSwitch` (one call).
+  - **Tests**: test_websocket_broadcast 10/10 PASS, test_sync_http_server
+    18/18 PASS, no regressions. test_websocket_echo still hangs in
+    sleep_for(500ms) (pre-existing starvation issue, unrelated).
+
+### TODO 📋
 
 ### TODO 📋
 - [ ] **dashboard_demo POST /api/dashboard/login times out** (v0.5.2 known limitation) ✅ FIXED in v0.6.0 (root cause was `Response::build()` not auto-setting `Content-Length`, fixed in `src/http/HttpResponse.cpp`)
