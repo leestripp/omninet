@@ -141,32 +141,46 @@ void AsyncLogger::writer_loop() {
             });
             // Drain all available messages
             batch.swap(m_queue);
+
+            // v0.7.0 fix: write the batch INSIDE the lock so that
+            // flush() — which checks m_queue.empty() — cannot
+            // return via spurious wakeup before the file is
+            // written. Without this, a spurious wakeup between
+            // the swap and the file write would let flush()
+            // return early, and the test (or any caller using
+            // flush() to ensure the file is on disk) would see
+            // stale/empty data. The cost: the lock is held
+            // during the file write, but file writes are fast
+            // for small batches. Console writes happen outside
+            // the lock below to avoid blocking on slow terminals.
+            if (!batch.empty()) {
+                for (const auto& entry : batch) {
+                    std::string formatted = format_entry(entry);
+                    if (m_logFile.is_open()) {
+                        m_logFile << formatted << std::endl;
+                    }
+                    m_stats.messagesWritten.fetch_add(1, std::memory_order_relaxed);
+                }
+                // Flush the file stream so the data is visible
+                // to other file descriptors (e.g., an ifstream
+                // opened by the test).
+                if (m_logFile.is_open()) {
+                    m_logFile.flush();
+                }
+                // Now safe to notify flush waiters — the file
+                // has been written and flushed.
+                m_flushCv.notify_all();
+            }
         }
 
-        // Write the batch
+        // Console writes happen OUTSIDE the lock to avoid
+        // blocking other threads on slow terminals.
         for (const auto& entry : batch) {
             std::string formatted = format_entry(entry);
-
-            // Write to console (stderr)
             if (entry.level >= LogLevel::WARN) {
                 std::cerr << formatted << std::endl;
             } else {
                 std::cout << formatted << std::endl;
-            }
-
-            // Write to file if open
-            if (m_logFile.is_open()) {
-                m_logFile << formatted << std::endl;
-            }
-
-            m_stats.messagesWritten.fetch_add(1, std::memory_order_relaxed);
-        }
-
-        // Notify flush waiters
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            if (m_queue.empty() && !batch.empty()) {
-                m_flushCv.notify_all();
             }
         }
     }

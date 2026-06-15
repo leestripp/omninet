@@ -114,8 +114,14 @@ TEST(config_invalid_json) {
 
 TEST(config_validation_valid) {
     auto& cfg = OmniNet::Config::instance();
+    // v0.7.0: reset TLS fields to avoid pollution from previous
+    // tests or the on-disk config file (the Config constructor
+    // loads from ~/.omninet/config.json if it exists, and stale
+    // TLS paths in that file would cause 2 validation errors).
     cfg.setDefaultPort(8080);
-    
+    cfg.setDefaultTlsCert("");
+    cfg.setDefaultTlsKey("");
+
     ASSERT_TRUE(cfg.validate());
     ASSERT_EQ(cfg.validationErrors().size(), 0u);
 }
