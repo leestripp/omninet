@@ -124,9 +124,15 @@ void Server::stop() {
     }
 #endif
 
-    // Defense-in-depth: also shutdown/close the listening socket.
-    m_serverSocket->shutdown(SHUT_RDWR);
-    m_serverSocket->close();
+    // Defense-in-depth: shutdown() the listening socket so a blocked
+    // accept() returns EINVAL. We do NOT close() here — closing an
+    // fd while another thread is blocked in poll() on it is
+    // undefined behavior on Linux (poll may never return). The
+    // ServerSocket destructor will close the fd safely after the
+    // accept thread has exited.
+    if (m_serverSocket && m_serverSocket->fd() != INVALID_SOCKET) {
+        m_serverSocket->shutdown(SHUT_RDWR);
+    }
 
     // Join workers
     for (auto& worker : m_workers) {
