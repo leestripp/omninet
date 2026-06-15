@@ -486,14 +486,31 @@ void Server::on(std::string path, std::function<void(Connection&)> handler) {
             // Spawn the handler thread. It owns the Connection.
             std::thread([this, id, conn, wsHandler]() {
                 try {
+                    // 1. Run the user's handler. The handler is
+                    //    expected to register onText/onBinary/onClose
+                    //    callbacks on `*conn` and then return. It
+                    //    should NOT call readLoop() itself — we do
+                    //    that automatically below. (If the handler
+                    //    does call readLoop() and it returns because
+                    //    the connection closed, the second call below
+                    //    is a harmless no-op.)
                     wsHandler(*conn);
                 } catch (...) {
                     // Swallow user-code exceptions; the connection
                     // is about to be cleaned up anyway.
                 }
-                // Unregister from the broadcast map. The
-                // shared_ptr goes out of scope after this lambda
-                // returns, destroying the Connection.
+                // 2. Block in the read loop, dispatching frames to
+                //    the callbacks the handler registered. Runs
+                //    until the connection closes (client
+                //    disconnect, network error, or server stop).
+                //    This fixes prompt.txt bug #4 ("readLoop never
+                //    called") — without this, forgetting to call
+                //    readLoop() in the handler means frames are
+                //    never read and the connection is dead.
+                conn->readLoop();
+                // 3. Unregister from the broadcast map. The
+                //    shared_ptr goes out of scope after this lambda
+                //    returns, destroying the Connection.
                 removeClient(id);
             }).detach();
         });
