@@ -305,10 +305,44 @@ cmake --build build --target cppcheck
 - [x] Demos (5 demos)
 - [x] Unit tests (110 tests)
 - [x] sqlite-vec integration
-- [x] VectorStore class implementation
-- [x] Cppcheck static analysis targets
-- [x] **Token System**: Session Tokens + API Keys (28 tests)
-
+### In Progress 🔄
+- [ ] **test_websocket_echo hangs in cleanup** (discovered 2026-06-11, commit `3ec18cc`)
+  - **Symptom**: The echo round-trip itself works correctly — debug
+    tracing shows all 8 steps complete and the server sends back
+    `"echo: hello"`. But the test hangs afterward, never printing
+    `PASS`, and the process has to be killed after 30+ seconds.
+  - **Hangs in**: `ws.stop()` and/or the `JoinableThread` destructor
+    joining the thread that ran `ws.start()`. The server thread is
+    still blocked in the accept loop when the test tries to tear down.
+  - **Confirmed NOT a regression from the readLoop fix** (bug #4 in
+    commit `3ec18cc`): the hang reproduces with the ORIGINAL code
+    too (verified by `git checkout src/websocket/WebSocket.cpp` then
+    rebuilding — still hangs in the same place).
+  - **Likely root cause**: `Server::stop()` calls `m_httpServer->stop()`
+    which writes to the self-pipe wakeup fd. The accept loop is
+    supposed to wake up via `acceptOrWakeup(wakeupFd, 1000ms)` and
+    return. But something is preventing that — possibly the wakeup
+    fd is not being created (Windows path?), or the poll() in
+    `acceptOrWakeup` isn't being entered, or `m_wakeupPipe` is in
+    a bad state.
+  - **Secondary suspect**: `ServerSocket::acceptOrWakeup` may be
+    blocked in a way the self-pipe trick doesn't unblock on
+    Linux. The c017d09 commit ("self-pipe trick for instant
+    accept-loop shutdown") was supposed to fix this for the
+    sync_http_server tests, but the WebSocket tests may be hitting
+    a different code path.
+  - **To investigate**:
+    1. Add `SERVER_DEBUG` traces in `ServerSocket::acceptOrWakeup`
+       and `Server::stop()` to see which side is not waking up
+    2. Check if `m_wakeupPipe[0]` is actually being polled in the
+       WebSocket's accept loop
+    3. Try calling `shutdown(m_serverSocket->fd(), SHUT_RD)` from
+       `Server::stop()` as a belt-and-suspenders unblock
+    4. Check if the test is leaving a connection in the broadcast
+       map that prevents `m_running` from going false
+  - **Workaround**: None known. The echo test currently can't be
+    run to completion. The broadcast test (10/10 PASS) and
+    sync_http_server test (18/18 PASS) are unaffected.
 ### In Progress 🔄
 - None
 
