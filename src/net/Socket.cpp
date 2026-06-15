@@ -556,6 +556,22 @@ ServerSocket::ServerSocket() {
 void ServerSocket::bindAndListen(uint16_t port, const std::string& address, int backlog) {
     bind(address, port);
     listen(backlog);
+    // v0.7.0 fix (test_websocket_echo hang): make the listening
+    // socket non-blocking. Without this, a race between poll()
+    // reporting POLLIN and accept() being called can cause
+    // accept() to block indefinitely when the pending connection
+    // was removed by an async network error (or the test closed
+    // the socket). With a non-blocking listening socket,
+    // accept() returns EAGAIN immediately in that case, and we
+    // continue the accept loop cleanly. See the Linux accept(2)
+    // man page: "It is possible to select(2) or poll(2) for
+    // completion of an attempted connect(2) by selecting the
+    // socket for writing. After select(2) or poll(2) indicates
+    // writability, use getsockname(2) to determine whether the
+    // connection completed successfully." — and analogously,
+    // poll() reporting POLLIN on a listening socket can race
+    // with the kernel removing the pending connection.
+    setNonBlocking(true);
 }
 
 std::unique_ptr<Socket> ServerSocket::acceptWithTimeout(std::chrono::milliseconds timeout) {
@@ -571,6 +587,9 @@ std::unique_ptr<Socket> ServerSocket::acceptOrWakeup(
     // v0.7.0: self-pipe trick. poll() both the listen fd and the
     // wakeup fd. When stop() writes to the wakeup pipe, poll()
     // returns immediately and we exit the accept loop cleanly.
+    // The listening socket is non-blocking (see bindAndListen),
+    // so accept() never blocks even if the pending connection
+    // was removed between poll() and accept().
     struct pollfd fds[2];
     fds[0].fd = m_fd;
     fds[0].events = POLLIN;
@@ -589,7 +608,34 @@ std::unique_ptr<Socket> ServerSocket::acceptOrWakeup(
 
     // Listen fd is ready — accept the connection.
     if (fds[0].revents & POLLIN) {
-        return accept();
+        // v0.7.0 fix (test_websocket_echo hang): handle all
+        // the documented accept() error cases. With a
+        // non-blocking listening socket:
+        //   EAGAIN/EWOULDBLOCK: poll() reported POLLIN but the
+        //     connection was removed before accept() — just
+        //     return nullptr and let the loop continue.
+        //   ECONNABORTED: a pending connection was aborted
+        //     (e.g., RST received). Log and continue.
+        //   EPERM: a connection was blocked by a firewall rule.
+        //     Log and continue.
+        // Without this, these errors would either throw
+        // (crashing the accept loop) or block (hanging the
+        // accept loop and starving other threads).
+        SOCKET clientFd = ::accept(m_fd, nullptr, nullptr);
+        if (clientFd == INVALID_SOCKET) {
+            int err = getError();
+            if (err == EAGAIN || err == EWOULDBLOCK) {
+                return nullptr;  // spurious readiness
+            }
+            if (err == ECONNABORTED || err == EPERM || err == ENETDOWN ||
+                err == EPROTO || err == ENOPROTOOPT) {
+                // Log and continue — don't crash the accept loop
+                // for a single bad connection.
+                return nullptr;
+            }
+            throw SocketException(std::string("accept() failed"), err);
+        }
+        return std::make_unique<Socket>(clientFd);
     }
 
     return nullptr;  // spurious wakeup, retry

@@ -274,7 +274,6 @@ void Server::runAcceptLoop() {
     // listening socket AND m_wakeupPipe[0]. When stop() writes to
     // m_wakeupPipe[1], poll() returns immediately and we exit —
     // instant clean shutdown, no polling delay.
-    int spin_count = 0;  // v0.7.0: track consecutive empty accepts
     while (m_running) {
         SERVER_DEBUG("Waiting for connection...");
         std::unique_ptr<Socket> client;
@@ -313,47 +312,7 @@ void Server::runAcceptLoop() {
 #endif
         if (!client) {
             // Timeout or wakeup — just loop and re-check m_running.
-            spin_count = 0;
             continue;
-        }
-
-        // v0.7.0 fix (test_websocket_echo hang): before spawning a
-        // handler thread, peek the socket to detect connections
-        // whose peer has already closed (e.g., the test sent a
-        // request and then closed before we could accept).
-        // Without this, we'd spawn a handler thread that immediately
-        // fails on recv(), and the accept loop would spin tightly
-        // on the same dead connection, starving other threads
-        // (notably the test thread, causing sleep_for() to never
-        // return). MSG_PEEK | MSG_DONTWAIT is non-blocking and
-        // doesn't consume the data, so a real request still works.
-        {
-            char peek;
-            ssize_t n = ::recv(client->fd(), &peek, 1,
-                                MSG_PEEK | MSG_DONTWAIT);
-            if (n == 0) {
-                // Peer closed before we could read anything.
-                SERVER_DEBUG("Accepted connection already closed, dropping");
-                client.reset();
-                spin_count++;
-                continue;
-            }
-            // n < 0 with EAGAIN/WOULDBLOCK means no data yet but
-            // the connection is alive — proceed normally.
-        }
-        spin_count = 0;
-
-        // v0.7.0: CPU-yield guard. If we've been spinning (e.g.,
-        // poll() keeps reporting POLLIN for stale connections that
-        // the MSG_PEEK above doesn't catch), sleep 10ms periodically
-        // to let other threads (test thread, handler threads) run.
-        // The accept loop is the main thread of the server in
-        // blocking-start mode, so starving it starves everything.
-        spin_count++;
-        if (spin_count > 50) {
-            SERVER_DEBUG("Accept loop spin detected, yielding CPU");
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            spin_count = 0;
         }
 
         SERVER_DEBUG("Connection accepted! Spawning handler thread");
