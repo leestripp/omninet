@@ -421,99 +421,73 @@ void Server::on(std::string path, std::function<void(Connection&)> handler) {
     auto wsHandler = m_endpoints.back().handler;
     std::string wsPath = m_endpoints.back().path;
 
-    // 1) Register the HTTP route for the upgrade request.
-    //    The handler validates the upgrade headers, computes the
-    //    accept key, and sets a 101 Switching Protocols response.
-    //    It marks the response as a protocol switch (v0.7.0) so
-    //    the HTTP server knows to hand the raw socket off after
-    //    writing the 101 — this is the fix for prompt.txt Bug #1
-    //    (Content-Length suppression) and Bug #2 (handler never
-    //    called).
-    m_httpServer->any(wsPath, [wsPath](const OmniNet::HTTP::Request& req,
-                                      OmniNet::HTTP::Response& resp) {
-        // Validate Upgrade header (case-insensitive per RFC 7230)
-        auto upgrade = req.header("Upgrade");
-        if (!upgrade || Utils::toLower(*upgrade) != "websocket") {
-            resp = OmniNet::HTTP::Response::badRequest("WebSocket upgrade required");
-            return;
-        }
-
-        // Sec-WebSocket-Key is mandatory (RFC 6455 §4.1)
-        auto key = req.header("Sec-WebSocket-Key");
-        if (!key) {
-            resp = OmniNet::HTTP::Response::badRequest("Missing Sec-WebSocket-Key");
-            return;
-        }
-
-        // Build the 101 response. The HTTP server suppresses
-        // Content-Length for 101 (RFC 6455 §1.3, v0.7.0 fix) and
-        // hands the socket to the post-upgrade callback after
-        // writing.
-        auto acceptKey = Handshake::computeAcceptKey(std::string(*key));
-        resp.setStatus(static_cast<OmniNet::HTTP::StatusCode>(101));
-        resp.setHeader("Upgrade", std::string("websocket"));
-        resp.setHeader("Connection", std::string("Upgrade"));
-        resp.setHeader("Sec-WebSocket-Accept", acceptKey);
-        resp.markProtocolSwitch();  // v0.7.0: trigger socket handoff
-    });
-
-    // 2) Register the post-upgrade callback. Called by HttpServer
-    //    AFTER the 101 response is written, with the raw socket.
-    //    We:
-    //      a) create the server-side WebSocket::Connection
-    //      b) call addClient() so broadcast() reaches this client
-    //         (fixes prompt.txt Bug #3)
-    //      c) spawn a thread to run the per-path handler (the
-    //         handler typically loops processing frames)
-    //
-    //    We use shared_ptr<Connection> because Connection has
-    //    std::mutex/std::condition_variable members and is NOT
-    //    movable. The thread owns the shared_ptr; when the
-    //    handler returns, it calls removeClient() and the
-    //    Connection is destroyed.
-    m_httpServer->setPostUpgradeHandler(wsPath,
-        [this, wsPath, wsHandler](std::unique_ptr<Socket> socket,
-                                  const OmniNet::HTTP::Request& req) {
-            // Create the server-side WebSocket Connection.
-            auto conn = std::make_shared<Connection>(std::move(socket),
-                                                     req.path());
-
-            // Register with the broadcast map BEFORE starting the
-            // handler thread so connectionCount() and broadcast()
-            // work immediately.
-            ClientId id = addClient(*conn, wsPath);
-
-            // Spawn the handler thread. It owns the Connection.
-            std::thread([this, id, conn, wsHandler]() {
-                try {
-                    // 1. Run the user's handler. The handler is
-                    //    expected to register onText/onBinary/onClose
-                    //    callbacks on `*conn` and then return. It
-                    //    should NOT call readLoop() itself — we do
-                    //    that automatically below. (If the handler
-                    //    does call readLoop() and it returns because
-                    //    the connection closed, the second call below
-                    //    is a harmless no-op.)
-                    wsHandler(*conn);
-                } catch (...) {
-                    // Swallow user-code exceptions; the connection
-                    // is about to be cleaned up anyway.
+    // v0.7.0 (prompt.txt Bug #5): use registerProtocolSwitch()
+    // instead of calling any() and setPostUpgradeHandler() separately.
+    // One call, one lock, no TOCTOU race, multi-client works.
+    m_httpServer->registerProtocolSwitch(wsPath,
+        {
+            // on_upgrade: validate upgrade headers, compute accept key,
+            // set 101 response. Invoked by the HTTP connection loop
+            // BEFORE the Router handles the request, so the 101
+            // status cannot be overridden by a 404.
+            .on_upgrade = [wsPath](const OmniNet::HTTP::Request& req,
+                                   OmniNet::HTTP::Response& resp) {
+                // Validate Upgrade header (case-insensitive per RFC 7230)
+                auto upgrade = req.header("Upgrade");
+                if (!upgrade || Utils::toLower(*upgrade) != "websocket") {
+                    resp = OmniNet::HTTP::Response::badRequest("WebSocket upgrade required");
+                    return;
                 }
-                // 2. Block in the read loop, dispatching frames to
-                //    the callbacks the handler registered. Runs
-                //    until the connection closes (client
-                //    disconnect, network error, or server stop).
-                //    This fixes prompt.txt bug #4 ("readLoop never
-                //    called") — without this, forgetting to call
-                //    readLoop() in the handler means frames are
-                //    never read and the connection is dead.
-                conn->readLoop();
-                // 3. Unregister from the broadcast map. The
-                //    shared_ptr goes out of scope after this lambda
-                //    returns, destroying the Connection.
-                removeClient(id);
-            }).detach();
+
+                // Sec-WebSocket-Key is mandatory (RFC 6455)
+                auto key = req.header("Sec-WebSocket-Key");
+                if (!key) {
+                    resp = OmniNet::HTTP::Response::badRequest("Missing Sec-WebSocket-Key");
+                    return;
+                }
+
+                // Build the 101 response.
+                auto acceptKey = Handshake::computeAcceptKey(std::string(*key));
+                resp.setStatus(static_cast<OmniNet::HTTP::StatusCode>(101));
+                resp.setHeader("Upgrade", std::string("websocket"));
+                resp.setHeader("Connection", std::string("Upgrade"));
+                resp.setHeader("Sec-WebSocket-Accept", acceptKey);
+                resp.markProtocolSwitch();
+            },
+
+            // on_post_upgrade: called by HttpServer AFTER the 101
+            // response is written. Takes ownership of the raw socket.
+            .on_post_upgrade = [this, wsPath, wsHandler](
+                    std::unique_ptr<Socket> socket,
+                    const OmniNet::HTTP::Request& req) {
+                // Create the server-side WebSocket Connection.
+                auto conn = std::make_shared<Connection>(std::move(socket),
+                                                         req.path());
+
+                // Register with the broadcast map BEFORE starting the
+                // handler thread so connectionCount() and broadcast()
+                // work immediately.
+                ClientId id = addClient(*conn, wsPath);
+
+                // Spawn the handler thread. It owns the Connection.
+                std::thread([this, id, conn, wsHandler]() {
+                    try {
+                        // 1. Run the user's handler. The handler is
+                        //    expected to register onText/onBinary/onClose
+                        //    callbacks on `*conn` and then return.
+                        wsHandler(*conn);
+                    } catch (...) {
+                        // Swallow user-code exceptions.
+                    }
+                    // 2. Block in the read loop. Runs until connection
+                    //    closes, network error, or server stop.
+                    conn->readLoop();
+                    // 3. Unregister from the broadcast map.
+                    removeClient(id);
+                }).detach();
+            },
         });
+
 }
 
 void Server::start() {

@@ -215,12 +215,45 @@ void Server::setOnReady(ReadyCallback cb) {
     m_onReady = std::move(cb);
 }
 
-// v0.7.0 (prompt.txt Bug #2 + #5): register a post-upgrade
-// handoff for `path`. When a request to this path results in a
-// 101 response, the server writes the 101 and then calls `cb`
-// with the raw socket. The callback takes ownership.
+// v0.7.0 (prompt.txt Bug #5): register both the HTTP upgrade
+// handler and the post-upgrade callback atomically under a single
+// lock. This eliminates the TOCTOU race that existed when
+// WebSocket::Server::on() called m_httpServer->any() and then
+// m_httpServer->setPostUpgradeHandler() separately — a request
+// arriving between those two calls would find no post-upgrade
+// handler and get a 404.
+//
+// The on_upgrade handler is invoked by the connection loop BEFORE
+// the Router handles the request (so the 101 is set before the
+// Router's 404 can override it). The on_post_upgrade callback is
+// invoked by the Connection AFTER writing the 101, and is persistent
+// (multi-client works — no erase).
+//
+// Usage:
+//   server.registerProtocolSwitch("/ws", {
+//       .on_upgrade = [&](req, resp) { /* validate, set 101 */ },
+//       .on_post_upgrade = [&](socket, req) { /* build Connection */ },
+//   });
+void Server::registerProtocolSwitch(std::string path, ProtocolSwitchHandlers h) {
+    std::lock_guard<std::mutex> lock(m_protocolSwitchesMutex);
+    m_protocolSwitches[std::move(path)] = std::move(h);
+}
+
+// Deprecated shim: wraps the old single-callback API into a
+// ProtocolSwitchHandlers with a no-op on_upgrade. The old API
+// requires the user to also call any() for the HTTP upgrade,
+// which still has the race — but at least this shim keeps
+// multi-client working by not erasing the entry.
 void Server::setPostUpgradeHandler(std::string path, PostUpgradeCallback cb) {
-    m_postUpgradeHandlers[std::move(path)] = std::move(cb);
+    registerProtocolSwitch(std::move(path), ProtocolSwitchHandlers{
+        .on_upgrade = [](const Request&, Response& resp) {
+            // No-op: the caller is expected to have called any()
+            // with a handler that sets the 101 status.
+            // We just mark it as a protocol switch.
+            resp.markProtocolSwitch();
+        },
+        .on_post_upgrade = std::move(cb),
+    });
 }
 
 void Server::enableCORS(
@@ -358,25 +391,48 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
                     resp.setAccessControlAllowHeaders(m_corsAllowedHeaders);
                 }
 
-                // Let router handle the request
-                SERVER_DEBUG("Calling router.handle()");
-                m_router.handle(req, resp);
-                SERVER_DEBUG("Router.handle() returned, response status=" << static_cast<int>(resp.status()));
+                // v0.7.0 (prompt.txt Bug #5): protocol-switch paths
+                // are handled FIRST (before the Router) to eliminate
+                // the TOCTOU race. The on_upgrade handler sets the 101
+                // status and headers. IMPORTANT: if on_upgrade handles
+                // the request (e.g., sets 101 or an error like 400),
+                // we must NOT call the Router afterward — the Router
+                // has no route for /echo so it returns 404, which would
+                // override the 101. Only call the Router if the request
+                // is NOT a protocol switch (e.g., normal HTTP path).
+                {
+                    std::lock_guard<std::mutex> lock(m_protocolSwitchesMutex);
+                    auto it = m_protocolSwitches.find(std::string(req.path()));
+                    if (it != m_protocolSwitches.end()) {
+                        SERVER_DEBUG("Protocol switch: invoking on_upgrade for " << req.path());
+                        it->second.on_upgrade(req, resp);
+                    }
+                }
 
-                // v0.7.0 (prompt.txt Bug #2 + #5): protocol switch.
-                // If the route handler set a 101 response (via
-                // Response::markProtocolSwitch) and a post-upgrade
-                // callback is registered for this path, wire it up
-                // on the Connection. After writing the 101, the
-                // Connection will release the socket and call the
-                // callback (which creates the WebSocket::Connection
-                // and runs the per-path handler).
+                // Only call the Router if on_upgrade didn't handle the
+                // request. A protocol switch response (101) or an error
+                // (400) from on_upgrade should NOT be overridden by 404.
+                if (!resp.isProtocolSwitch() && resp.status() == StatusCode::OK) {
+                    SERVER_DEBUG("Calling router.handle()");
+                    m_router.handle(req, resp);
+                    SERVER_DEBUG("Router.handle() returned, response status=" << static_cast<int>(resp.status()));
+                } else if (resp.isProtocolSwitch()) {
+                    SERVER_DEBUG("Protocol switch handled by on_upgrade, skipping Router");
+                }
+
+                // v0.7.0 (prompt.txt Bug #5): if the response is
+                // a protocol switch (set by on_upgrade), look up the
+                // on_post_upgrade callback and wire it on the
+                // Connection. The callback is persistent — NOT erased
+                // after first use (multi-client works).
                 if (resp.isProtocolSwitch()) {
-                    auto it = m_postUpgradeHandlers.find(std::string(req.path()));
-                    if (it != m_postUpgradeHandlers.end()) {
+                    std::lock_guard<std::mutex> lock(m_protocolSwitchesMutex);
+                    auto it = m_protocolSwitches.find(std::string(req.path()));
+                    if (it != m_protocolSwitches.end() &&
+                        it->second.on_post_upgrade) {
                         SERVER_DEBUG("Protocol switch: registering post-upgrade for " << req.path());
-                        conn.setPostUpgradeCallback(std::move(it->second));
-                        m_postUpgradeHandlers.erase(it);
+                        conn.setPostUpgradeCallback(it->second.on_post_upgrade);
+                        // NOT erased — multi-client support (Bug #5 fix).
                     } else {
                         SERVER_DEBUG("Protocol switch requested but no post-upgrade handler for " << req.path());
                     }

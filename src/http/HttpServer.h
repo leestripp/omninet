@@ -145,6 +145,32 @@ public:
     using PostUpgradeCallback =
         std::function<void(std::unique_ptr<Socket> socket,
                            const Request& req)>;
+
+    // v0.7.0 (prompt.txt Bug #5): one struct holds both handlers
+    // for a protocol-switch path. registerProtocolSwitch() uses
+    // this to register both atomically under a single lock.
+    struct ProtocolSwitchHandlers {
+        // Called FIRST by the HTTP server. Must set status 101,
+        // add Upgrade/Connection/Sec-WebSocket-Accept headers,
+        // and call resp.markProtocolSwitch(). The HTTP server
+        // writes the response, then invokes on_post_upgrade.
+        std::function<void(const Request&, Response&)> on_upgrade;
+        // Called SECOND by the HTTP server AFTER the 101 response
+        // is written. Takes ownership of the socket. Must not throw.
+        PostUpgradeCallback on_post_upgrade;
+    };
+
+    // v0.7.0 (prompt.txt Bug #5): register both handlers atomically.
+    // This is the race-free alternative to calling any() then
+    // setPostUpgradeHandler() separately. The on_upgrade handler
+    // is stored so the connection loop can invoke it before the
+    // Router handles the request; on_post_upgrade is invoked
+    // after the 101 is written.
+    void registerProtocolSwitch(std::string path, ProtocolSwitchHandlers h);
+
+    // Deprecated since 0.7.0: use registerProtocolSwitch instead.
+    // Kept for backward compatibility (calls registerProtocolSwitch).
+    [[deprecated("use registerProtocolSwitch instead")]]
     void setPostUpgradeHandler(std::string path, PostUpgradeCallback cb);
 
     // --- CORS ---
@@ -233,8 +259,19 @@ private:
     // v0.7.0 (Phase 11c): onReady callback
     ReadyCallback m_onReady;
 
-    // v0.7.0 (prompt.txt Bug #2 + #5): post-upgrade handoff map.
-    // Keyed by request path. Consumed on first use (one-shot).
+    // v0.7.0 (prompt.txt Bug #5): protocol-switch registration.
+    // Both the upgrade handler and the post-upgrade callback are
+    // stored together under m_protocolSwitchesMutex. The
+    // connection loop looks up m_protocolSwitches FIRST (before
+    // the Router) — this eliminates the TOCTOU race that existed
+    // when the two registrations were separate calls.
+    // m_protocolSwitches is persistent (no erase) — multi-client works.
+    std::mutex m_protocolSwitchesMutex;
+    std::unordered_map<std::string, ProtocolSwitchHandlers> m_protocolSwitches;
+
+    // v0.7.0 (prompt.txt Bug #2 + #5): legacy post-upgrade handoff map.
+    // Kept for backward compatibility with setPostUpgradeHandler.
+    // Consumed on first use (one-shot) — the old API.
     std::unordered_map<std::string, PostUpgradeCallback> m_postUpgradeHandlers;
     
     // Statistics
