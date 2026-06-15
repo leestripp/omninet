@@ -34,7 +34,6 @@ if(Git_FOUND)
         endif()
     endif()
 endif()
-
 # Use detected version or fallback
 # Note: CMake treats "0" as FALSE in boolean context, so we check NOT DEFINED
 if(DEFINED DETECTED_MAJOR AND DEFINED DETECTED_MINOR AND DEFINED DETECTED_PATCH)
@@ -48,9 +47,16 @@ if(DEFINED DETECTED_MAJOR AND DEFINED DETECTED_MINOR AND DEFINED DETECTED_PATCH)
         set(PROJECT_VERSION "${DETECTED_MAJOR}.${DETECTED_MINOR}.${DETECTED_PATCH}")
     else()
         set(PROJECT_VERSION "${FALLBACK_VERSION}")
+        # Parse fallback "X.Y.Z" into DETECTED_* for compile defs
+        string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)\\.([0-9]+).*" "\\1" DETECTED_MAJOR "${FALLBACK_VERSION}")
+        string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)\\.([0-9]+).*" "\\2" DETECTED_MINOR "${FALLBACK_VERSION}")
+        string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)\\.([0-9]+).*" "\\3" DETECTED_PATCH "${FALLBACK_VERSION}")
     endif()
 else()
     set(PROJECT_VERSION "${FALLBACK_VERSION}")
+    # Parse fallback "X.Y.Z" into DETECTED_* for compile defs
+    string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)\.([0-9]+).*" "\\1" DETECTED_MAJOR "${FALLBACK_VERSION}")
+    string(REGEX REPLACE "^([0-9]+)\\.([0-9]+)\.([0-9]+).*" "\\2" DETECTED_MINOR "${FALLBACK_VERSION}")
 endif()
 
 message(STATUS "OmniNet Version: ${PROJECT_VERSION} (from git tag: ${GIT_TAG})")
@@ -298,9 +304,9 @@ endif()
 
 # Define version macro
 target_compile_definitions(OmniNet PUBLIC
-    OMNINET_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
-    OMNINET_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-    OMNINET_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    OMNINET_VERSION_MAJOR=${DETECTED_MAJOR}
+    OMNINET_VERSION_MINOR=${DETECTED_MINOR}
+    OMNINET_VERSION_PATCH=${DETECTED_PATCH}
 )
 
 # Installation

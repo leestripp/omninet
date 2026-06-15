@@ -49,39 +49,28 @@ if(WIN32)
     )
 endif()
 
-# v0.6.0 fix (bug #11): OMNINET_VERSION_* is already added as PUBLIC
-# compile definitions on the OmniNet target by the root CMakeLists.txt.
-# tools_common re-adding them caused redefinition warnings in every
-# tool TU (visible as "<command-line>: warning: 'OMNINET_VERSION_*'
-# redefined"). Removed both the if(DEFINED PROJECT_VERSION_MAJOR)
-# block and the unconditional fallback — tools inherit the version
-# via their OmniNet dependency.
-
-# Build type - always define as a string
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="debug")
-else()
-    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="release")
-endif()
-# These come from the root CMakeLists.txt if available
-if(DEFINED PROJECT_VERSION_MAJOR)
-    target_compile_definitions(omninet_tools_common PUBLIC
-        OMNINET_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
-        OMNINET_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-        OMNINET_VERSION_PATCH=${PROJECT_VERSION_PATCH}
-    )
-endif()
-
-# Build type - always define as a string
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="debug")
-else()
-    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="release")
-endif()
-
-# Fallback version macros (in case PROJECT_VERSION_MAJOR not set)
+# v0.6.0 fix (bug #11) — REVISED for v0.7.0:
+# OMNINET_VERSION_* is added as PUBLIC compile definitions on the
+# OmniNet target by the root CMakeLists.txt. However, PUBLIC
+# compile definitions do NOT transitively propagate through
+# static-library dependents. tools_common links against OmniNet
+# internally, but tools link against tools_common — and tools
+# never see OmniNet's PUBLIC compile defs. So tools_common must
+# re-export them. The redefinition warnings previously came from
+# two blocks (an if(DEFINED) and an unconditional fallback) both
+# setting the same macros AND colliding with OmniNet's PUBLIC
+# exports via transitive includes. Here we set them ONCE, using
+# the root project-level PROJECT_VERSION_* variables (set by
+# project(OmniNet VERSION ...) in the root CMakeLists.txt).
 target_compile_definitions(omninet_tools_common PUBLIC
-    OMNINET_VERSION_MAJOR=${OMNINET_VERSION_MAJOR}
-    OMNINET_VERSION_MINOR=${OMNINET_VERSION_MINOR}
-    OMNINET_VERSION_PATCH=${OMNINET_VERSION_PATCH}
+    OMNINET_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    OMNINET_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    OMNINET_VERSION_PATCH=${PROJECT_VERSION_PATCH}
 )
+
+# Build type - always define as a string
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="debug")
+else()
+    target_compile_definitions(omninet_tools_common PUBLIC OMNINET_BUILD_TYPE="release")
+endif()
