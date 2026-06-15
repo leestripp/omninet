@@ -306,43 +306,46 @@ cmake --build build --target cppcheck
 - [x] Unit tests (110 tests)
 - [x] sqlite-vec integration
 ### In Progress 🔄
-- [ ] **test_websocket_echo hangs in cleanup** (discovered 2026-06-11, commit `3ec18cc`)
+### In Progress 🔄
+- [x] **test_websocket_echo hangs in cleanup** (discovered 2026-06-11, commit `3ec18cc`)
   - **Symptom**: The echo round-trip itself works correctly — debug
     tracing shows all 8 steps complete and the server sends back
     `"echo: hello"`. But the test hangs afterward, never printing
     `PASS`, and the process has to be killed after 30+ seconds.
-  - **Hangs in**: `ws.stop()` and/or the `JoinableThread` destructor
-    joining the thread that ran `ws.start()`. The server thread is
-    still blocked in the accept loop when the test tries to tear down.
-  - **Confirmed NOT a regression from the readLoop fix** (bug #4 in
-    commit `3ec18cc`): the hang reproduces with the ORIGINAL code
-    too (verified by `git checkout src/websocket/WebSocket.cpp` then
-    rebuilding — still hangs in the same place).
-  - **Likely root cause**: `Server::stop()` calls `m_httpServer->stop()`
-    which writes to the self-pipe wakeup fd. The accept loop is
-    supposed to wake up via `acceptOrWakeup(wakeupFd, 1000ms)` and
-    return. But something is preventing that — possibly the wakeup
-    fd is not being created (Windows path?), or the poll() in
-    `acceptOrWakeup` isn't being entered, or `m_wakeupPipe` is in
-    a bad state.
-  - **Secondary suspect**: `ServerSocket::acceptOrWakeup` may be
-    blocked in a way the self-pipe trick doesn't unblock on
-    Linux. The c017d09 commit ("self-pipe trick for instant
-    accept-loop shutdown") was supposed to fix this for the
-    sync_http_server tests, but the WebSocket tests may be hitting
-    a different code path.
-  - **To investigate**:
-    1. Add `SERVER_DEBUG` traces in `ServerSocket::acceptOrWakeup`
-       and `Server::stop()` to see which side is not waking up
-    2. Check if `m_wakeupPipe[0]` is actually being polled in the
-       WebSocket's accept loop
-    3. Try calling `shutdown(m_serverSocket->fd(), SHUT_RD)` from
-       `Server::stop()` as a belt-and-suspenders unblock
-    4. Check if the test is leaving a connection in the broadcast
-       map that prevents `m_running` from going false
-  - **Workaround**: None known. The echo test currently can't be
-    run to completion. The broadcast test (10/10 PASS) and
-    sync_http_server test (18/18 PASS) are unaffected.
+  - **Deeper analysis (2026-06-11)**: The hang is in
+    `sleep_for(500ms)` AFTER the echo. Confirmed via `std::flush`:
+    the "pre-sleep" print fires but the "post-sleep" never does.
+    The test thread is being starved by the accept thread which
+    is spinning in a tight loop. When the test closes the client
+    socket, the kernel sends a FIN. The accept thread's `poll()`
+    sees this as a pending connection (POLLIN), calls `accept()`
+    which returns the closed connection, the handler fails, and
+    the loop repeats. This 100% CPU usage starves the test thread.
+  - **Partial fix landed (commit `dc84414`)**: `Server::stop()`
+    no longer calls `m_serverSocket->close()` — closing an fd
+    while another thread is blocked in `poll()` on it is
+    undefined behavior on Linux (poll may never return). The
+    `shutdown()` call is sufficient. This fixed the *post-test*
+    hang in `ws.stop()` / `JoinableThread` destructor, but the
+    *pre-stop* sleep hang is a separate issue (accept thread
+    spinning on the closed-but-not-yet-cleaned-up connection).
+  - **Still open**: The accept thread needs to handle the case
+    where `accept()` returns a connection whose peer has
+    already closed. Options:
+    1. Add a `poll(POLLIN | POLLERR | POLLHUP)` check in
+       `acceptOrWakeup` and only call `accept()` if POLLIN is
+       set (currently it does this, but POLLERR from the
+       closed peer might also trigger the accept)
+    2. After `accept()`, do a `recv(fd, ..., MSG_PEEK | MSG_DONTWAIT)`
+       and if it returns 0, close the fd and continue (don't
+       spawn a handler thread for a dead connection)
+    3. Set `SO_LINGER` with l_linger=0 on the listening socket
+       so closed connections are RST instead of FIN, which the
+       kernel removes from the accept queue immediately
+  - **Test results** (after partial fix):
+    - test_websocket_broadcast: 10/10 PASS (no regression)
+    - test_sync_http_server: 18/18 PASS (no regression)
+    - test_websocket_echo: still hangs (deeper fix needed)
 ### In Progress 🔄
 - None
 
