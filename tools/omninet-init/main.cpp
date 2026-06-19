@@ -327,32 +327,12 @@ bool setupConfig(const InitInitOptions& opts, Formatter& out) {
         "minVersion": "1.2",
         "preferServerCiphers": true
     },
-    "security": {
-        "enableRateLimit": true,
-        "rateLimitRequests": 100,
-        "rateLimitWindow": 60,
-        "enableCsrf": true,
-        "enableXssProtection": true,
-        "enableClickjackingProtection": true,
-        "strictTransportSecurity": true,
-        "hstsMaxAge": 31536000
-    },
-    "dashboard": {
-        "enabled": true,
-        "urlPath": "/omninet",
-        "apiPath": "/api/omninet",
-        "sessionTtl": 3600,
-        "maxLoginAttempts": 5,
-        "lockoutDuration": 300
-    },
-    "intrusion": {
-        "enabled": true,
-        "autoBlock": true,
-        "blockDuration": 30,
-        "maxFailedAttempts": 10,
-        "attemptWindow": 15,
-        "whitelist": ["127.0.0.1", "::1"]
-    }
+    // v0.7.0 (prompt.txt 2026-06-19 BUG-4): removed dead sections.
+    // The HttpServer only reads cors.* (enabled + origins) from this
+    // config. The previous template included security.*, dashboard.*,
+    // and intrusion.* sections that the server silently ignored.
+    // Users who want those features should configure them via code,
+    // not via this generated config.
 })";
     
     std::ofstream file(configPath);
