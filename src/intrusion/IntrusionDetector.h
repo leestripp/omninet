@@ -141,9 +141,16 @@ private:
         const std::string& path,
         Rule& matchedRule
     );
-    
+
     void persistBlock(const std::string& ip, std::chrono::minutes duration);
     void persistLogEntry(const LogEntry& entry);
+
+    // v0.7.0 (prompt.txt 2026-06-19 BUG-1): variant of isBlocked()
+    // that ASSUMES the caller already holds m_mutex. Used internally
+    // by checkAndBlock() to avoid a self-deadlock (std::mutex is
+    // not recursive). Public callers should use isBlocked() (which
+    // locks m_mutex).
+    bool isBlockedUnlocked(const std::string& clientIp) const;
     
     DB::Database& m_db;
     std::vector<Rule> m_rules;

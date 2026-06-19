@@ -69,7 +69,12 @@ bool IntrusionDetector::checkAndBlock(
     const HTTP::Request* req
 ) {
     std::lock_guard<std::mutex> lock(m_mutex);
-    if (isBlocked(clientIp)) {
+    // v0.7.0 fix (prompt.txt 2026-06-19 BUG-1): call the *unlocked*
+    // variant of isBlocked() to avoid a deadlock. The previous code
+    // called isBlocked() while holding m_mutex, but isBlocked()
+    // also tried to lock m_mutex — since std::mutex is not
+    // recursive, this deadlocked on every request.
+    if (isBlockedUnlocked(clientIp)) {
         return true;
     }
     Rule matchedRule;
@@ -91,13 +96,19 @@ bool IntrusionDetector::checkAndBlock(
 }
 
 bool IntrusionDetector::isBlocked(const std::string& clientIp) const {
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        auto it = m_blockExpiry.find(clientIp);
-        if (it != m_blockExpiry.end()) {
-            if (it->second > std::chrono::steady_clock::now()) {
-                return true;
-            }
+    // Public entry point: locks the mutex.
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return isBlockedUnlocked(clientIp);
+}
+
+bool IntrusionDetector::isBlockedUnlocked(const std::string& clientIp) const {
+    // Caller MUST hold m_mutex. Reads m_blockExpiry (in-memory
+    // block list) and falls through to the DB for persistent
+    // blocks. The DB call does NOT need m_mutex (it has its own).
+    auto it = m_blockExpiry.find(clientIp);
+    if (it != m_blockExpiry.end()) {
+        if (it->second > std::chrono::steady_clock::now()) {
+            return true;
         }
     }
     auto result = m_db.queryOne(

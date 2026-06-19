@@ -352,7 +352,26 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 
 ### Dependencies Used
 - **OpenSSL** - Cryptographically secure random generation
-- **SQLite3** - Persistent token storage
+### In Progress 🔄
+- [ ] **prompt.txt (2026-06-19) — 6 bugs from SeeOzTogether integration**
+  - SeeOzTogether hit these while integrating OmniNet. Plan:
+  - **BUG-1** 🔴 HIGH: `IntrusionDetector::checkAndBlock()` hangs on every request.
+    Plan: Add diagnostic logging, find the actual hang point, fix the root cause.
+  - **BUG-2** 🟡 MED: `corsAllowedOrigins` is a single string, invalid for CSV allowlist.
+    Plan: Parse into `std::unordered_set<std::string>` at startup, look up per-request Origin.
+  - **BUG-3** 🟡 MED: `omninet-firewall` build fail (missing `IntrusionDetector.h`).
+    Plan: ALREADY FIXED in v0.6.0 — `tools/CMakeLists.txt` adds `${CMAKE_CURRENT_SOURCE_DIR}/../src`
+    via the `add_omninet_tool` macro (with a comment explicitly noting this was the fix).
+  - **BUG-4** 🟡 MED: `omninet-init` writes dead config sections (`security.*`, `intrusion.*`, `dashboard.*`).
+    Plan: Remove the dead sections from `omninet-init` (easier than implementing them).
+  - **BUG-5** 🟡 MED: IntrusionDetector tables created in constructor, not via migration.
+    Plan: Move `_intrusion_blocks` and `_intrusion_logs` table creation to
+    `OmniNet::DB::run_migrations`.
+  - **BUG-6** 🟢 LOW: `defaultPatterns()` uses `(?i)` (PCRE-only) in std::regex.
+    Plan: Delete the dead `defaultPatterns()` function (unused — actual rules
+    use `IntrusionRules::allDefaultRules()` which is correct).
+
+### TODO 📋
 - **Existing Crypto utils** - `SecureToken`, `Crypto::randomBytes`, `Crypto::hmacSha256`
 
 ---
