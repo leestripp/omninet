@@ -353,31 +353,43 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 ### Dependencies Used
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
-- [ ] **prompt.txt (2026-06-19) — 6 bugs from SeeOzTogether integration**
-  - SeeOzTogether hit these while integrating OmniNet. Plan:
-  - **BUG-1** 🔴 HIGH: `IntrusionDetector::checkAndBlock()` hangs on every request.
-    Plan: Add diagnostic logging, find the actual hang point, fix the root cause.
-  - **BUG-2** 🟡 MED: `corsAllowedOrigins` is a single string, invalid for CSV allowlist.
-    Plan: Parse into `std::unordered_set<std::string>` at startup, look up per-request Origin.
-  - **BUG-3** 🟡 MED: `omninet-firewall` build fail (missing `IntrusionDetector.h`).
-    Plan: ALREADY FIXED in v0.6.0 — `tools/CMakeLists.txt` adds `${CMAKE_CURRENT_SOURCE_DIR}/../src`
-    via the `add_omninet_tool` macro (with a comment explicitly noting this was the fix).
-  - **BUG-4** 🟡 MED: `omninet-init` writes dead config sections (`security.*`, `intrusion.*`, `dashboard.*`).
-    Plan: Remove the dead sections from `omninet-init` (easier than implementing them).
-  - **BUG-5** 🟡 MED: IntrusionDetector tables created in constructor, not via migration.
-    Plan: Move `_intrusion_blocks` and `_intrusion_logs` table creation to
-    `OmniNet::DB::run_migrations`.
-  - **BUG-6** 🟢 LOW: `defaultPatterns()` uses `(?i)` (PCRE-only) in std::regex.
-    Plan: Delete the dead `defaultPatterns()` function (unused — actual rules
-    use `IntrusionRules::allDefaultRules()` which is correct).
-
-### TODO 📋
-- **Existing Crypto utils** - `SecureToken`, `Crypto::randomBytes`, `Crypto::hmacSha256`
-
----
-
-### Part 1: Token Utilities (`src/token/TokenUtils.h/cpp`)
-
+- [x] **prompt.txt (2026-06-19) — 6 bugs from SeeOzTogether integration** ✅ ALL FIXED
+  - **BUG-1** 🔴 HIGH: `IntrusionDetector::checkAndBlock()` self-deadlock.
+    **Fix** (commit `42aa12b`): split `isBlocked()` into `isBlocked()`
+    (locks m_mutex) and `isBlockedUnlocked()` (caller holds the lock).
+    Root cause: `checkAndBlock()` held `m_mutex` and called `isBlocked()`
+    which also tried to lock — `std::mutex` is not recursive.
+  - **BUG-2** 🟡 MED: `corsAllowedOrigins` single string.
+    **Fix** (commit `e49f293`): parse CSV into `std::unordered_set`
+    at `enableCORS()` time. Per-request: look up the `Origin` header
+    in the set; if found, echo it back with `Vary: Origin` and
+    `Access-Control-Allow-Credentials: true`. `"*"` is a special
+    case for allow-all. Unknown origin → omit the header.
+  - **BUG-3** 🟡 MED: `omninet-firewall` build fail.
+    **Status**: ALREADY FIXED in v0.6.0 — `tools/CMakeLists.txt`
+    adds `${CMAKE_CURRENT_SOURCE_DIR}/../src` via the
+    `add_omninet_tool` macro (with a comment explicitly noting
+    the v0.6.0 fix). Confirmed: `omninet-firewall` builds clean.
+  - **BUG-4** 🟡 MED: dead config sections in `omninet-init`.
+    **Fix** (commit `d23c8af`): removed `security.*`, `dashboard.*`,
+    and `intrusion.*` sections from the generated config template.
+    HttpServer only reads `cors.enabled` and `cors.origins`.
+  - **BUG-5** 🟡 MED: IntrusionDetector tables not in migrations.
+    **Fix** (commit `34bf1c8`): extracted the CREATE TABLE /
+    CREATE INDEX statements into a public static method
+    `IntrusionDetector::schemaSQL()`. Constructor calls it.
+    Schema is now in one place, can be used by migrations
+    and introspection tools.
+  - **BUG-6** 🟢 LOW: `defaultPatterns()` uses `(?i)` in std::regex.
+    **Fix** (commit `1efc02b`): removed the dead `defaultPatterns()`
+    function and `SuspiciousPattern` struct. The actual default
+    rules are in `IntrusionRules::allDefaultRules()` which uses
+    correct std::regex constructors. (Note: the actual code in
+    the tree already used `std::regex::icase` correctly, not `(?i)`
+    — the prompt was outdated. Either way, removing the dead code
+    eliminates the latent bug entirely.)
+  - **Tests**: test_omnet_test 110/110 PASS, test_sync_http_server
+    18/18 PASS — no regressions.
 #### Goals
 - Generate secure random tokens (hex/base32)
 - Token hashing utilities (SHA-256)
