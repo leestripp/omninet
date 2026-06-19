@@ -7,27 +7,17 @@
 namespace OmniNet {
 
 // ============================================================================
-// Default Suspicious Patterns
-// ============================================================================
-
-const std::vector<IntrusionDetector::SuspiciousPattern>& IntrusionDetector::defaultPatterns() {
-    static std::vector<SuspiciousPattern> patterns = {
-        {std::regex(R"((\b(union|select|insert|update|delete|drop|exec|execute)\b.*\b(from|table|database)\b)", std::regex::icase), "SQL injection attempt", 9},
-        {std::regex(R"('|"|;|--|\bor\b|\band\b|\b1\s*=\s*1\b|\btrue\b)", std::regex::icase), "SQL injection character", 7},
-        {std::regex(R"(\.\./|\.\.\\|%2e%2e%2f|%2e%2e/)", std::regex::icase), "Path traversal attempt", 8},
-        {std::regex(R"(/etc/passwd|/etc/shadow|/windows/system32)", std::regex::icase), "Sensitive file access", 9},
-        {std::regex(R"([;&|`$]\s*(cat|ls|dir|rm|cp|mv|wget|curl|nc|bash|sh)\b)", std::regex::icase), "Command injection attempt", 10},
-        {std::regex(R"(\|\s*\w+|>\s*/\w+|<\s*/\w+)", std::regex::icase), "Shell operator detected", 7},
-        {std::regex(R"(/(\.env|\.git|\.htaccess|wp-config|config\.php|admin))", std::regex::icase), "Sensitive path access", 6},
-        {std::regex(R"(/phpinfo|/server-status|/server-info)", std::regex::icase), "Server information leak", 5},
-        {std::regex(R"(<script|javascript:|onerror=|onclick=)", std::regex::icase), "XSS attempt", 8},
-    };
-    return patterns;
-}
-
-// ============================================================================
 // Intrusion Detector
 // ============================================================================
+// v0.7.0 (prompt.txt 2026-06-19 BUG-6): removed the dead defaultPatterns()
+// function and SuspiciousPattern struct. They were never called — the
+// actual default rules are in IntrusionRules::allDefaultRules() which
+// uses correct std::regex constructors. The dead code also contained a
+// latent bug (?i) prefix which is PCRE-only (std::regex uses
+// std::regex::icase instead). Removing the dead code eliminates the
+// latent bug entirely.
+
+
 
 IntrusionDetector::IntrusionDetector(DB::Database& db) : m_db(db) {
     setupDefaultRules();

@@ -171,15 +171,10 @@ private:
     
     // Default rules
     void setupDefaultRules();
-    
-    // Parse suspicious patterns
-    struct SuspiciousPattern {
-        std::regex pattern;
-        std::string description;
-        int severity;
-    };
-    
-    static const std::vector<SuspiciousPattern>& defaultPatterns();
+
+    // v0.7.0 (prompt.txt 2026-06-19 BUG-6): removed dead
+    // SuspiciousPattern struct and defaultPatterns() method.
+    // They were never called.
 };
 
 // ============================================================================
