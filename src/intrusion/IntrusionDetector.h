@@ -135,6 +135,14 @@ public:
     
     Stats stats() const;
 
+    // v0.7.0 (prompt.txt 2026-06-19 BUG-5): returns the full set
+    // of CREATE TABLE / CREATE INDEX statements needed for the
+    // IntrusionDetector. Useful for migration tools, schema
+    // introspection, and documentation. The constructor calls
+    // these statements itself, but external tools can also call
+    // this method to apply the schema.
+    static const std::vector<std::string>& schemaSQL();
+
 private:
     bool matchesRules(
         const std::string& method,

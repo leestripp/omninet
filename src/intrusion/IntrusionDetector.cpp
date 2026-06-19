@@ -31,15 +31,29 @@ const std::vector<IntrusionDetector::SuspiciousPattern>& IntrusionDetector::defa
 
 IntrusionDetector::IntrusionDetector(DB::Database& db) : m_db(db) {
     setupDefaultRules();
-    m_db.execute(R"(
-        CREATE TABLE IF NOT EXISTS _intrusion_blocks (
+    // v0.7.0 (prompt.txt 2026-06-19 BUG-5): create tables via the
+    // schemaSQL() method so the schema is documented in one place
+    // and can be used by migrations / introspection tools.
+    for (const auto& sql : schemaSQL()) {
+        m_db.execute(sql);
+    }
+}
+
+const std::vector<std::string>& IntrusionDetector::schemaSQL() {
+    // v0.7.0 (prompt.txt 2026-06-19 BUG-5): centralized schema
+    // definition. Returns the full set of CREATE TABLE / CREATE
+    // INDEX statements needed for the IntrusionDetector.
+    //
+    // These statements are idempotent (CREATE TABLE IF NOT EXISTS)
+    // so it's safe to call them on every constructor invocation,
+    // and they're also safe to embed in a database migration.
+    static const std::vector<std::string> statements = {
+        R"(CREATE TABLE IF NOT EXISTS _intrusion_blocks (
             ip TEXT PRIMARY KEY,
             blocked_until TEXT NOT NULL,
             reason TEXT
-        )
-    )");
-    m_db.execute(R"(
-        CREATE TABLE IF NOT EXISTS _intrusion_logs (
+        ))",
+        R"(CREATE TABLE IF NOT EXISTS _intrusion_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
             client_ip TEXT NOT NULL,
@@ -49,11 +63,10 @@ IntrusionDetector::IntrusionDetector(DB::Database& db) : m_db(db) {
             status_code INTEGER,
             reason TEXT,
             rule TEXT
-        )
-    )");
-    m_db.execute(R"(
-        CREATE INDEX IF NOT EXISTS idx_intrusion_logs_ip ON _intrusion_logs(client_ip)
-    )");
+        ))",
+        R"(CREATE INDEX IF NOT EXISTS idx_intrusion_logs_ip ON _intrusion_logs(client_ip))",
+    };
+    return statements;
 }
 
 IntrusionDetector::~IntrusionDetector() = default;
