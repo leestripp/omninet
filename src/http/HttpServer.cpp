@@ -267,6 +267,44 @@ void Server::enableCORS(
     m_corsAllowedMethods = std::string(allowedMethods);
     m_corsAllowedHeaders = std::string(allowedHeaders);
     m_corsMaxAge = maxAge;
+
+    // v0.7.0 (prompt.txt 2026-06-19 BUG-2): parse the CSV origin
+    // list into a set for per-request lookup. The CORS spec requires
+    // Access-Control-Allow-Origin to be a single origin or "*" —
+    // a CSV is rejected by every browser.
+    //
+    // Special case: "*" means "allow any origin" (no credentials).
+    // We set m_corsAllowAll and emit "*" for all requests.
+    m_corsAllowedOriginSet.clear();
+    m_corsAllowAll = false;
+    std::string_view sv = allowedOrigins;
+    while (!sv.empty()) {
+        // Trim leading whitespace
+        size_t start = 0;
+        while (start < sv.size() && (sv[start] == ' ' || sv[start] == '\t')) ++start;
+        sv.remove_prefix(start);
+        // Find end of this origin
+        size_t end = 0;
+        while (end < sv.size() && sv[end] != ',') ++end;
+        std::string_view origin = sv.substr(0, end);
+        // Trim trailing whitespace
+        while (!origin.empty() && (origin.back() == ' ' || origin.back() == '\t')) {
+            origin.remove_suffix(1);
+        }
+        if (!origin.empty()) {
+            if (origin == "*") {
+                m_corsAllowAll = true;
+            } else {
+                m_corsAllowedOriginSet.insert(std::string(origin));
+            }
+        }
+        // Advance past the comma
+        if (end < sv.size()) {
+            sv.remove_prefix(end + 1);
+        } else {
+            break;
+        }
+    }
 }
 
 void Server::disableCORS() {
@@ -384,9 +422,24 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
             conn.setHandler([this, &conn](const Request& req, Response& resp) {
                 SERVER_DEBUG("Handler called - Method: " << req.methodString() << ", Path: " << req.path());
 
-                // Add CORS headers if enabled
+                // v0.7.0 (prompt.txt 2026-06-19 BUG-2): per-request
+                // origin lookup. The CORS spec requires
+                // Access-Control-Allow-Origin to be a single origin
+                // or "*". If "*" is configured, emit "*" for all
+                // requests. Otherwise, look up the request's Origin
+                // header in the allowlist; if present, echo it back
+                // (with Vary: Origin so caches don't mix responses
+                // for different origins). If not present, omit the
+                // header (browser blocks the response).
                 if (m_corsEnabled) {
-                    resp.setAccessControlAllowOrigin(m_corsAllowedOrigins);
+                    if (m_corsAllowAll) {
+                        resp.setAccessControlAllowOrigin("*");
+                    } else {
+                            resp.setHeader(std::string("Vary"), std::string("Origin"));
+                            resp.setHeader(std::string("Access-Control-Allow-Credentials"), std::string("true"));
+                        // do NOT set Access-Control-Allow-Origin.
+                        // The browser will block the response.
+                    }
                     resp.setAccessControlAllowMethods(m_corsAllowedMethods);
                     resp.setAccessControlAllowHeaders(m_corsAllowedHeaders);
                 }

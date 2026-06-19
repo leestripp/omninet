@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #ifndef _WIN32
@@ -247,7 +248,14 @@ private:
     
     // CORS
     bool m_corsEnabled = false;
-    std::string m_corsAllowedOrigins;
+    std::string m_corsAllowedOrigins;  // raw CSV from config (kept for diagnostics)
+    // v0.7.0 (prompt.txt 2026-06-19 BUG-2): parsed allowlist.
+    // Parsed from m_corsAllowedOrigins in enableCORS(). "*" is a
+    // special value — if present, we send "*" (allowed by the
+    // CORS spec for non-credentialed requests) instead of echoing
+    // the request's Origin.
+    std::unordered_set<std::string> m_corsAllowedOriginSet;
+    bool m_corsAllowAll = false;  // true if "*" is in the allowlist
     std::string m_corsAllowedMethods;
     std::string m_corsAllowedHeaders;
     std::chrono::seconds m_corsMaxAge;
