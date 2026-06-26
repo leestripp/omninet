@@ -3,6 +3,7 @@
 #include "WebSocket.h"
 #include "WebSocket.h"
 #include "http/HttpServer.h"
+#include "net/TLSSocket.h"
 
 #include <thread>
 
@@ -31,7 +32,23 @@ Connection::Connection(const std::string& url, std::string_view protocol)
     auto parsed = Handshake::parseUrl(url);
     if (parsed) {
         m_resource = parsed->path;
-        m_socket = createConnectedSocket(parsed->host, parsed->port);
+        // v0.7.5 (codemax Bug 7): branch on parsed->secure.
+        // ws://  -> plain Socket (existing behavior)
+        // wss:// -> TLSSocket via TLSContext::createClient()->createSocket()
+        //          with SNI from the host and ALPN advertising http/1.1.
+        // Previously wss:// silently sent a plaintext upgrade over
+        // a TCP socket, causing opaque handshake failures.
+        if (parsed->secure) {
+            auto tlsCtx = OmniNet::TLSContext::createClient();
+            m_socket = tlsCtx->createSocket();
+            // m_socket is unique_ptr<Socket>; cast to TLSSocket*
+            // because setSNIHostname / setALPNProtocols are TLS-only.
+            auto* tlsSock = static_cast<OmniNet::TLSSocket*>(m_socket.get());
+            tlsSock->setSNIHostname(parsed->host);
+            tlsSock->setALPNProtocols({"http/1.1"});
+        } else {
+            m_socket = createConnectedSocket(parsed->host, parsed->port);
+        }
         performClientHandshake(url);
     }
 }
