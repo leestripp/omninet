@@ -391,15 +391,35 @@ SSL_CTX* TLSSocket::context() const {
 
 void TLSSocket::initContext(TLSMode mode) {
     m_serverMode = (mode == TLSMode::SERVER);
-    
-    m_ctx = m_serverMode 
+
+    m_ctx = m_serverMode
         ? SSL_CTX_new(TLS_server_method())
         : SSL_CTX_new(TLS_client_method());
-    
+
     if (!m_ctx) {
         throw TLSException(std::string("Failed to create SSL context"), -1);
     }
+
+    // v0.7.2 (codemax Bug 4): for client contexts, load the system
+    // CA bundle and set SSL_VERIFY_PEER by default. Without this:
+    //   - SSL_VERIFY_NONE is OpenSSL's default, so any certificate
+    //     (including self-signed/forged) is silently accepted
+    //   - setVerifyMode(PEER) on its own doesn't load the CA store,
+    //     so OpenSSL has nothing to verify against - the handshake
+    //     succeeds against a forged certificate
+    // Callers can still override via setVerifyMode(NONE) for
+    // dev/testing, but the secure default is PEER + system CA bundle.
+    if (!m_serverMode) {
+        if (SSL_CTX_set_default_verify_paths(m_ctx) != 1) {
+            // Non-fatal: system CA bundle may not exist on minimal
+            // systems. Callers can use setCaFile() to install one.
+            // We don't throw here because some users intentionally
+            // use self-signed certs and configure their own CA file.
+        }
+        SSL_CTX_set_verify(m_ctx, SSL_VERIFY_PEER, nullptr);
+    }
 }
+
 
 void TLSSocket::cleanupContext() {
     if (m_ssl) {
