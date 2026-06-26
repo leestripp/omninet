@@ -467,8 +467,15 @@ void TLSSocket::cleanupContext() {
         SSL_free(m_ssl);
         m_ssl = nullptr;
     }
-    if (m_ctx) {
+    // v0.7.4 (codemax double-free regression): only free m_ctx if
+    // the socket owns it. When m_context is non-null, the socket
+    // shares a TLSContext whose ~TLSContext() will free the SSL_CTX.
+    // Freeing here would cause a double-free abort.
+    if (m_ctx && !m_context) {
         SSL_CTX_free(m_ctx);
+        m_ctx = nullptr;
+    } else if (m_ctx) {
+        // Shared context owns this — just drop the alias.
         m_ctx = nullptr;
     }
 }

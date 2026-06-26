@@ -354,10 +354,21 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
 ### In Progress 🔄
-- [x] **prompt.txt (codemax integration 2026-06-19) — 5 TLS bugs** ✅ ALL FIXED
-  - **Bug 3** 🔴 HIGH: `TLSSocket::readLine()` not overridden.
-    **Fix** (commit `45cae5b`): override `readLine()` to call the
-    overridden `recv()` (which goes through `SSL_read`) instead of
+- [ ] **prompt.txt (codemax 2026-06-20) — TLSContext double-free regression**
+  - **Bug**: In v0.7.2/v0.7.3, `TLSContext::createClient()->createSocket()`
+    triggers `free(): double free` abort on every HTTPS request.
+  - **Root cause**: Both `~TLSSocket()` (via `cleanupContext()`) AND
+    `~TLSContext()` call `SSL_CTX_free()` on the same `SSL_CTX*`
+    pointer. When the socket is created via `createSocket()`, the
+    socket's `m_ctx` aliases the context's `m_ctx` — both destructors
+    then free the same pointer.
+  - **Fix**: Track ownership via `m_context` (the shared_ptr). In
+    `cleanupContext()`, only call `SSL_CTX_free(m_ctx)` when
+    `m_context` is null (i.e., the socket owns its own context).
+    When `m_context` is non-null, the shared `TLSContext` owns
+    the SSL_CTX and is the sole owner responsible for freeing it.
+
+### TODO 📋
     the inherited `Socket::readLine()` which uses raw `::recv()`.
     Previously, calling `readLine()` on a TLSSocket returned raw
     TLS ciphertext (the record header bytes), causing "malformed
