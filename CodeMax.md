@@ -390,9 +390,29 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
     eliminates the latent bug entirely.)
   - **Tests**: test_omnet_test 110/110 PASS, test_sync_http_server
     18/18 PASS — no regressions.
-#### Goals
-- Generate secure random tokens (hex/base32)
-- Token hashing utilities (SHA-256)
+### In Progress 🔄
+- [ ] **prompt.txt (codemax integration 2026-06-19) — 5 TLS bugs**
+  - 5 bugs in `src/net/TLSSocket.{h,cpp}` blocking codemax's `http_request`
+    tool from doing HTTPS without workarounds. Priority order from prompt:
+  - **Bug 3** 🔴 HIGH: `TLSSocket::readLine()` not overridden → silent data
+    corruption on TLS. Plan: override `readLine()` to use the overridden
+    `recv()` (which uses `SSL_read`), not raw `::recv()`.
+  - **Bug 4** 🔴 HIGH: Default `initContext(CLIENT)` doesn't load system
+    CA bundle or set `SSL_VERIFY_PEER`. Security footgun. Plan: call
+    `SSL_CTX_set_default_verify_paths()` and set verify mode to
+    `SSL_VERIFY_PEER` in client mode.
+  - **Bug 1** 🟡 MED: `TLSContext::createClient()` and `createSocket()`
+    declared but not defined → link fails. Plan: implement both in
+    `TLSSocket.cpp`; make `TLSContext` inherit `std::enable_shared_from_this`
+    so `createSocket()` can use `shared_from_this()`.
+  - **Bug 2** 🟡 MED: `setALPNProtocols()` is a no-op. Plan: actually
+    call `SSL_CTX_set_alpn_protos` on `m_ctx` (or `SSL_set_alpn_protos`
+    on `m_ssl` after handshake). Also wire up `getALPNProtocol()` to
+    call `SSL_get0_alpn_selected(m_ssl, ...)` after handshake.
+  - **Bug 5** 🟢 LOW: `createServer()` shared_ptr quirk. Plan: make
+    `TLSContext` inherit `std::enable_shared_from_this` (part of Bug 1 fix).
+
+### TODO 📋
 - Format validation
 - Constant-time comparison
 

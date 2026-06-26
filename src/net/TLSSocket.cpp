@@ -261,7 +261,7 @@ std::vector<uint8_t> TLSSocket::recvAll(size_t maxSize) {
 std::vector<uint8_t> TLSSocket::recvExactly(size_t n) {
     std::vector<uint8_t> result(n);
     size_t pos = 0;
-    
+
     while (pos < n) {
         size_t bytes = recv(std::span<uint8_t>(result.data() + pos, n - pos));
         if (bytes == 0) {
@@ -270,8 +270,40 @@ std::vector<uint8_t> TLSSocket::recvExactly(size_t n) {
         }
         pos += bytes;
     }
-    
+
     return result;
+}
+
+// v0.7.2 (codemax Bug 3): override readLine() to use the overridden
+// recv() (which goes through SSL_read) instead of the base class's
+// raw ::recv(). Without this, calling readLine() on a TLSSocket
+// returned raw ciphertext (the TLS record header), causing
+// "malformed status line" errors on any HTTPS request.
+std::optional<std::string> TLSSocket::readLine(size_t maxLength) {
+    std::string line;
+    line.reserve(256);
+
+    while (line.size() < maxLength) {
+        uint8_t byte = 0;
+        std::span<uint8_t> buf(&byte, 1);
+        size_t n = recv(buf);
+        if (n == 0) {
+            // Connection closed
+            if (line.empty()) return std::nullopt;
+            return line;
+        }
+        if (byte == '\n') {
+            // Strip trailing \r if present
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+            return line;
+        }
+        line.push_back(static_cast<char>(byte));
+    }
+
+    // Hit maxLength without finding \n — return what we have.
+    return line;
 }
 
 // ============================================================================

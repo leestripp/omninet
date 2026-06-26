@@ -92,7 +92,15 @@ public:
     std::vector<uint8_t> recvAll(size_t maxSize = 65536) override;
     
     std::vector<uint8_t> recvExactly(size_t n) override;
-    
+
+    // v0.7.2 (codemax Bug 3): override readLine() to use the
+    // overridden recv() (which goes through SSL_read) instead of
+    // the base class's raw ::recv(). Without this, calling
+    // readLine() on a TLSSocket returned raw ciphertext (the TLS
+    // record header), causing "malformed status line" errors
+    // on any HTTPS request.
+    std::optional<std::string> readLine(size_t maxLength = 65536) override;
+
     // --- State ---
 
     bool isSecure() const;
