@@ -46,6 +46,13 @@ Connection::Connection(const std::string& url, std::string_view protocol)
             auto* tlsSock = static_cast<OmniNet::TLSSocket*>(m_socket.get());
             tlsSock->setSNIHostname(parsed->host);
             tlsSock->setALPNProtocols({"http/1.1"});
+            // v0.7.6 (codemax Bug 9): TLSContext::createSocket()
+            // returns a TLSSocket with m_fd == INVALID_SOCKET.
+            // Must call connect() before any send/recv (e.g., the
+            // HTTP upgrade in performClientHandshake). Without
+            // this, TLSSocket::recvAll() reaches FD_SET(-1, ...) and
+            // aborts the process.
+            m_socket->connect(parsed->host, parsed->port);
         } else {
             m_socket = createConnectedSocket(parsed->host, parsed->port);
         }

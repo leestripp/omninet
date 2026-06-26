@@ -354,10 +354,18 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
 ### In Progress 🔄
-- [x] **prompt.txt (codemax 2026-06-20 P4) — 2 new bugs** ✅ ALL FIXED
-  - **Bug 8** 🔴 HIGH: `Connection::receive()` loops forever.
-    **Fix** (commit `cacca33`): rewrite to use a buffer pattern
-    like `readLoop()` — accumulate bytes into a `std::vector<uint8_t>`,
+- [ ] **prompt.txt (codemax 2026-06-26) — Bug 9: wss:// ctor missing connect()**
+  - **Bug**: Regression from Bug 7 fix (0.7.5). The `wss://` branch
+    creates a `TLSSocket` via `tlsCtx->createSocket()` but never
+    calls `m_socket->connect()` before `performClientHandshake()`.
+    This crashes with `*** bit out of range 0 - FD_SETSIZE on
+    fd_set ***` because `FD_SET(INVALID_SOCKET, ...)` writes
+    out of bounds in `TLSSocket::recvAll`.
+  - **Fix**: Add `m_socket->connect(parsed->host, parsed->port)`
+    after the `setALPNProtocols` call, mirroring what
+    `createConnectedSocket()` does for the plain `ws://` branch.
+
+### TODO 📋
     keep calling `FrameCodec::decode()` until it returns a complete
     frame, return that frame. Previously read exactly 2 bytes per
     recv() and looped forever on multi-byte payloads.
