@@ -353,46 +353,38 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 ### Dependencies Used
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
-- [x] **prompt.txt (2026-06-19) — 6 bugs from SeeOzTogether integration** ✅ ALL FIXED
-  - **BUG-1** 🔴 HIGH: `IntrusionDetector::checkAndBlock()` self-deadlock.
-    **Fix** (commit `42aa12b`): split `isBlocked()` into `isBlocked()`
-    (locks m_mutex) and `isBlockedUnlocked()` (caller holds the lock).
-    Root cause: `checkAndBlock()` held `m_mutex` and called `isBlocked()`
-    which also tried to lock — `std::mutex` is not recursive.
-  - **BUG-2** 🟡 MED: `corsAllowedOrigins` single string.
-    **Fix** (commit `e49f293`): parse CSV into `std::unordered_set`
-    at `enableCORS()` time. Per-request: look up the `Origin` header
-    in the set; if found, echo it back with `Vary: Origin` and
-    `Access-Control-Allow-Credentials: true`. `"*"` is a special
-    case for allow-all. Unknown origin → omit the header.
-  - **BUG-3** 🟡 MED: `omninet-firewall` build fail.
-    **Status**: ALREADY FIXED in v0.6.0 — `tools/CMakeLists.txt`
-    adds `${CMAKE_CURRENT_SOURCE_DIR}/../src` via the
-    `add_omninet_tool` macro (with a comment explicitly noting
-    the v0.6.0 fix). Confirmed: `omninet-firewall` builds clean.
-  - **BUG-4** 🟡 MED: dead config sections in `omninet-init`.
-    **Fix** (commit `d23c8af`): removed `security.*`, `dashboard.*`,
-    and `intrusion.*` sections from the generated config template.
-    HttpServer only reads `cors.enabled` and `cors.origins`.
-  - **BUG-5** 🟡 MED: IntrusionDetector tables not in migrations.
-    **Fix** (commit `34bf1c8`): extracted the CREATE TABLE /
-    CREATE INDEX statements into a public static method
-    `IntrusionDetector::schemaSQL()`. Constructor calls it.
-    Schema is now in one place, can be used by migrations
-    and introspection tools.
-  - **BUG-6** 🟢 LOW: `defaultPatterns()` uses `(?i)` in std::regex.
-    **Fix** (commit `1efc02b`): removed the dead `defaultPatterns()`
-    function and `SuspiciousPattern` struct. The actual default
-    rules are in `IntrusionRules::allDefaultRules()` which uses
-    correct std::regex constructors. (Note: the actual code in
-    the tree already used `std::regex::icase` correctly, not `(?i)`
-    — the prompt was outdated. Either way, removing the dead code
-    eliminates the latent bug entirely.)
-  - **Tests**: test_omnet_test 110/110 PASS, test_sync_http_server
-    18/18 PASS — no regressions.
 ### In Progress 🔄
-- [ ] **prompt.txt (codemax integration 2026-06-19) — 5 TLS bugs**
-  - 5 bugs in `src/net/TLSSocket.{h,cpp}` blocking codemax's `http_request`
+- [x] **prompt.txt (codemax integration 2026-06-19) — 5 TLS bugs** ✅ ALL FIXED
+  - **Bug 3** 🔴 HIGH: `TLSSocket::readLine()` not overridden.
+    **Fix** (commit `45cae5b`): override `readLine()` to call the
+    overridden `recv()` (which goes through `SSL_read`) instead of
+    the inherited `Socket::readLine()` which uses raw `::recv()`.
+    Previously, calling `readLine()` on a TLSSocket returned raw
+    TLS ciphertext (the record header bytes), causing "malformed
+    status line" errors on every HTTPS request.
+  - **Bug 4** 🔴 HIGH: Default `initContext(CLIENT)` didn't load
+    system CA bundle or set `SSL_VERIFY_PEER`. **Fix** (commit
+    `fc97be9`): in `initContext()`, for client contexts, call
+    `SSL_CTX_set_default_verify_paths()` to load the system CA
+    bundle and `SSL_CTX_set_verify(m_ctx, SSL_VERIFY_PEER, nullptr)`
+    to require peer verification. Callers can still override via
+    `setVerifyMode(NONE)` for dev/testing.
+  - **Bug 1** 🟡 MED: `TLSContext::createClient()` and
+    `createSocket()` declared but not defined. **Fix** (commit
+    `913e44b`): made `TLSContext` inherit
+    `std::enable_shared_from_this`; implemented `createServer()`,
+    `createClient()`, `createSocket()`, and the private ctor +
+    dtor. Added `TLSSocket(shared_ptr<TLSContext>)` constructor
+    and `setContext()` helper to adopt a shared context.
+  - **Bug 2** 🟡 MED: `setALPNProtocols()` was a no-op. **Fix**
+    (commit `d508494`): build the ALPN wire format (RFC 7301:
+    length-prefixed protocol names) and call
+    `SSL_CTX_set_alpn_protos()` on `m_ctx`. Without this, modern
+    HTTPS servers default to HTTP/2 which has a binary wire format
+    incompatible with text-line HTTP/1.1 parsers.
+  - **Bug 5** 🟢 LOW: Fixed as part of Bug 1 (TLSContext now
+    inherits `std::enable_shared_from_this`).
+  - **Tests**: test_omnet_test 110/110 PASS, full build clean.
     tool from doing HTTPS without workarounds. Priority order from prompt:
   - **Bug 3** 🔴 HIGH: `TLSSocket::readLine()` not overridden → silent data
     corruption on TLS. Plan: override `readLine()` to use the overridden
