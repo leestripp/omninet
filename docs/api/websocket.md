@@ -48,11 +48,29 @@ int main() {
 }
 ```
 
+wsServer.start();
+}
+```
+
+### Internal: How Server Endpoints Work (v0.7.0+)
+
+Behind the scenes, `Server::on(path, handler)` calls the underlying
+HTTP server's `registerProtocolSwitch()` to atomically register both
+the HTTP upgrade handler and the post-handshake callback in one
+operation:
+
+- **v0.7.0+ (current)**: one atomic call — no race, multi-client safe
+- **v0.6.x and earlier**: two separate calls (`any()` then
+  `setPostUpgradeHandler()`) — TOCTOU race window meant concurrent
+  clients could see 404; the post-upgrade handler was erased after
+  first use
+
+If you were extending `WebSocket::Server` and relied on the old
+two-call pattern, switch to `registerProtocolSwitch()`. The legacy
+`setPostUpgradeHandler()` is still available but deprecated and
+single-shot.
+
 ### Client Connection
-
-```cpp
-WebSocket::Connection conn("ws://localhost:8080/echo");
-
 conn.onText([](std::string msg) {
     std::cout << "Received: " << msg << std::endl;
 });

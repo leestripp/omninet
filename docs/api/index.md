@@ -13,6 +13,32 @@ OmniNet is a C++ HTTP/WebSocket server library with built-in support for:
 - Admin dashboard with log viewer
 - Intrusion detection
 
+## What's New
+
+### v0.7.2 — 5 TLS bug fixes (recommended upgrade)
+
+- **`TLSContext::createClient()` / `createSocket()`** — factory methods now exist (previously link failed)
+- **`setALPNProtocols()`** — now actually sets ALPN (was a no-op stub causing HTTP/2 garbage on text parsers)
+- **`TLSSocket::readLine()`** — override added (previously inherited base class's raw `::recv()`, returned TLS ciphertext)
+- **`SSL_VERIFY_PEER` + system CA bundle** — now defaults for client contexts (previously silent cert acceptance)
+- **`TLSContext`** — inherits `enable_shared_from_this` for shared SSL_CTX
+
+See the [Migration Guide v0.7.0 → v0.7.2](../migration/v0.7.0-to-v0.7.2.md)
+for the full list of fixes and recommended action items.
+
+### v0.7.1 — 6 bug fixes
+
+- `IntrusionDetector::checkAndBlock()` self-deadlock (HIGH) — now returns instead of hanging
+- CORS allowlist parsed into `std::unordered_set` (MED) — per-request Origin lookup
+- `IntrusionDetector` schema centralized via `schemaSQL()` (MED) — for migrations/introspection
+- `omninet-init` dead config sections removed (MED) — `security.*`, `dashboard.*`, `intrusion.*`
+- Dead `defaultPatterns()` removed (LOW)
+- `omninet-firewall` build (already fixed in v0.6.0)
+
+### v0.7.0 — WebSocket race fix
+
+- `WebSocket::Server::on()` now uses `registerProtocolSwitch()` — atomic registration prevents TOCTOU race + single-shot erase for concurrent clients
+
 ## Quick Start
 
 ```cpp

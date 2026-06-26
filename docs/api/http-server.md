@@ -75,12 +75,107 @@ config.tlsVerifyClient = false;  // Don't require client cert
 Server server(config);
 ```
 
+### TLS Client Connections (v0.7.2+)
+
+For client-side TLS (e.g., making outbound HTTPS requests), use
+`TLSContext` to create sockets. The recommended pattern is:
+
+```cpp
+#include "net/TLSSocket.h"
+using namespace OmniNet;
+
+// Create a client context — loads system CA bundle,
+// sets SSL_VERIFY_PEER by default (secure out of the box).
+auto ctx = TLSContext::createClient();
+
+// Create a socket that uses the shared context.
+auto sock = ctx->createSocket();
+
+// (Optional) Advertise HTTP/1.1 over ALPN so servers
+// like Cloudflare/GitHub don't default to h2 binary.
+sock->setALPNProtocols({"h2", "http/1.1"});
+
+// Connect + do TLS handshake.
+sock->connect("api.github.com", 443);
+
+// Read the response — readLine() now works correctly on TLS.
+auto statusLine = sock->readLine();
+// "HTTP/1.1 200 OK"
+
+// Get the negotiated ALPN protocol.
+auto alpn = sock->getALPNProtocol();
+// "http/1.1" (or "h2" if the server picked h2)
+```
+
+#### TLSContext Factory Methods
+
+| Method | Description |
+|--------|-------------|
+| `TLSContext::createServer(certFile, keyFile)` | Creates a server context. Loads cert + key, returns shared_ptr. |
+| `TLSContext::createClient()` | Creates a client context. Loads system CA bundle, sets `SSL_VERIFY_PEER` by default. Returns shared_ptr. |
+| `TLSContext::createSocket()` | Creates a `TLSSocket` that shares this context (uses `shared_from_this()`). |
+
+#### Security Defaults (v0.7.2+)
+
+`TLSContext::createClient()` is secure by default:
+- System CA bundle is loaded via `SSL_CTX_set_default_verify_paths()`
+- Verify mode is `SSL_VERIFY_PEER` (rejects forged certificates)
+- Calling `setVerifyMode(TLSVerify::NONE)` is required to opt out
+
+To customize verification further (e.g., add a custom CA file):
+
+```cpp
+auto ctx = TLSContext::createClient();
+SSL_CTX_load_verify_locations(
+    ctx->context(),
+    "/path/to/my-ca-bundle.crt",
+    nullptr  // no dir
+);
+auto sock = ctx->createSocket();
+sock->connect("internal.example.com", 443);
+```
+
+#### Sharing Contexts (Performance)
+
+Creating one `TLSContext` and sharing it across many sockets saves
+memory (one `SSL_CTX` per socket → one for N sockets) and load time
+(CA bundle loaded once, not per-socket):
+
+```cpp
+auto ctx = TLSContext::createClient();
+
+std::vector<std::unique_ptr<TLSSocket>> sockets;
+for (auto& host : hosts) {
+    auto s = ctx->createSocket();
+    s->connect(host, 443);
+    sockets.push_back(std::move(s));
+}
+```
+
+#### ALPN (v0.7.2+)
+
+ALPN (Application-Layer Protocol Negotiation) lets the client tell
+the server which protocols it supports, so the server picks h2 vs
+http/1.1. Without ALPN, servers default to h2 (binary wire format),
+which looks like garbage (`PRI * HTTP/2.0`) to text-line HTTP/1.1
+parsers.
+
+```cpp
+TLSSocket sock;  // OR auto sock = ctx->createSocket();
+sock.setALPNProtocols({"h2", "http/1.1"});
+sock.connect("api.github.com", 443);
+```
+
+The wire format is built internally (RFC 7301 length-prefixed list)
+and passed to `SSL_CTX_set_alpn_protos()`. After handshake, call
+`getALPNProtocol()` to see which protocol was selected.
+
 ### CORS Setup
 
 ```cpp
 Server::Config config;
 config.corsEnabled = true;
-config.corsAllowedOrigins = "*";  // Or specific origin
+config.corsAllowedOrigins = "*";  // Or comma-separated allowlist
 config.corsAllowedMethods = "GET,POST,PUT,DELETE";
 config.corsAllowedHeaders = "Content-Type,Authorization";
 config.corsMaxAge = std::chrono::seconds(86400);
@@ -88,6 +183,24 @@ config.corsMaxAge = std::chrono::seconds(86400);
 Server server(config);
 ```
 
+#### Origin Allowlist Behavior (v0.7.1+)
+
+The `corsAllowedOrigins` field is parsed at server startup into an
+allowlist. The behavior depends on its contents:
+
+| Config value | Behavior |
+|--------------|----------|
+| `"*"` | Allow any origin. Emits `Access-Control-Allow-Origin: *` for all requests. |
+| `"https://a.com,https://b.com"` | Parsed into allowlist `{"https://a.com", "https://b.com"}`. Per request: looks up the `Origin` header; if found, echoes it back + adds `Vary: Origin` and `Access-Control-Allow-Credentials: true`. If not found, omits the header (browser blocks response). |
+| `""` (empty) | CORS still enabled but no origins allowed — all cross-origin requests are blocked. |
+
+This matches the [CORS spec](https://fetch.spec.whatwg.org/#http-cors-protocol)
+which requires `Access-Control-Allow-Origin` to be a single origin or
+`"*"` — a CSV is rejected by every browser.
+
+**Note:** In v0.7.0 and earlier, the config string was emitted
+verbatim as the header value, which was invalid. Always upgrade
+to v0.7.2+ for correct CORS behavior.
 ### Using Builder Pattern (Alternative)
 
 ```cpp
@@ -368,11 +481,34 @@ resp.removeHeader("X-Old-Header");
 
 ### CORS Headers
 
-When CORS is enabled, these headers are automatically added:
-- `Access-Control-Allow-Origin`
+When CORS is enabled, the response headers depend on the request's
+`Origin` header and the configured allowlist:
+
+| Configured origins | Request `Origin` | Headers added |
+|-------------------|------------------|---------------|
+| `"*"` | (any) | `Access-Control-Allow-Origin: *` |
+| `"https://a.com,https://b.com"` | `https://a.com` | `Access-Control-Allow-Origin: https://a.com`<br>`Vary: Origin`<br>`Access-Control-Allow-Credentials: true` |
+| `"https://a.com,https://b.com"` | `https://evil.com` | *(none — browser blocks the response)* |
+| `"https://a.com,https://b.com"` | *(absent)* | *(none — same-origin request, no CORS needed)* |
+
+Always added (regardless of Origin):
 - `Access-Control-Allow-Methods`
 - `Access-Control-Allow-Headers`
 - `Access-Control-Max-Age`
+
+#### Reading the response from JS
+
+```js
+// Browser behavior:
+//  - Origin matches allowlist: response is delivered to JS
+//  - Origin doesn't match: browser blocks, JS sees a network error
+//  - Configured "*" with credentials: browser blocks (spec violation),
+//    use explicit allowlist instead
+fetch('https://api.example.com/data', { credentials: 'include' })
+```
+
+The `Vary: Origin` header tells CDNs/proxies not to cache one
+origin's response and serve it to a different origin.
 
 ### Error Responses
 
