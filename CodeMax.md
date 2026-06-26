@@ -354,22 +354,24 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
 ### In Progress 🔄
-- [ ] **prompt.txt (codemax 2026-06-20 P4) — 2 new bugs**
-  - **Bug 8** 🔴 HIGH: `Connection::receive()` reads only 2 bytes per
-    `recv()` and loops forever on multi-byte payloads. Plan: rewrite
-    to use a buffer pattern like `readLoop()` — accumulate bytes
-    into a `std::vector<uint8_t>`, keep calling `FrameCodec::decode()`
-    until it returns a complete frame, return that frame.
-  - **Bug 7** 🟡 MED: `Connection::Connection(url)` ctor ignores
-    `parsed->secure`. `wss://` URLs silently fail with opaque
-    handshake error. Plan: branch on `parsed->secure` — for `ws://`
-    use `createConnectedSocket()` (current); for `wss://` use
+- [x] **prompt.txt (codemax 2026-06-20 P4) — 2 new bugs** ✅ ALL FIXED
+  - **Bug 8** 🔴 HIGH: `Connection::receive()` loops forever.
+    **Fix** (commit `cacca33`): rewrite to use a buffer pattern
+    like `readLoop()` — accumulate bytes into a `std::vector<uint8_t>`,
+    keep calling `FrameCodec::decode()` until it returns a complete
+    frame, return that frame. Previously read exactly 2 bytes per
+    recv() and looped forever on multi-byte payloads.
+  - **Bug 7** 🟡 MED: `Connection::Connection(url)` ignores
+    `parsed->secure`. **Fix** (commit `8cdf9e3`): branch on
+    `parsed->secure` — for `ws://` use `createConnectedSocket()`
+    (existing); for `wss://` use
     `TLSContext::createClient()->createSocket()` with SNI from
-    `parsed->host` and ALPN `{"http/1.1"}`.
+    `parsed->host` and ALPN `{"http/1.1"}`. Previously wss://
+    silently sent a plaintext upgrade, causing opaque handshake
+    failures.
+  - **Tests**: build clean, no regressions.
 
 ### TODO 📋
-    `~TLSContext()` called `SSL_CTX_free()` on the same `SSL_CTX*`
-    pointer. When the socket is created via `createSocket()`, the
     socket's `m_ctx` aliases the context's `m_ctx` — both destructors
     then free the same pointer.
   - **Fix**: Track ownership via `m_context` (the shared_ptr). In
