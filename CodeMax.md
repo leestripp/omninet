@@ -354,10 +354,20 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
 ### In Progress 🔄
-- [x] **prompt.txt (codemax 2026-06-20) — TLSContext double-free regression** ✅ FIXED in `c994cf2`
-  - **Bug**: In v0.7.2/v0.7.3, `TLSContext::createClient()->createSocket()`
-    triggered `free(): double free` abort on every HTTPS request.
-  - **Root cause**: Both `~TLSSocket()` (via `cleanupContext()`) AND
+- [ ] **prompt.txt (codemax 2026-06-20 P4) — 2 new bugs**
+  - **Bug 8** 🔴 HIGH: `Connection::receive()` reads only 2 bytes per
+    `recv()` and loops forever on multi-byte payloads. Plan: rewrite
+    to use a buffer pattern like `readLoop()` — accumulate bytes
+    into a `std::vector<uint8_t>`, keep calling `FrameCodec::decode()`
+    until it returns a complete frame, return that frame.
+  - **Bug 7** 🟡 MED: `Connection::Connection(url)` ctor ignores
+    `parsed->secure`. `wss://` URLs silently fail with opaque
+    handshake error. Plan: branch on `parsed->secure` — for `ws://`
+    use `createConnectedSocket()` (current); for `wss://` use
+    `TLSContext::createClient()->createSocket()` with SNI from
+    `parsed->host` and ALPN `{"http/1.1"}`.
+
+### TODO 📋
     `~TLSContext()` called `SSL_CTX_free()` on the same `SSL_CTX*`
     pointer. When the socket is created via `createSocket()`, the
     socket's `m_ctx` aliases the context's `m_ctx` — both destructors

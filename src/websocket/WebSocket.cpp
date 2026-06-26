@@ -102,29 +102,50 @@ void Connection::close(CloseCode code, std::string_view reason) {
 }
 
 std::optional<Frame> Connection::receive() {
-    while (m_open) {
-        // Read frame header
-        std::vector<uint8_t> header(2);
-        size_t n = m_socket->recv(header);
-        if (n == 0) {
+    // v0.7.5 (codemax Bug 8): previously this read exactly 2 bytes
+    // per recv() and looped forever on multi-byte payloads — each
+    // 2-byte chunk couldn't satisfy FrameCodec::decode()'s need for
+    // the full frame header + payload length + payload, so decode
+    // returned nullopt, the loop continued, and the next recv()
+    // ate the start of the payload as if it were a header.
+    //
+    // Fix: mirror the server-side readLoop() pattern — buffer bytes
+    // into a vector, keep calling FrameCodec::decode() until we
+    // have a complete frame, return it.
+    std::vector<uint8_t> buffer;
+    buffer.reserve(4096);
+    while (m_socket && m_socket->isOpen()) {
+        // Try to decode whatever we have so far.
+        size_t consumed = 0;
+        std::span<const uint8_t> view(buffer.data(), buffer.size());
+        auto frame = FrameCodec::decode(view, consumed);
+        if (frame) {
+            // Successfully decoded a complete frame.
+            processFrame(*frame);
+            if (!frame->isControl()) {
+                return frame;
+            }
+            // Control frame (PING/PONG/CLOSE) — processFrame handled
+            // it (e.g., sent PONG reply). Loop to get the next frame.
+            buffer.erase(buffer.begin(), buffer.begin() + consumed);
+            continue;
+        }
+
+        // Need more bytes. Read what's available.
+        std::vector<uint8_t> chunk = m_socket->recvAll(65536);
+        if (chunk.empty()) {
+            // Peer closed or error.
             m_open = false;
             return std::nullopt;
         }
-        
-        // Decode frame
-        size_t consumed = 0;
-        auto frame = FrameCodec::decode(header, consumed);
-        if (!frame) continue;
-        
-        // Handle frame
-        processFrame(*frame);
-        
-        // For data frames, return them
-        if (!frame->isControl()) {
-            return frame;
+        buffer.insert(buffer.end(), chunk.begin(), chunk.end());
+
+        // Cap to prevent unbounded buffer growth on malformed input.
+        if (buffer.size() > RECV_BUFFER_MAX) {
+            m_open = false;
+            return std::nullopt;
         }
     }
-    
     return std::nullopt;
 }
 
