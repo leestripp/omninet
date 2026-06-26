@@ -354,11 +354,11 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
 ### In Progress 🔄
-- [ ] **prompt.txt (codemax 2026-06-26) — Bug 9: wss:// ctor missing connect()**
+- [x] **prompt.txt (codemax 2026-06-26) — Bug 9: wss:// ctor missing connect()** ✅ FIXED in `df07b4f`
   - **Bug**: Regression from Bug 7 fix (0.7.5). The `wss://` branch
-    creates a `TLSSocket` via `tlsCtx->createSocket()` but never
-    calls `m_socket->connect()` before `performClientHandshake()`.
-    This crashes with `*** bit out of range 0 - FD_SETSIZE on
+    created a `TLSSocket` via `tlsCtx->createSocket()` but never
+    called `m_socket->connect()` before `performClientHandshake()`.
+    This crashed with `*** bit out of range 0 - FD_SETSIZE on
     fd_set ***` because `FD_SET(INVALID_SOCKET, ...)` writes
     out of bounds in `TLSSocket::recvAll`.
   - **Fix**: Add `m_socket->connect(parsed->host, parsed->port)`
@@ -366,10 +366,6 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
     `createConnectedSocket()` does for the plain `ws://` branch.
 
 ### TODO 📋
-    keep calling `FrameCodec::decode()` until it returns a complete
-    frame, return that frame. Previously read exactly 2 bytes per
-    recv() and looped forever on multi-byte payloads.
-  - **Bug 7** 🟡 MED: `Connection::Connection(url)` ignores
     `parsed->secure`. **Fix** (commit `8cdf9e3`): branch on
     `parsed->secure` — for `ws://` use `createConnectedSocket()`
     (existing); for `wss://` use
