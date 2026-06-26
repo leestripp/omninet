@@ -16,6 +16,11 @@
 
 namespace OmniNet {
 
+// v0.7.2 (codemax Bug 1): forward declaration so TLSSocket can
+// hold a std::shared_ptr<TLSContext>. The full definition is
+// below (after the TLSSocket class).
+class TLSContext;
+
 // ============================================================================
 // TLS Socket Exception (defined in Exception.h)
 // ============================================================================
@@ -36,7 +41,13 @@ public:
     
     // Wrap existing socket with TLS
     explicit TLSSocket(SOCKET fd, bool serverMode);
-    
+
+    // v0.7.2 (codemax Bug 1): constructor that uses a shared
+    // TLSContext. The socket keeps a shared_ptr to the context
+    // so the context outlives the socket. Used by
+    // TLSContext::createSocket().
+    explicit TLSSocket(std::shared_ptr<TLSContext> context);
+
     // Destructor
     ~TLSSocket() override;
     
@@ -163,6 +174,9 @@ public:
 private:
     void initContext(TLSMode mode);
     void cleanupContext();
+    // v0.7.2 (codemax Bug 1): adopt a shared TLSContext. Frees
+    // our own m_ctx (if any) and uses the shared context's SSL_CTX.
+    void setContext(std::shared_ptr<TLSContext> context);
     
     // Perform TLS handshake
     void doHandshake();
@@ -173,6 +187,13 @@ private:
     // Internal send with SSL
     size_t sslSend(std::span<const uint8_t> data);
     
+    // v0.7.2 (codemax Bug 1): shared TLSContext. Set when the
+    // socket is constructed from a TLSContext (via createSocket()
+    // or the TLSSocket(shared_ptr<TLSContext>) constructor).
+    // When non-null, m_ctx belongs to the shared context, not to
+    // this socket.
+    std::shared_ptr<TLSContext> m_context;
+
     SSL_CTX* m_ctx = nullptr;
     SSL* m_ssl = nullptr;
     bool m_serverMode = false;
@@ -193,7 +214,11 @@ private:
 // TLS Context Factory
 // ============================================================================
 
-class TLSContext {
+// v0.7.2 (codemax Bug 1 + 5): TLSContext inherits
+// std::enable_shared_from_this so that createSocket() can obtain
+// a shared_ptr to *this via shared_from_this() and pass it to
+// the new TLSSocket constructor.
+class TLSContext : public std::enable_shared_from_this<TLSContext> {
 public:
     // Create server context with certificate and key
     static std::shared_ptr<TLSContext> createServer(
@@ -206,10 +231,16 @@ public:
     
     // Get SSL_CTX for creating sockets
     SSL_CTX* context() const;
-    
+
+    // v0.7.2: is this a server context? Used by TLSSocket to set
+    // its initial mode when adopting a shared context.
+    bool serverMode() const;
+
     // Create socket from this context
     std::unique_ptr<TLSSocket> createSocket();
-    
+
+    ~TLSContext();
+
 private:
     TLSContext(SSL_CTX* ctx, bool serverMode);
     

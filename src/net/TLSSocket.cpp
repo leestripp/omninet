@@ -25,9 +25,35 @@ TLSSocket::TLSSocket(SOCKET fd, bool serverMode)
     initContext(serverMode ? TLSMode::SERVER : TLSMode::CLIENT);
 }
 
+// v0.7.2 (codemax Bug 1): constructor that wraps an unconnected
+// socket fd with a shared TLSContext. Used by TLSContext::createSocket().
+TLSSocket::TLSSocket(std::shared_ptr<TLSContext> context)
+    : Socket(INVALID_SOCKET), m_serverMode(!context || context->serverMode()),
+      m_handshakeDone(false), m_context(std::move(context)) {
+    if (m_context) {
+        // Use the shared context's SSL_CTX instead of creating our own.
+        // Note: initContext() is NOT called here because m_ctx is set
+        // by setContext() below.
+        setContext(m_context);
+    } else {
+        initContext(TLSMode::CLIENT);
+    }
+}
+
 TLSSocket::~TLSSocket() {
     close();
     cleanupContext();
+}
+
+// v0.7.2 (codemax Bug 1): adopt a shared TLSContext. Frees our
+// own m_ctx (if any) and uses the shared context's SSL_CTX.
+void TLSSocket::setContext(std::shared_ptr<TLSContext> context) {
+    m_context = std::move(context);
+    if (m_context) {
+        cleanupContext();   // free our own m_ctx if any
+        m_ctx = m_context->context();
+        m_serverMode = m_context->serverMode();
+    }
 }
 
 void TLSSocket::setCertFile(const std::string& path) {
@@ -529,6 +555,69 @@ size_t TLSSocket::sslRecv(std::span<uint8_t> buffer) {
 
 size_t TLSSocket::sslSend(std::span<const uint8_t> data) {
     return send(data);
+}
+
+// ============================================================================
+// TLSContext
+// ============================================================================
+
+TLSContext::TLSContext(SSL_CTX* ctx, bool serverMode)
+    : m_ctx(ctx), m_serverMode(serverMode) {}
+
+TLSContext::~TLSContext() {
+    if (m_ctx) {
+        SSL_CTX_free(m_ctx);
+        m_ctx = nullptr;
+    }
+}
+
+SSL_CTX* TLSContext::context() const { return m_ctx; }
+bool TLSContext::serverMode() const { return m_serverMode; }
+
+// v0.7.2 (codemax Bug 1 + 5): create a server context with the
+// given certificate and key files. Returns a shared_ptr so the
+// context can be shared across multiple sockets.
+std::shared_ptr<TLSContext> TLSContext::createServer(
+    const std::string& certFile,
+    const std::string& keyFile
+) {
+    SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
+    if (!ctx) {
+        throw TLSException(std::string("Failed to create server SSL_CTX"), -1);
+    }
+    if (SSL_CTX_use_certificate_file(ctx, certFile.c_str(), SSL_FILETYPE_PEM) != 1) {
+        SSL_CTX_free(ctx);
+        throw TLSException(std::string("Failed to load server certificate: ") + certFile, -1);
+    }
+    if (SSL_CTX_use_PrivateKey_file(ctx, keyFile.c_str(), SSL_FILETYPE_PEM) != 1) {
+        SSL_CTX_free(ctx);
+        throw TLSException(std::string("Failed to load server private key: ") + keyFile, -1);
+    }
+    return std::shared_ptr<TLSContext>(new TLSContext(ctx, /*serverMode=*/true));
+}
+
+// v0.7.2 (codemax Bug 1): create a client context. Loads the
+// system CA bundle and sets SSL_VERIFY_PEER by default so users
+// don't silently accept forged certificates.
+std::shared_ptr<TLSContext> TLSContext::createClient() {
+    SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
+    if (!ctx) {
+        throw TLSException(std::string("Failed to create client SSL_CTX"), -1);
+    }
+    // Load system CA bundle (non-fatal if it fails; callers can
+    // use setCaFile() to install a custom one).
+    SSL_CTX_set_default_verify_paths(ctx);
+    // Default to verifying peer certificates.
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+    return std::shared_ptr<TLSContext>(new TLSContext(ctx, /*serverMode=*/false));
+}
+
+// v0.7.2 (codemax Bug 1 + 5): create a new TLSSocket that uses
+// this shared context. Uses shared_from_this() because TLSContext
+// inherits std::enable_shared_from_this<TLSContext>.
+std::unique_ptr<TLSSocket> TLSContext::createSocket() {
+    auto sock = std::make_unique<TLSSocket>(shared_from_this());
+    return sock;
 }
 
 } // namespace OmniNet
