@@ -128,8 +128,23 @@ void TLSSocket::setSNIHostname(const std::string& hostname) {
 }
 
 void TLSSocket::setALPNProtocols(const std::vector<std::string>& protocols) {
-    (void)protocols;
-    // ALPN setup would go here
+    if (protocols.empty()) return;
+    if (!m_ctx) return;
+
+    // v0.7.2 (codemax Bug 2): build the ALPN wire-format list
+    // (RFC 7301): for each protocol, 1 byte length followed by
+    // the protocol name bytes.
+    std::vector<unsigned char> wire;
+    for (const auto& p : protocols) {
+        if (p.empty() || p.size() > 255) continue;  // ALPN length is 1 byte
+        wire.push_back(static_cast<unsigned char>(p.size()));
+        wire.insert(wire.end(), p.begin(), p.end());
+    }
+    if (wire.empty()) return;
+
+    // Apply to the SSL_CTX (used by the next SSL_new).
+    // Returns 0 on success, non-zero on error.
+    SSL_CTX_set_alpn_protos(m_ctx, wire.data(), static_cast<unsigned int>(wire.size()));
 }
 
 // ============================================================================
