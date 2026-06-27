@@ -354,10 +354,28 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
 ### In Progress 🔄
-- [x] **prompt.txt (codemax 2026-06-26) — Bug 9: wss:// ctor missing connect()** ✅ FIXED in `df07b4f`
-  - **Bug**: Regression from Bug 7 fix (0.7.5). The `wss://` branch
-    created a `TLSSocket` via `tlsCtx->createSocket()` but never
-    called `m_socket->connect()` before `performClientHandshake()`.
+- [ ] **prompt.txt (ApolloCore integration 2026-06-27) — triage + 1 real fix**
+  - Triage of 13 reported bugs. Most are either:
+    - **NOT OmniNet bugs** (#1 SQLiteDB::step is ApolloCore; #9-13
+      are llama.cpp / ApolloCore). Skip with note.
+    - **ALREADY FIXED** in this tree:
+      - #3 `setBody(std::string_view)` — HttpResponse.h:138
+      - #5 `setStatus(int)` overload — HttpResponse.h:102
+    - **NOT A BUG** (working as intended):
+      - #2 `delete_()` — `delete` is a C++ keyword, the trailing
+        underscore is required. Can add a comment explaining why.
+      - #6 "no shutdown" — `Server::stop()` exists at HttpServer.h:94.
+        Doc gap at most.
+      - #7, #8 — vague / out of scope.
+  - **Real fix**: Bug #4 — add typed accessors `queryInt()`,
+    `queryDouble()` to `QueryParams` so users don't have to
+    `std::string(view)` before `std::stoi`/`std::stod`.
+  - **Plan**: add `queryInt(key, defaultValue)`, `queryDouble(key, defaultValue)`
+    to `QueryParams` struct in HttpRequest.h + matching `.cpp`
+    impl. Returns `std::optional<T>` for required, or `T` for
+    default overload.
+
+### TODO 📋
     This crashed with `*** bit out of range 0 - FD_SETSIZE on
     fd_set ***` because `FD_SET(INVALID_SOCKET, ...)` writes
     out of bounds in `TLSSocket::recvAll`.

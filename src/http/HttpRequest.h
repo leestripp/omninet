@@ -63,6 +63,18 @@ struct QueryParams {
     std::optional<std::vector<std::string>> getAll(std::string_view key) const;
     bool has(std::string_view key) const;
     size_t count(std::string_view key) const;
+
+    // v0.7.7 (ApolloCore Bug 4): typed accessors so users don't
+    // have to std::string(view) before std::stoi/std::stod.
+    // queryInt/queryDouble return std::optional<T> - nullopt if
+    // the key is absent OR the value cannot be parsed as a number.
+    // The default-value overloads return the default if the key
+    // is absent (and on malformed, to match the 'best-effort'
+    // semantic of URL params).
+    std::optional<int> queryInt(std::string_view key) const;
+    int queryInt(std::string_view key, int defaultValue) const;
+    std::optional<double> queryDouble(std::string_view key) const;
+    double queryDouble(std::string_view key, double defaultValue) const;
 };
 
 // ============================================================================

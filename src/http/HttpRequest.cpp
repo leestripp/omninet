@@ -107,6 +107,44 @@ size_t QueryParams::count(std::string_view key) const {
     return 0;
 }
 
+
+std::optional<int> QueryParams::queryInt(std::string_view key) const {
+    auto v = get(key);
+    if (!v) return std::nullopt;
+    try {
+        size_t pos = 0;
+        int n = std::stoi(std::string(*v), &pos);
+        // Reject trailing non-digit chars (e.g., "10x").
+        if (pos != v->size()) return std::nullopt;
+        return n;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+int QueryParams::queryInt(std::string_view key, int defaultValue) const {
+    auto v = queryInt(key);
+    return v ? *v : defaultValue;
+}
+
+std::optional<double> QueryParams::queryDouble(std::string_view key) const {
+    auto v = get(key);
+    if (!v) return std::nullopt;
+    try {
+        size_t pos = 0;
+        double d = std::stod(std::string(*v), &pos);
+        if (pos != v->size()) return std::nullopt;
+        return d;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+double QueryParams::queryDouble(std::string_view key, double defaultValue) const {
+    auto v = queryDouble(key);
+    return v ? *v : defaultValue;
+}
+
 // ============================================================================
 // Request
 // ============================================================================
