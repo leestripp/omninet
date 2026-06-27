@@ -354,26 +354,22 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
 ### In Progress 🔄
-- [ ] **prompt.txt (ApolloCore integration 2026-06-27) — triage + 1 real fix**
-  - Triage of 13 reported bugs. Most are either:
+- [x] **prompt.txt (ApolloCore integration 2026-06-27) — triage + 1 real fix** ✅ DONE
+  - Triage of 13 reported bugs. Most were either:
     - **NOT OmniNet bugs** (#1 SQLiteDB::step is ApolloCore; #9-13
-      are llama.cpp / ApolloCore). Skip with note.
-    - **ALREADY FIXED** in this tree:
-      - #3 `setBody(std::string_view)` — HttpResponse.h:138
-      - #5 `setStatus(int)` overload — HttpResponse.h:102
-    - **NOT A BUG** (working as intended):
-      - #2 `delete_()` — `delete` is a C++ keyword, the trailing
-        underscore is required. Can add a comment explaining why.
-      - #6 "no shutdown" — `Server::stop()` exists at HttpServer.h:94.
-        Doc gap at most.
-      - #7, #8 — vague / out of scope.
-  - **Real fix**: Bug #4 — add typed accessors `queryInt()`,
-    `queryDouble()` to `QueryParams` so users don't have to
-    `std::string(view)` before `std::stoi`/`std::stod`.
-  - **Plan**: add `queryInt(key, defaultValue)`, `queryDouble(key, defaultValue)`
-    to `QueryParams` struct in HttpRequest.h + matching `.cpp`
-    impl. Returns `std::optional<T>` for required, or `T` for
-    default overload.
+      are llama.cpp / ApolloCore). Skipped.
+    - **ALREADY FIXED** in this tree: #3 `setBody(string_view)` at
+      HttpResponse.h:138, #5 `setStatus(int)` at HttpResponse.h:102.
+    - **NOT A BUG** (working as intended): #2 `delete_()` (C++ keyword
+      constraint, trailing underscore is required), #6 "no shutdown"
+      (`Server::stop()` exists at HttpServer.h:94 — doc gap at most).
+    - Vague / out of scope: #7, #8.
+  - **Real fix applied** (commit `ba9b2cf`): Bug #4 — added typed
+    accessors `queryInt(key)`, `queryInt(key, default)`,
+    `queryDouble(key)`, `queryDouble(key, default)` to `QueryParams`.
+    Saves users from `std::string(view)` boilerplate before
+    `std::stoi`/`std::stod`. Trailing non-digit chars rejected.
+  - **Tests**: test_omnet_test 110/110 PASS, build clean.
 
 ### TODO 📋
     This crashed with `*** bit out of range 0 - FD_SETSIZE on
