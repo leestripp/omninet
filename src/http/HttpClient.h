@@ -5,7 +5,9 @@
 //   Phase 3: TLS via existing net::TLSSocket
 //   Phase 4: automatic 3xx redirect following
 //   Phase 5: per-request timeouts + std::stop_token cancellation
-// Phases 6-8 (cookies/auth, streaming, retry, happy-eyeballs) deferred.
+//   Phase 7: streaming bodies (request via set_body_writer;
+//             response via ClientResponseStream::read_some())
+// Phases 6 and 8 (auth/cookies, retry/happy-eyeballs) deferred.
 #ifndef OMNINET_HTTP_CLIENT_H
 #define OMNINET_HTTP_CLIENT_H
 
@@ -14,9 +16,11 @@
 #include "net/Socket.h"
 
 #include <chrono>
+#include <functional>
 #include <future>
 #include <map>
 #include <memory>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -56,11 +60,11 @@ struct ClientConfig {
     std::chrono::seconds request_timeout{60};
     bool follow_redirects = true;
     int  max_redirect_hops = 5;
-    bool verify_tls = true;   // used in Phase 3
+    bool verify_tls = true;
 };
 
 // ============================================================================
-// ParsedUrl (implementation helper, public for simplicity)
+// ParsedUrl (implementation helper)
 // ============================================================================
 
 struct ParsedUrl {
@@ -77,6 +81,8 @@ struct ParsedUrl {
 
 class ClientRequest {
 public:
+    using BodyWriter = std::function<std::vector<uint8_t>()>;
+
     ClientRequest& method(std::string_view m);
     const std::string& method() const { return m_method; }
 
@@ -87,20 +93,28 @@ public:
     const std::map<std::string, std::string>& headers() const { return m_headers; }
     std::string header(std::string_view name) const;
 
+    // Buffer the full body in memory (Phase 1).
     ClientRequest& body(std::string_view data);
     ClientRequest& body(std::vector<uint8_t> data);
     const std::vector<uint8_t>& bodyBytes() const { return m_body; }
     std::string_view bodyString() const;
 
+    // Stream the body via a callback (Phase 7). Returns next chunk;
+    // empty vector signals end-of-body. Uses Transfer-Encoding: chunked.
+    ClientRequest& set_body_writer(BodyWriter writer);
+    bool has_body_writer() const { return m_body_writer != nullptr; }
+
 private:
+    friend class Client;
     std::string m_method = "GET";
     std::string m_url;
     std::map<std::string, std::string> m_headers;
     std::vector<uint8_t> m_body;
+    BodyWriter m_body_writer;
 };
 
 // ============================================================================
-// ClientResponse
+// ClientResponse (Phase 1-5: full body in memory)
 // ============================================================================
 
 class ClientResponse {
@@ -114,7 +128,6 @@ public:
     std::string bodyAsString() const;
     std::string_view bodyAsStringView() const;
 
-    // Internal: used by Client
     void setStatus(StatusCode code, std::string_view reason = {});
     void addHeader(std::string_view name, std::string_view value);
     void setBody(std::vector<uint8_t> data);
@@ -124,6 +137,44 @@ private:
     std::string m_reason;
     std::map<std::string, std::string> m_headers;
     std::vector<uint8_t> m_body;
+};
+
+// ============================================================================
+// ClientResponseStream (Phase 7) — incremental body access
+// ============================================================================
+
+class ClientResponseStream {
+public:
+    ClientResponseStream(StatusCode status, std::string reason,
+                        std::map<std::string, std::string> headers,
+                        std::unique_ptr<class ResponseStreamState> state);
+
+    ~ClientResponseStream();
+
+    ClientResponseStream(const ClientResponseStream&) = delete;
+    ClientResponseStream& operator=(const ClientResponseStream&) = delete;
+
+    StatusCode status() const { return m_status; }
+    int statusCode() const { return static_cast<int>(m_status); }
+    const std::string& reason() const { return m_reason; }
+    const std::map<std::string, std::string>& headers() const { return m_headers; }
+    std::string header(std::string_view name) const;
+
+    // Pull next chunk from the wire. empty optional = end of body.
+    std::optional<std::vector<uint8_t>> read_some();
+
+    // Convenience: collect all remaining bytes into one vector.
+    std::vector<uint8_t> read_all();
+
+    bool eof() const;
+    bool error() const { return m_error; }
+
+private:
+    StatusCode m_status;
+    std::string m_reason;
+    std::map<std::string, std::string> m_headers;
+    std::unique_ptr<class ResponseStreamState> m_state;
+    bool m_error = false;
 };
 
 // ============================================================================
@@ -160,6 +211,13 @@ public:
     std::future<Result<ClientResponse, ClientError>>
     send(ClientRequest req, const ClientConfig& cfg,
          const std::stop_token& stop);
+
+    // ----- Streaming API (Phase 7) -----
+
+    Result<std::unique_ptr<ClientResponseStream>, ClientError>
+    send_streaming(ClientRequest req, const ClientConfig& cfg);
+    Result<std::unique_ptr<ClientResponseStream>, ClientError>
+    send_streaming(ClientRequest req);
 
 private:
     Client() = default;

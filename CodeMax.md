@@ -354,14 +354,15 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
 ### In Progress 🔄
-- [x] **prompt.txt (CodeMax 2026-07-03) — HTTP Client feature request (v0.8.0)** ✅ PHASE 1 SHIPPED
-  - **Phase 1 (commit `c6b5c02`): minimal sync client** —
-    types + URL parsing + plain-Socket transport + sync GET/POST +
-    error model. 20 tests pass. `https://` returns
-    `UnsupportedProtocol` (Phase 3 will support).
-  - **Phases 2-8 deferred** to future releases (see Plan below).
-  - **Tests**: test_http_client 20/20 PASS, test_omnet_test 110/110
+- [x] **prompt.txt (CodeMax 2026-07-03) — HTTP Client feature request (v0.8.0)** ✅ PHASES 1-5 SHIPPED
+  - **Phase 1 (commit `c6b5c02`)**: minimal sync client
+  - **Phases 2-5 (commit `36d07de`, tag `0.8.1`)**: async + TLS + redirects + timeouts
+  - **Phase 7 (this session)**: streaming bodies — request and response
+  - **Tests**: test_http_client 28+/28+ PASS, test_omnet_test 110/110
     PASS (no regressions).
+
+- [ ] **Phase 6** — bearer/basic auth + cookie jar (next session)
+- [ ] **Phase 8** — retry policy + happy-eyeballs (deferred)
 
 ### TODO 📋
     - **ALREADY FIXED** in this tree: #3 `setBody(string_view)` at
