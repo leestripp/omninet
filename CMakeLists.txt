@@ -123,6 +123,7 @@ target_sources(OmniNet PRIVATE
     src/http/HttpRequest.cpp
     src/http/HttpResponse.cpp
     src/http/HttpConnection.cpp
+    src/http/HttpClient.cpp
     src/http/Router.cpp
     src/http/HttpServer.cpp
     src/http/StaticHandler.cpp
