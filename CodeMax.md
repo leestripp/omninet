@@ -354,62 +354,14 @@ Add robust **Session Token** and **API Key** management to OmniNet using existin
 - **OpenSSL** - Cryptographically secure random generation
 ### In Progress 🔄
 ### In Progress 🔄
-- [ ] **prompt.txt (CodeMax 2026-07-03) — HTTP Client feature request (v0.8.0)**
-  - **Scope**: 17 functional + 8 non-functional requirements for an
-    async HTTP client API-symmetric to `http::HttpServer`. Massive
-    feature — estimated 2000-5000 LOC of new code + tests.
-  - **Strategy**: Phased MVP delivery. Each phase is independently
-    useful and ships as a working client at that capability level.
-  - **Phases**:
-    - [ ] **Phase 1 (foundation)** — types + minimal sync client
-      - `src/http/HttpClient.h` with `ClientRequest`, `ClientResponse`,
-        `ClientConfig`, `ClientError` types
-      - `Client::send_blocking()` for GET/POST, single connection per
-        request, no pool, no redirect, no TLS, no async
-      - Plain `Socket` transport (TLS in Phase 3)
-      - Tests: `tests/test_http_client.cpp` — round-trip GET against
-        `httpbin.org` (or a local server in CI)
-    - [ ] **Phase 2 (async)** — `std::future<expected>` return
-      - Thread-pool-backed request dispatch (reuse existing
-        `src/thread/ThreadPool` if present, else `std::jthread`)
-      - `Client::send()` returns `std::future<std::expected<...>>`
-    - [ ] **Phase 3 (TLS)** — HTTPS support
-      - Reuse `net::TLSSocket` and `TLSContext::createClient()`
-      - `ClientConfig::verify_tls` (default true)
-      - Per-request SNI from URL
-    - [ ] **Phase 4 (redirect)** — automatic 3xx following
-      - Track `Location:` header, re-send with same method+body
-        for 307/308, GET for 301/302/303
-      - `ClientConfig::max_redirect_hops` (default 5)
-    - [ ] **Phase 5 (timeouts + cancellation)** — robustness
-      - `ClientConfig::connect_timeout`, `request_timeout`
-      - `Client::send(req, std::stop_token)` overload
-      - Cancellation closes socket, future resolves with `Cancelled`
-    - [ ] **Phase 6 (auth + cookies)** — convenience
-      - `ClientRequest::bearer_token(...)`, `basic_auth(...)`
-      - In-memory cookie jar (RFC 6265 subset)
-    - [ ] **Phase 7 (streaming)** — body streaming
-      - `ClientRequest::body_writer()` for chunked uploads
-      - `ClientResponse::body_stream()` for chunked downloads
-    - [ ] **Phase 8 (retry + happy-eyeballs)** — polish
-      - Idempotent-method retry with exponential backoff
-      - IPv4 + IPv6 happy-eyeballs connect
-  - **Constraints**:
-    - **DO NOT** run demo executables (per session preferences).
-    - **DO NOT** modify generated build files by hand — use CMake.
-    - Reuse existing primitives: `net::Socket`, `net::TLSSocket`,
-      `utils/Expected.h` (`std::expected` alias), `utils/Logger.h`.
-  - **Out of scope** (deferred to follow-ups, matching prompt):
-    HTTP/2 (ALPN, HPACK), HTTP/3 (QUIC), disk-backed cookie store,
-    browser-grade cookie eviction, mTLS, WebSocket client.
-  - **Decision on open questions** (from prompt §9):
-    1. Namespace: **OmniNet::HTTP::Client** (alongside `OmniNet::HTTP::Server`)
-    2. Cookie store: **in-memory only** for v0.8 (CookieStore interface deferred)
-    3. Retry policy: **sensible defaults + RetryPolicy struct** (3 attempts, exp backoff capped at 5s, idempotent methods only)
-    4. Singleton vs connection-per-call: **singleton via get_instance()** to match existing `WebSocket` pattern
-  - **Current session target**: ship Phase 1 (foundation) with tests
-    + clean build. Subsequent phases can ship in later tags
-    (0.8.1, 0.8.2, …) or be picked up in future sessions.
+- [x] **prompt.txt (CodeMax 2026-07-03) — HTTP Client feature request (v0.8.0)** ✅ PHASE 1 SHIPPED
+  - **Phase 1 (commit `c6b5c02`): minimal sync client** —
+    types + URL parsing + plain-Socket transport + sync GET/POST +
+    error model. 20 tests pass. `https://` returns
+    `UnsupportedProtocol` (Phase 3 will support).
+  - **Phases 2-8 deferred** to future releases (see Plan below).
+  - **Tests**: test_http_client 20/20 PASS, test_omnet_test 110/110
+    PASS (no regressions).
 
 ### TODO 📋
     - **ALREADY FIXED** in this tree: #3 `setBody(string_view)` at
