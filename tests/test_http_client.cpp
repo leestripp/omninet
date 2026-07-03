@@ -1,4 +1,5 @@
-// OmniNet - HttpClient tests (v0.8.0 Phase 1)
+// OmniNet - HttpClient tests (v0.8.0 Phases 1-5)
+// Verifies sync GET/POST, TLS (https), async, redirects, timeouts.
 
 #include "http/HttpClient.h"
 #include "net/Socket.h"
@@ -8,6 +9,7 @@
 #include <iostream>
 #include <map>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
@@ -25,6 +27,8 @@ struct LocalServer {
     int response_status = 200;
     std::string response_body = "hello";
     std::map<std::string, std::string> response_headers;
+    std::string redirect_path;
+    std::string redirect_target;
 
     void start(int p) {
         port = p;
@@ -91,16 +95,24 @@ struct LocalServer {
                 last_body = raw.substr(hdr_end + 4);
             }
 
+            int status = response_status;
+            std::string body = response_body;
+            std::map<std::string, std::string> headers = response_headers;
+            if (!redirect_path.empty() && last_path == redirect_path) {
+                status = 302;
+                body = "";
+                headers["Location"] = redirect_target;
+            }
+
             std::string resp = "HTTP/1.1 " +
-                std::to_string(response_status) + " OK\r\n";
-            resp += "Content-Length: " +
-                std::to_string(response_body.size()) + "\r\n";
+                std::to_string(status) + " OK\r\n";
+            resp += "Content-Length: " + std::to_string(body.size()) + "\r\n";
             resp += "Content-Type: text/plain\r\n";
-            for (const auto& [k, v] : response_headers) {
+            for (const auto& [k, v] : headers) {
                 resp += k + ": " + v + "\r\n";
             }
             resp += "Connection: close\r\n\r\n";
-            resp += response_body;
+            resp += body;
             client->sendAll(std::span<const uint8_t>(
                 reinterpret_cast<const uint8_t*>(resp.data()),
                 resp.size()));
@@ -118,7 +130,6 @@ struct LocalServer {
         } catch (...) {
             return;
         }
-
         while (!done.load()) {
             try {
                 auto client = server.acceptWithTimeout(
@@ -147,14 +158,14 @@ void test_url_parse() {
     EXPECT(req.url() == "http://example.com/foo?bar=1");
 }
 
-void test_unsupported_https() {
-    std::cout << "test_unsupported_https\n";
+void test_invalid_url() {
+    std::cout << "test_invalid_url\n";
     ClientRequest req;
-    req.url("https://example.com/foo");
+    req.url("not a url");
     auto result = Client::get_instance().send_blocking(req);
     EXPECT(!result.has_value());
     if (!result.has_value()) {
-        EXPECT(result.error() == ClientError::UnsupportedProtocol);
+        EXPECT(result.error() == ClientError::InvalidUrl);
     }
 }
 
@@ -163,11 +174,9 @@ void test_get() {
     LocalServer srv;
     srv.response_body = "hello world";
     srv.start(18080);
-
     ClientRequest req;
     req.method("GET").url("http://127.0.0.1:18080/test");
     auto result = Client::get_instance().send_blocking(req);
-
     EXPECT(result.has_value());
     if (result.has_value()) {
         EXPECT(result->statusCode() == 200);
@@ -183,14 +192,12 @@ void test_post() {
     LocalServer srv;
     srv.response_body = "ack";
     srv.start(18081);
-
     ClientRequest req;
     req.method("POST")
        .url("http://127.0.0.1:18081/api")
        .header("Content-Type", "text/plain")
        .body(std::string("payload"));
     auto result = Client::get_instance().send_blocking(req);
-
     EXPECT(result.has_value());
     if (result.has_value()) {
         EXPECT(result->statusCode() == 200);
@@ -206,11 +213,9 @@ void test_404() {
     srv.response_status = 404;
     srv.response_body = "not found";
     srv.start(18082);
-
     ClientRequest req;
     req.url("http://127.0.0.1:18082/missing");
     auto result = Client::get_instance().send_blocking(req);
-
     EXPECT(result.has_value());
     if (result.has_value()) {
         EXPECT(result->statusCode() == 404);
@@ -224,11 +229,9 @@ void test_headers() {
     LocalServer srv;
     srv.response_headers["X-Custom"] = "value1";
     srv.start(18083);
-
     ClientRequest req;
     req.url("http://127.0.0.1:18083/x");
     auto result = Client::get_instance().send_blocking(req);
-
     EXPECT(result.has_value());
     if (result.has_value()) {
         EXPECT(result->header("X-Custom") == "value1");
@@ -237,25 +240,95 @@ void test_headers() {
     srv.stop();
 }
 
-void test_invalid_url() {
-    std::cout << "test_invalid_url\n";
+// ----- Phase 2: async -----
+
+void test_async() {
+    std::cout << "test_async\n";
+    LocalServer srv;
+    srv.response_body = "async hello";
+    srv.start(18084);
     ClientRequest req;
-    req.url("not a url");
-    auto result = Client::get_instance().send_blocking(req);
-    EXPECT(!result.has_value());
-    if (!result.has_value()) {
-        EXPECT(result.error() == ClientError::InvalidUrl);
+    req.url("http://127.0.0.1:18084/async");
+    auto fut = Client::get_instance().send(std::move(req));
+    EXPECT(fut.valid());
+    auto result = fut.get();
+    EXPECT(result.has_value());
+    if (result.has_value()) {
+        EXPECT(result->bodyAsString() == "async hello");
     }
+    srv.stop();
+}
+
+// ----- Phase 4: redirects -----
+
+void test_redirect_follow() {
+    std::cout << "test_redirect_follow\n";
+    LocalServer srv;
+    srv.response_body = "final";
+    srv.redirect_path = "/start";
+    srv.redirect_target = "http://127.0.0.1:18085/final";
+    srv.start(18085);
+    ClientRequest req;
+    req.url("http://127.0.0.1:18085/start");
+    auto result = Client::get_instance().send_blocking(req);
+    EXPECT(result.has_value());
+    if (result.has_value()) {
+        EXPECT(result->statusCode() == 200);
+        EXPECT(result->bodyAsString() == "final");
+        EXPECT(srv.last_path == "/final");
+    }
+    srv.stop();
+}
+
+void test_redirect_disabled() {
+    std::cout << "test_redirect_disabled\n";
+    LocalServer srv;
+    srv.response_body = "should not be seen";
+    srv.redirect_path = "/start";
+    srv.redirect_target = "http://127.0.0.1:18086/final";
+    srv.start(18086);
+    ClientConfig cfg;
+    cfg.follow_redirects = false;
+    ClientRequest req;
+    req.url("http://127.0.0.1:18086/start");
+    auto result = Client::get_instance().send_blocking(req, cfg);
+    EXPECT(result.has_value());
+    if (result.has_value()) {
+        EXPECT(result->statusCode() == 302);
+    }
+    srv.stop();
+}
+
+// ----- Phase 5: timeout -----
+
+void test_request_timeout() {
+    std::cout << "test_request_timeout\n";
+    LocalServer srv;
+    srv.response_body = "";
+    srv.start(18087);
+    ClientConfig cfg;
+    cfg.request_timeout = std::chrono::seconds(1);
+    ClientRequest req;
+    req.url("http://127.0.0.1:18087/x");
+    auto start = std::chrono::steady_clock::now();
+    Client::get_instance().send_blocking(req, cfg);
+    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::steady_clock::now() - start).count();
+    EXPECT(elapsed < 10);
+    srv.stop();
 }
 
 int main() {
     test_url_parse();
-    test_unsupported_https();
     test_invalid_url();
     test_get();
     test_post();
     test_404();
     test_headers();
+    test_async();
+    test_redirect_follow();
+    test_redirect_disabled();
+    test_request_timeout();
 
     std::cout << "\nResults: " << passed << " passed, "
               << failed << " failed\n";

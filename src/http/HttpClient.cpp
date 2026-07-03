@@ -1,25 +1,19 @@
-// OmniNet - HTTP Client Implementation (v0.8.0 Phase 1)
-//
-// Phase 1 scope:
-//   - GET and POST only
-//   - Plain OmniNet::Socket transport only (TLS in Phase 3)
-//   - Single connection per request (no pool, no keep-alive)
-//   - Synchronous only (async std::future in Phase 2)
-//   - No redirect following (Phase 4)
-//   - No streaming (Phase 7)
-//   - No cancellation / stop_token (Phase 5)
-//   - No cookies / auth helpers (Phase 6)
+// OmniNet - HTTP Client Implementation (v0.8.0)
+// Phases 1-5: types + sync send + TLS + async + redirects + timeouts/cancellation.
 
 #include "http/HttpClient.h"
 
 #include "net/Socket.h"
+#include "net/TLSSocket.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <future>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace OmniNet::HTTP {
@@ -53,12 +47,11 @@ const char* clientErrorName(ClientError e) {
 
 namespace {
 
-struct ParsedUrl {
-    std::string scheme;
-    std::string host;
-    std::string port;
-    std::string path;   // includes leading '/' and any query string
-};
+std::string toLower(std::string_view s) {
+    std::string out(s);
+    for (auto& c : out) c = static_cast<char>(std::tolower(c));
+    return out;
+}
 
 Result<ParsedUrl, ClientError> parseUrl(const std::string& url) {
     ParsedUrl out;
@@ -70,10 +63,7 @@ Result<ParsedUrl, ClientError> parseUrl(const std::string& url) {
     out.scheme = url.substr(0, pos);
     for (auto& c : out.scheme) c = static_cast<char>(std::tolower(c));
 
-    if (out.scheme == "https") {
-        return std::unexpected(ClientError::UnsupportedProtocol);
-    }
-    if (out.scheme != "http") {
+    if (out.scheme != "http" && out.scheme != "https") {
         return std::unexpected(ClientError::InvalidUrl);
     }
 
@@ -83,15 +73,23 @@ Result<ParsedUrl, ClientError> parseUrl(const std::string& url) {
     if (path_pos == std::string::npos) {
         hostport = url.substr(host_start);
         out.path = "/";
+        out.query = "";
     } else {
         hostport = url.substr(host_start, path_pos - host_start);
-        out.path = url.substr(path_pos);
+        auto query_pos = url.find('?', path_pos);
+        if (query_pos == std::string::npos) {
+            out.path = url.substr(path_pos);
+            out.query = "";
+        } else {
+            out.path = url.substr(path_pos, query_pos - path_pos);
+            out.query = url.substr(query_pos + 1);
+        }
     }
 
     auto colon = hostport.find(':');
     if (colon == std::string::npos) {
         out.host = hostport;
-        out.port = "80";
+        out.port = (out.scheme == "https") ? "443" : "80";
     } else {
         out.host = hostport.substr(0, colon);
         out.port = hostport.substr(colon + 1);
@@ -102,15 +100,14 @@ Result<ParsedUrl, ClientError> parseUrl(const std::string& url) {
     return out;
 }
 
-std::string toLower(std::string_view s) {
-    std::string out(s);
-    for (auto& c : out) c = static_cast<char>(std::tolower(c));
-    return out;
+std::string buildPath(const ParsedUrl& u) {
+    if (u.query.empty()) return u.path;
+    return u.path + "?" + u.query;
 }
 
+// Parse a single HTTP/1.x response.
 Result<ClientResponse, ClientError> parseResponse(const std::string& raw) {
     ClientResponse resp;
-
     auto eol = raw.find("\r\n");
     if (eol == std::string::npos) {
         return std::unexpected(ClientError::ParseError);
@@ -145,6 +142,7 @@ Result<ClientResponse, ClientError> parseResponse(const std::string& raw) {
     size_t pos = eol + 2;
     size_t content_length = 0;
     bool have_content_length = false;
+    bool chunked = false;
     while (pos < raw.size()) {
         auto next_eol = raw.find("\r\n", pos);
         if (next_eol == std::string::npos) break;
@@ -173,16 +171,48 @@ Result<ClientResponse, ClientError> parseResponse(const std::string& raw) {
                     content_length = content_length * 10 + (c - '0');
                 }
                 have_content_length = true;
+            } else if (lower_name == "transfer-encoding") {
+                std::string lv = toLower(value);
+                if (lv.find("chunked") != std::string::npos) chunked = true;
             }
         }
         pos = next_eol + 2;
     }
 
-    if (pos < raw.size()) {
+    if (chunked) {
+        std::vector<uint8_t> body;
+        while (pos < raw.size()) {
+            auto chunk_eol = raw.find("\r\n", pos);
+            if (chunk_eol == std::string::npos) break;
+            std::string size_line = raw.substr(pos, chunk_eol - pos);
+            auto semi = size_line.find(';');
+            if (semi != std::string::npos) size_line.resize(semi);
+            size_t chunk_size = 0;
+            for (char c : size_line) {
+                int d = (c >= '0' && c <= '9') ? c - '0'
+                       : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+                       : (c >= 'A' && c <= 'F') ? c - 'A' + 10 : -1;
+                if (d < 0) break;
+                chunk_size = chunk_size * 16 + static_cast<size_t>(d);
+            }
+            pos = chunk_eol + 2;
+            if (chunk_size == 0) {
+                if (pos < raw.size() && raw[pos] == '\r') ++pos;
+                if (pos < raw.size() && raw[pos] == '\n') ++pos;
+                break;
+            }
+            if (pos + chunk_size > raw.size()) break;
+            body.insert(body.end(), raw.begin() + pos,
+                        raw.begin() + pos + chunk_size);
+            pos += chunk_size;
+            if (pos < raw.size() && raw[pos] == '\r') ++pos;
+            if (pos < raw.size() && raw[pos] == '\n') ++pos;
+        }
+        resp.setBody(std::move(body));
+    } else if (pos < raw.size()) {
         size_t available = raw.size() - pos;
         size_t to_copy = have_content_length
-            ? std::min(content_length, available)
-            : available;
+            ? std::min(content_length, available) : available;
         std::vector<uint8_t> body(raw.begin() + pos,
                                   raw.begin() + pos + to_copy);
         resp.setBody(std::move(body));
@@ -190,13 +220,50 @@ Result<ClientResponse, ClientError> parseResponse(const std::string& raw) {
     return resp;
 }
 
-// Read all bytes from the socket until EOF (server closes).
-// Phase 5: add timeout via poll().
-std::string readAll(OmniNet::Socket& socket) {
+std::string buildRequest(const ClientRequest& req, const std::string& path) {
+    std::ostringstream os;
+    os << req.method() << ' ' << path << " HTTP/1.1\r\n";
+    os << "Host: <set>\r\n";
+    os << "User-Agent: <set>\r\n";
+    os << "Accept: */*\r\n";
+    os << "Connection: close\r\n";
+    for (const auto& [k, v] : req.headers()) {
+        os << k << ": " << v << "\r\n";
+    }
+    if (!req.bodyBytes().empty()) {
+        os << "Content-Length: " << req.bodyBytes().size() << "\r\n";
+    }
+    os << "\r\n";
+    std::string out = os.str();
+    if (!req.bodyBytes().empty()) {
+        out.append(reinterpret_cast<const char*>(req.bodyBytes().data()),
+                   req.bodyBytes().size());
+    }
+    return out;
+}
+
+std::string readAll(OmniNet::Socket& socket, const ClientConfig& cfg,
+                    const std::stop_token& stop) {
     std::string out;
     std::vector<uint8_t> chunk(64 * 1024);
+    auto deadline = std::chrono::steady_clock::now() + cfg.request_timeout;
+    bool use_timeout = cfg.request_timeout.count() > 0;
+    bool check_stop = stop.stop_possible();
+
     while (true) {
-        // OmniNet::Socket::recvAll returns the bytes received this batch.
+        if (check_stop && stop.stop_requested()) break;
+
+        auto now = std::chrono::steady_clock::now();
+        if (use_timeout && now >= deadline) break;
+
+        auto poll = std::chrono::milliseconds(50);
+        if (use_timeout) {
+            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - now);
+            poll = std::min(remaining, poll);
+        }
+        if (!socket.waitForRead(poll)) continue;
+
         auto got = socket.recvAll(chunk.size());
         if (got.empty()) break;
         out.append(reinterpret_cast<const char*>(got.data()), got.size());
@@ -296,88 +363,152 @@ void Client::configure(const ClientConfig& cfg) {
     m_config = cfg;
 }
 
+// ----- Synchronous API -----
+
 Result<ClientResponse, ClientError>
 Client::send_blocking(const ClientRequest& req) {
-    return send_blocking(req, m_config);
+    return send_blocking(req, m_config, std::stop_token{});
 }
 
 Result<ClientResponse, ClientError>
 Client::send_blocking(const ClientRequest& req, const ClientConfig& cfg) {
-    // 1. Parse URL.
-    auto parsed = parseUrl(req.url());
-    if (!parsed.has_value()) {
-        return std::unexpected(parsed.error());
-    }
-    if (parsed->scheme != "http") {
-        return std::unexpected(ClientError::UnsupportedProtocol);
-    }
-
-    // 2. Connect.
-    auto sock_result = connect(parsed->scheme, parsed->host,
-                               parsed->port, cfg);
-    if (!sock_result.has_value()) {
-        return std::unexpected(sock_result.error());
-    }
-
-    // 3. Send + receive.
-    return exchange(std::move(sock_result.value()), req, cfg);
+    return send_blocking(req, cfg, std::stop_token{});
 }
 
+Result<ClientResponse, ClientError>
+Client::send_blocking(const ClientRequest& req, const ClientConfig& cfg,
+                      const std::stop_token& stop) {
+    ClientRequest current = req;
+    for (int hop = 0; hop <= cfg.max_redirect_hops; ++hop) {
+        auto parsed = parseUrl(current.url());
+        if (!parsed.has_value()) {
+            return std::unexpected(parsed.error());
+        }
+        auto sock_result = connect(parsed->scheme, parsed->host,
+                                   parsed->port, cfg);
+        if (!sock_result.has_value()) {
+            return std::unexpected(sock_result.error());
+        }
+        auto result = exchange(std::move(sock_result.value()),
+                               current, *parsed, cfg, stop);
+        if (!result.has_value()) {
+            return std::unexpected(result.error());
+        }
+        int sc = result->statusCode();
+        if (sc < 300 || sc >= 400) return result;
+        if (sc == 304) return result;
+        if (!cfg.follow_redirects) return result;
+        std::string loc = result->header("Location");
+        if (loc.empty()) return result;
+        if (hop == cfg.max_redirect_hops) {
+            return std::unexpected(ClientError::TooManyRedirects);
+        }
+        ClientRequest next = current;
+        next.url(loc);
+        if (sc == 301 || sc == 302 || sc == 303) {
+            next.method("GET");
+            std::vector<uint8_t> empty;
+            next.body(std::move(empty));
+        }
+        current = next;
+    }
+    return std::unexpected(ClientError::TooManyRedirects);
+}
+
+// ----- Async API (Phase 2) -----
+
+std::future<Result<ClientResponse, ClientError>>
+Client::send(ClientRequest req) {
+    ClientConfig cfg = m_config;
+    Client* self = this;
+    return std::async(std::launch::async,
+                      [req = std::move(req), cfg, self]() mutable {
+        return self->send_blocking(req, cfg, std::stop_token{});
+    });
+}
+
+std::future<Result<ClientResponse, ClientError>>
+Client::send(ClientRequest req, const std::stop_token& stop) {
+    ClientConfig cfg = m_config;
+    Client* self = this;
+    return std::async(std::launch::async,
+                      [req = std::move(req), cfg, stop, self]() mutable {
+        return self->send_blocking(req, cfg, stop);
+    });
+}
+
+std::future<Result<ClientResponse, ClientError>>
+Client::send(ClientRequest req, const ClientConfig& cfg) {
+    Client* self = this;
+    return std::async(std::launch::async,
+                      [req = std::move(req), cfg, self]() {
+        return self->send_blocking(req, cfg, std::stop_token{});
+    });
+}
+
+std::future<Result<ClientResponse, ClientError>>
+Client::send(ClientRequest req, const ClientConfig& cfg,
+             const std::stop_token& stop) {
+    Client* self = this;
+    return std::async(std::launch::async,
+                      [req = std::move(req), cfg, stop, self]() mutable {
+        return self->send_blocking(req, cfg, stop);
+    });
+}
+
+// ----- Internal: connect (TLS-aware) -----
+
 Result<std::unique_ptr<OmniNet::Socket>, ClientError>
-Client::connect(const std::string& /*scheme*/, const std::string& host,
-                const std::string& port, const ClientConfig& /*cfg*/) {
+Client::connect(const std::string& scheme, const std::string& host,
+                const std::string& port, const ClientConfig& cfg) {
+    uint16_t port_num = 0;
+    for (char c : port) {
+        if (c < '0' || c > '9') {
+            return std::unexpected(ClientError::InvalidUrl);
+        }
+        port_num = static_cast<uint16_t>(port_num * 10 + (c - '0'));
+    }
     try {
-        auto sock = std::make_unique<OmniNet::Socket>();
-        uint16_t port_num = 0;
-        for (char c : port) {
-            if (c < '0' || c > '9') {
-                return std::unexpected(ClientError::InvalidUrl);
+        if (scheme == "https") {
+            auto tlsCtx = OmniNet::TLSContext::createClient();
+            auto sock = tlsCtx->createSocket();
+            sock->setSNIHostname(host);
+            sock->setALPNProtocols({"http/1.1"});
+            sock->connect(host, port_num);
+            if (!sock->isOpen()) {
+                return std::unexpected(ClientError::ConnectFailed);
             }
-            port_num = static_cast<uint16_t>(port_num * 10 + (c - '0'));
+            if (!cfg.verify_tls) {
+                auto* tls = dynamic_cast<OmniNet::TLSSocket*>(sock.get());
+                if (tls) tls->setVerifyMode(OmniNet::TLSVerify::NONE);
+            }
+            return sock;
+        } else {
+            auto sock = std::make_unique<OmniNet::Socket>();
+            sock->connect(host, port_num);
+            if (!sock->isOpen()) {
+                return std::unexpected(ClientError::ConnectFailed);
+            }
+            return sock;
         }
-        sock->connect(host, port_num);
-        if (!sock->isOpen()) {
-            return std::unexpected(ClientError::ConnectFailed);
-        }
-        return sock;
     } catch (...) {
         return std::unexpected(ClientError::ConnectFailed);
     }
 }
 
+// ----- Internal: exchange (send + recv) -----
+
 Result<ClientResponse, ClientError>
 Client::exchange(std::unique_ptr<OmniNet::Socket> socket,
-                 const ClientRequest& req, const ClientConfig& cfg) {
-    // Re-parse URL inside exchange (called from redirect logic in Phase 4).
-    auto parsed = parseUrl(req.url());
-    if (!parsed.has_value()) {
-        return std::unexpected(parsed.error());
-    }
+                 const ClientRequest& req, const ParsedUrl& parsed,
+                 const ClientConfig& cfg, const std::stop_token& stop) {
+    std::string path = buildPath(parsed);
+    std::string wire = buildRequest(req, path);
 
-    // Build the wire format with placeholders for Host / User-Agent.
-    std::ostringstream os;
-    os << req.method() << ' ' << parsed->path << " HTTP/1.1\r\n";
-    os << "Host: <set>\r\n";
-    os << "User-Agent: <set>\r\n";
-    os << "Accept: */*\r\n";
-    os << "Connection: close\r\n";
-    for (const auto& [k, v] : req.headers()) {
-        os << k << ": " << v << "\r\n";
-    }
-    if (!req.bodyBytes().empty()) {
-        os << "Content-Length: " << req.bodyBytes().size() << "\r\n";
-    }
-    os << "\r\n";
-    std::string wire = os.str();
-    if (!req.bodyBytes().empty()) {
-        wire.append(reinterpret_cast<const char*>(req.bodyBytes().data()),
-                    req.bodyBytes().size());
-    }
-
-    // Replace placeholders with real values.
     const std::string host_header =
-        parsed->port == "80" ? parsed->host
-                             : (parsed->host + ":" + parsed->port);
+        ((parsed.scheme == "http" && parsed.port == "80") ||
+         (parsed.scheme == "https" && parsed.port == "443"))
+        ? parsed.host : (parsed.host + ":" + parsed.port);
     const std::string host_line = "Host: " + host_header + "\r\n";
     const std::string ua_line = "User-Agent: " + cfg.user_agent + "\r\n";
     auto host_pos = wire.find("Host: <set>\r\n");
@@ -391,7 +522,6 @@ Client::exchange(std::unique_ptr<OmniNet::Socket> socket,
                      ua_line);
     }
 
-    // Send.
     try {
         std::span<const uint8_t> out(
             reinterpret_cast<const uint8_t*>(wire.data()), wire.size());
@@ -400,10 +530,12 @@ Client::exchange(std::unique_ptr<OmniNet::Socket> socket,
         return std::unexpected(ClientError::SendFailed);
     }
 
-    // Receive.
     std::string raw;
     try {
-        raw = readAll(*socket);
+        raw = readAll(*socket, cfg, stop);
+        if (stop.stop_possible() && stop.stop_requested()) {
+            return std::unexpected(ClientError::Cancelled);
+        }
     } catch (...) {
         return std::unexpected(ClientError::RecvFailed);
     }
