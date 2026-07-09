@@ -112,10 +112,6 @@ void Response::setHeader(std::string_view name, std::string_view value) {
     m_headers[std::string(name)] = std::string(value);
 }
 
-void Response::setHeader(std::string_view name, std::string&& value) {
-    m_headers[std::string(name)] = std::move(value);
-}
-
 void Response::removeHeader(std::string_view name) {
     m_headers.erase(std::string(name));
 }
@@ -161,12 +157,12 @@ void Response::setETag(std::string_view etag) {
 }
 
 void Response::setKeepAlive(std::chrono::seconds timeout) {
-    setHeader(std::string("Keep-Alive"), std::string("timeout=") + std::to_string(timeout.count()));
-    setHeader(std::string("Connection"), std::string("keep-alive"));
+    setHeader("Keep-Alive", std::string("timeout=") + std::to_string(timeout.count()));
+    setHeader("Connection", "keep-alive");
 }
 
 void Response::setConnectionClose() {
-    setHeader(std::string("Connection"), std::string("close"));
+    setHeader("Connection", "close");
 }
 
 void Response::setTransferEncoding(const std::string& encoding) {

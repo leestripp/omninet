@@ -105,9 +105,16 @@ public:
     std::string_view reason() const;
     
     // --- Headers ---
-    
+
+    // v0.8.3 (MonkeyByte Bug 4): the previous overload set
+    //   setHeader(string_view, string&&)
+    // made calls like `resp.setHeader("Cache-Control", "no-cache")`
+    // ambiguous (const char[] binds equally well to string_view or
+    // string&&). Removed the string&& overload; the string_view
+    // overload already binds std::string rvalues via temporary
+    // materialization, with one extra move-construction. For header
+    // values (typically < 1 KB) the move cost is noise.
     void setHeader(std::string_view name, std::string_view value);
-    void setHeader(std::string_view name, std::string&& value);
     void removeHeader(std::string_view name);
     
     std::optional<std::string_view> header(std::string_view name) const;

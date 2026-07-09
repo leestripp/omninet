@@ -274,6 +274,73 @@ bool test_response_decompress_roundtrip() {
 
 #endif // OMNINET_HAVE_ZLIB
 
+// v0.8.3 (MonkeyByte Bug 4): setHeader() with const char[] literals.
+// Previously called setHeader("Cache-Control", "no-cache") failed to
+// compile because the string&& overload made the call ambiguous.
+// The string&& overload has been removed; the string_view overload
+// binds literals cleanly.
+bool test_response_setHeader_literal_string() {
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    // The actual bug-report call site:
+    resp.setHeader("Cache-Control", "no-cache");
+
+    auto v = resp.header("Cache-Control");
+    if (!v || *v != "no-cache") return false;
+    return true;
+}
+
+bool test_response_setHeader_mixed_literal_types() {
+    // Mixed name=string_view literal, value=const char[] literal
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    resp.setHeader("X-Literal", "literal-value");
+    resp.setHeader("X-Mixed", std::string("std-string-value"));
+    resp.setHeader("X-View", std::string_view("stringview-value"));
+
+    if (resp.header("X-Literal").value_or("") != "literal-value")         return false;
+    if (resp.header("X-Mixed").value_or("") != "std-string-value")        return false;
+    if (resp.header("X-View").value_or("") != "stringview-value")         return false;
+    return true;
+}
+
+bool test_response_setHeader_rvalue_std_string() {
+    // setHeader("X", std::move(s)) must still work (compile + run).
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    std::string payload = "big-payload-from-std-string";
+    resp.setHeader("X-Payload", std::move(payload));
+
+    if (resp.header("X-Payload").value_or("") != "big-payload-from-std-string") return false;
+    // After move, payload is in a valid but unspecified state - we don't assert.
+    return true;
+}
+
+bool test_response_setHeader_lvalue_std_string() {
+    // setHeader("X", s) where s is an lvalue std::string - must copy.
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    std::string payload = "lvalue-payload";
+    resp.setHeader("X-Payload", payload);
+
+    if (resp.header("X-Payload").value_or("") != "lvalue-payload") return false;
+    if (payload != "lvalue-payload") return false;  // unchanged
+    return true;
+}
+
+bool test_response_setHeader_long_value_no_ambiguity() {
+    // The original bug report: a string literal longer than 14 chars
+    // triggered the ambiguity error.  This is the regression test.
+    Response resp;
+    resp.setStatus(StatusCode::OK);
+    resp.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    resp.setHeader("X-Custom-Header-Name", "X-Custom-Header-Value");
+
+    if (resp.header("Cache-Control").value_or("") != "no-cache, no-store, must-revalidate") return false;
+    if (resp.header("X-Custom-Header-Name").value_or("") != "X-Custom-Header-Value")        return false;
+    return true;
+}
+
 int main() {
     std::cout << "Running HTTP Response tests..." << std::endl;
 
@@ -333,6 +400,47 @@ int main() {
         passed++;
     } else {
         std::cout << "[FAIL] Explicit Content-Length preserved" << std::endl;
+        failed++;
+    }
+
+    // v0.8.3 (MonkeyByte Bug 4): setHeader() overload disambiguation.
+    if (test_response_setHeader_literal_string()) {
+        std::cout << "[PASS] setHeader with const char[] literals (bug #4 fix)" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] setHeader with const char[] literals (bug #4 fix)" << std::endl;
+        failed++;
+    }
+
+    if (test_response_setHeader_mixed_literal_types()) {
+        std::cout << "[PASS] setHeader mixed literal types" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] setHeader mixed literal types" << std::endl;
+        failed++;
+    }
+
+    if (test_response_setHeader_rvalue_std_string()) {
+        std::cout << "[PASS] setHeader with std::string rvalue" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] setHeader with std::string rvalue" << std::endl;
+        failed++;
+    }
+
+    if (test_response_setHeader_lvalue_std_string()) {
+        std::cout << "[PASS] setHeader with std::string lvalue" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] setHeader with std::string lvalue" << std::endl;
+        failed++;
+    }
+
+    if (test_response_setHeader_long_value_no_ambiguity()) {
+        std::cout << "[PASS] setHeader long literal value (regression for bug #4)" << std::endl;
+        passed++;
+    } else {
+        std::cout << "[FAIL] setHeader long literal value (regression for bug #4)" << std::endl;
         failed++;
     }
 
