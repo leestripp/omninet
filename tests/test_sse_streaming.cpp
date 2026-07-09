@@ -294,6 +294,247 @@ int g_failed = 0;
 // Tests
 // ============================================================================
 
+
+// ============================================================================
+// Unit tests — Event format (no server needed)
+// ============================================================================
+
+void test_event_format_empty() {
+    std::cout << "\n[sse_event_format_empty]\n";
+    SSE::Event e;
+    std::string out = e.format();
+    // Empty event = just the terminating blank line.
+    EXPECT_EQ(out, std::string("\r\n"));
+    PASS("sse_event_format_empty");
+}
+
+void test_event_format_data_only() {
+    std::cout << "\n[sse_event_format_data_only]\n";
+    SSE::Event e;
+    e.data = "hello";
+    std::string out = e.format();
+    EXPECT_EQ(out, std::string("data: hello\r\n\r\n"));
+    PASS("sse_event_format_data_only");
+}
+
+void test_event_format_all_fields() {
+    std::cout << "\n[sse_event_format_all_fields]\n";
+    SSE::Event e;
+    e.id    = "42";
+    e.event = "update";
+    e.data  = "status: ok";
+    e.retry = 5000;
+    std::string out = e.format();
+    EXPECT(out.find("id: 42\r\n") != std::string::npos);
+    EXPECT(out.find("event: update\r\n") != std::string::npos);
+    EXPECT(out.find("retry: 5000\r\n") != std::string::npos);
+    EXPECT(out.find("data: status: ok\r\n") != std::string::npos);
+    PASS("sse_event_format_all_fields");
+}
+
+void test_event_format_multiline_data() {
+    std::cout << "\n[sse_event_format_multiline_data]\n";
+    SSE::Event e;
+    e.data = "line1\nline2\nline3";
+    std::string out = e.format();
+    EXPECT(out.find("data: line1\r\n") != std::string::npos);
+    EXPECT(out.find("data: line2\r\n") != std::string::npos);
+    EXPECT(out.find("data: line3\r\n") != std::string::npos);
+    PASS("sse_event_format_multiline_data");
+}
+
+void test_event_comment() {
+    std::cout << "\n[sse_event_comment]\n";
+    auto e = SSE::Event::comment("connected");
+    EXPECT_EQ(e.data, std::string(":connected"));
+    std::string out = e.format();
+    EXPECT(out.find("data: :connected") != std::string::npos);
+    PASS("sse_event_comment");
+}
+
+void test_event_make() {
+    std::cout << "\n[sse_event_make]\n";
+    auto e = SSE::Event::make("hello world");
+    EXPECT_EQ(e.data, std::string("hello world"));
+    EXPECT(e.event.empty());
+    EXPECT(e.id.empty());
+    EXPECT_EQ(e.retry, 0);
+    PASS("sse_event_make");
+}
+
+void test_event_named() {
+    std::cout << "\n[sse_event_named]\n";
+    auto e = SSE::Event::named("chat", "hello there");
+    EXPECT_EQ(e.event, std::string("chat"));
+    EXPECT_EQ(e.data, std::string("hello there"));
+    EXPECT(e.id.empty());
+    EXPECT_EQ(e.retry, 0);
+    PASS("sse_event_named");
+}
+
+// ============================================================================
+// Unit tests — Handler API (no server needed; direct handler calls)
+// ============================================================================
+
+void test_handler_client_count_empty() {
+    std::cout << "\n[sse_handler_client_count_empty]\n";
+    SSE::Handler h("/events");
+    EXPECT_EQ(h.clientCount(), 0u);
+    PASS("sse_handler_client_count_empty");
+}
+
+void test_handler_client_count_after_add_remove() {
+    std::cout << "\n[sse_handler_client_count_after_add_remove]\n";
+    SSE::Handler h("/events");
+    auto sender = [](const std::string) -> bool { return true; };
+
+    h.addClient("a", sender);
+    EXPECT_EQ(h.clientCount(), 1u);
+    h.addClient("b", sender);
+    EXPECT_EQ(h.clientCount(), 2u);
+
+    // Removing non-existent must not crash.
+    h.removeClient("nonexistent");
+    EXPECT_EQ(h.clientCount(), 2u);
+
+    h.removeClient("a");
+    EXPECT_EQ(h.clientCount(), 1u);
+    h.removeClient("b");
+    EXPECT_EQ(h.clientCount(), 0u);
+
+    // Idempotent remove.
+    h.removeClient("b");
+    EXPECT_EQ(h.clientCount(), 0u);
+    PASS("sse_handler_client_count_after_add_remove");
+}
+
+void test_handler_on_disconnect_callback() {
+    std::cout << "\n[sse_handler_on_disconnect_callback]\n";
+    SSE::Handler h("/events");
+    std::vector<std::string> disconnected;
+    h.onDisconnect([&disconnected](const std::string id) {
+        disconnected.push_back(id);
+    });
+
+    auto sender = [](const std::string) -> bool { return true; };
+    h.addClient("alice", sender);
+    h.addClient("bob", sender);
+    h.addClient("carol", sender);
+
+    h.removeClient("bob");
+    EXPECT_EQ(disconnected.size(), 1u);
+    EXPECT_EQ(disconnected[0], std::string("bob"));
+
+    // Removing non-existent must NOT fire callback.
+    h.removeClient("nobody");
+    EXPECT_EQ(disconnected.size(), 1u);
+
+    h.removeClient("alice");
+    EXPECT_EQ(disconnected.size(), 2u);
+
+    h.removeClient("carol");
+    EXPECT_EQ(disconnected.size(), 3u);
+    PASS("sse_handler_on_disconnect_callback");
+}
+
+void test_handler_broadcast_empty_clients() {
+    std::cout << "\n[sse_handler_broadcast_empty_clients]\n";
+    SSE::Handler h("/events");
+    // Broadcasting to zero clients must not crash.
+    h.broadcast("type", "hello");
+    h.broadcast(SSE::Event::make(""));
+    EXPECT_EQ(h.clientCount(), 0u);
+    PASS("sse_handler_broadcast_empty_clients");
+}
+
+void test_handler_broadcast_records_events() {
+    std::cout << "\n[sse_handler_broadcast_records_events]\n";
+    SSE::Handler h("/events");
+
+    std::vector<std::string> aliceEvents;
+    std::vector<std::string> bobEvents;
+
+    auto aliceSender = [&aliceEvents](const std::string ev) -> bool {
+        aliceEvents.push_back(ev);
+        return true;
+    };
+    auto bobSender = [&bobEvents](const std::string ev) -> bool {
+        bobEvents.push_back(ev);
+        return true;
+    };
+
+    h.addClient("alice", aliceSender);
+    h.addClient("bob", bobSender);
+
+    h.broadcast("msg", "hello");
+    EXPECT_EQ(aliceEvents.size(), 1u);
+    EXPECT_EQ(bobEvents.size(), 1u);
+    EXPECT(aliceEvents[0].find("data: hello") != std::string::npos);
+    EXPECT(bobEvents[0].find("data: hello") != std::string::npos);
+
+    h.broadcast("msg", "world");
+    EXPECT_EQ(aliceEvents.size(), 2u);
+    EXPECT_EQ(bobEvents.size(), 2u);
+
+    h.removeClient("alice");
+    h.broadcast("msg", "alice gone");
+    EXPECT_EQ(aliceEvents.size(), 2u);
+    EXPECT_EQ(bobEvents.size(), 3u);
+    PASS("sse_handler_broadcast_records_events");
+}
+
+void test_handler_rapid_add_remove() {
+    std::cout << "\n[sse_handler_rapid_add_remove]\n";
+    SSE::Handler h("/events");
+    auto sender = [](const std::string) -> bool { return true; };
+
+    for (int i = 0; i < 100; ++i) {
+        h.addClient("client-" + std::to_string(i), sender);
+    }
+    EXPECT_EQ(h.clientCount(), 100u);
+
+    for (int i = 0; i < 100; i += 2) {
+        h.removeClient("client-" + std::to_string(i));
+    }
+    EXPECT_EQ(h.clientCount(), 50u);
+
+    for (int i = 100; i < 150; ++i) {
+        h.addClient("client-" + std::to_string(i), sender);
+    }
+    EXPECT_EQ(h.clientCount(), 100u);
+
+    for (int i = 0; i < 150; ++i) {
+        h.removeClient("client-" + std::to_string(i));
+    }
+    EXPECT_EQ(h.clientCount(), 0u);
+    PASS("sse_handler_rapid_add_remove");
+}
+
+void test_handler_multiple_broadcasts_same_event() {
+    std::cout << "\n[sse_handler_multiple_broadcasts_same_event]\n";
+    SSE::Handler h("/events");
+    std::vector<std::string> events;
+    auto sender = [&events](const std::string ev) -> bool {
+        events.push_back(ev);
+        return true;
+    };
+    h.addClient("client1", sender);
+
+    auto e = SSE::Event::named("ping", "hello");
+    h.broadcast(e);
+    h.broadcast(e);
+    h.broadcast(e);
+
+    EXPECT_EQ(events.size(), 3u);
+    // All three should be identical.
+    EXPECT(events[0] == events[1]);
+    EXPECT(events[1] == events[2]);
+    PASS("sse_handler_multiple_broadcasts_same_event");
+}
+
+// ============================================================================
+// Integration tests — require HTTP server + real sockets
+// ============================================================================
 void test_initial_comment_arrives() {
     std::cout << "\n[sse_initial_comment_arrives]\n";
     TestServer srv;
@@ -581,7 +822,26 @@ int main() {
     std::cout << "SSE streaming tests (v0.8.4 — simplified)\n";
     std::cout << "========================================\n";
 
-    test_initial_comment_arrives();
+    // --- Unit tests: Event format ---
+    test_event_format_empty();
+    test_event_format_data_only();
+    test_event_format_all_fields();
+    test_event_format_multiline_data();
+    test_event_comment();
+    test_event_make();
+    test_event_named();
+
+    // --- Unit tests: Handler API ---
+    test_handler_client_count_empty();
+    test_handler_client_count_after_add_remove();
+    test_handler_on_disconnect_callback();
+    test_handler_broadcast_empty_clients();
+    test_handler_broadcast_records_events();
+    test_handler_rapid_add_remove();
+    test_handler_multiple_broadcasts_same_event();
+
+    // --- Integration tests ---
+        test_initial_comment_arrives();
     test_broadcast_string_event();
     test_broadcast_event_object();
     test_broadcast_to_multiple_clients();

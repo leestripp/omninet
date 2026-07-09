@@ -3635,5 +3635,9 @@ Tests `test_broadcast_to_one` (was #4) and `test_keepalive_periodic`
 - [x] Full build clean on clang 21.1.8
 - [x] omnet_test and all other tests still pass (no regressions)
 - [x] Commit (357c7e4)
-- [ ] Update docs/CHANGELOG.md with behavior changes (keep-alive
-      removed, no subscriptions, no dead-letter-drop)
+- [x] Add better unit tests for SSE (14 new: 7 Event format + 7 Handler API)
+  - test_event_format_empty, data_only, all_fields, multiline, comment, make, named
+  - test_handler_client_count_empty, after_add_remove, on_disconnect_callback,
+    broadcast_empty, broadcast_records_events, rapid_add_remove, multiple_broadcasts
+- [x] All 23 SSE tests PASS
+- [x] Commit (3a838cc)

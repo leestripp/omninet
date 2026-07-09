@@ -80,12 +80,16 @@ public:
 
     // --- Client Management ---
 
-    size_t clientCount() const;
-    size_t connectionCount() const { return clientCount(); }  // alias
+    // Register a client. Public so tests and programmatic use (non-HTTP)
+    // can register senders directly. If the same clientId is already
+    // registered, the old entry is replaced.
+    void addClient(const std::string& clientId, Sender sender);
 
     // Remove a client. Called by the worker thread when its
-    // connection closes (or by user code).
+    // connection closes (or by user code). Idempotent.
     void removeClient(const std::string& clientId);
+    size_t clientCount() const;
+    size_t connectionCount() const { return clientCount(); }  // alias
 
     // --- Callbacks ---
 
@@ -98,15 +102,12 @@ public:
     void onDisconnect(DisconnectHandler handler);
 
 private:
-    // Connected client state.
+    // Connected client state (private — internal only).
     struct Client {
         Sender sender;
         std::atomic<bool> connected{true};
         std::chrono::steady_clock::time_point lastActivity;
     };
-
-    // Register a new client. Called only from worker threads.
-    void addClient(const std::string& clientId, Sender sender);
 
     // Write one chunked-transfer-encoding frame to a socket.
     // hex-size + "\r\n" + data + "\r\n".
