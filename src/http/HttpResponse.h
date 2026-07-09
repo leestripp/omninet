@@ -178,6 +178,17 @@ public:
     void markProtocolSwitch();
     bool isProtocolSwitch() const;
 
+    // v0.8.3 (MonkeyByte Bug 1, SSE streaming): chunked-stream
+    // handoff. Same effect as markProtocolSwitch() but for a
+    // 200 OK response with Transfer-Encoding: chunked and no body.
+    // The HTTP server writes the headers, then hands the raw socket
+    // to a post-upgrade callback. The callback writes SSE frames
+    // (hex-framed chunks) directly to the socket until the client
+    // disconnects. Used by SSEHandler::handle() for the
+    // HTTP→SSE switch.
+    void markStreaming();
+    bool isStreaming() const;
+
     // --- Static Helpers ---
     
     // Common response factories
@@ -214,6 +225,9 @@ private:
 
     // v0.7.0: see markProtocolSwitch() above.
     bool m_protocolSwitch = false;
+
+    // v0.8.3: see markStreaming() above.
+    bool m_streaming = false;
 
     // Build status line
     std::string buildStatusLine() const;

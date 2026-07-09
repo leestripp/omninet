@@ -75,8 +75,13 @@ bool Connection::handleNextRequest() {
         // post-upgrade callback was registered, release the socket
         // and hand it to the callback. The Connection stops
         // processing more HTTP requests on this connection.
-        if (resp.isProtocolSwitch() && m_postUpgradeCallback) {
-            CONN_DEBUG("Protocol switch: handing socket to post-upgrade callback");
+        // v0.8.3 (MonkeyByte Bug 1, SSE streaming): same handoff
+        // for `isStreaming()` — a 200 OK with Transfer-Encoding:
+        // chunked. The post-upgrade callback owns the socket and
+        // writes SSE chunks until the client disconnects.
+        if ((resp.isProtocolSwitch() || resp.isStreaming()) && m_postUpgradeCallback) {
+            CONN_DEBUG((resp.isStreaming() ? "Streaming: " : "Protocol switch: ")
+                       << "handing socket to post-upgrade callback");
             auto cb = std::move(m_postUpgradeCallback);
             auto sock = releaseSocket();
             cb(std::move(sock), m_currentRequest);

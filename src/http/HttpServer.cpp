@@ -465,12 +465,20 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
                 // Only call the Router if on_upgrade didn't handle the
                 // request. A protocol switch response (101) or an error
                 // (400) from on_upgrade should NOT be overridden by 404.
-                if (!resp.isProtocolSwitch() && resp.status() == StatusCode::OK) {
+                // v0.8.3 (MonkeyByte Bug 1, SSE streaming): same
+                // skip-Router rule applies to `isStreaming()` - the
+                // headers have been set up by on_upgrade and the
+                // post-upgrade callback will stream chunks over the
+                // socket. A 404 from Router would clobber the 200.
+                if (!resp.isProtocolSwitch() && !resp.isStreaming() &&
+                    resp.status() == StatusCode::OK) {
                     SERVER_DEBUG("Calling router.handle()");
                     m_router.handle(req, resp);
                     SERVER_DEBUG("Router.handle() returned, response status=" << static_cast<int>(resp.status()));
                 } else if (resp.isProtocolSwitch()) {
                     SERVER_DEBUG("Protocol switch handled by on_upgrade, skipping Router");
+                } else if (resp.isStreaming()) {
+                    SERVER_DEBUG("Streaming response handled by on_upgrade, skipping Router");
                 }
 
                 // v0.7.0 (prompt.txt Bug #5): if the response is
@@ -478,16 +486,20 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
                 // on_post_upgrade callback and wire it on the
                 // Connection. The callback is persistent — NOT erased
                 // after first use (multi-client works).
-                if (resp.isProtocolSwitch()) {
+                // v0.8.3 (MonkeyByte Bug 1): same wiring for
+                // isStreaming() — the post-upgrade callback will own
+                // the socket and write SSE chunks.
+                if (resp.isProtocolSwitch() || resp.isStreaming()) {
                     std::lock_guard<std::mutex> lock(m_protocolSwitchesMutex);
                     auto it = m_protocolSwitches.find(std::string(req.path()));
                     if (it != m_protocolSwitches.end() &&
                         it->second.on_post_upgrade) {
-                        SERVER_DEBUG("Protocol switch: registering post-upgrade for " << req.path());
+                        SERVER_DEBUG((resp.isStreaming() ? "Streaming: " : "Protocol switch: ")
+                                     << "registering post-upgrade for " << req.path());
                         conn.setPostUpgradeCallback(it->second.on_post_upgrade);
                         // NOT erased — multi-client support (Bug #5 fix).
                     } else {
-                        SERVER_DEBUG("Protocol switch requested but no post-upgrade handler for " << req.path());
+                        SERVER_DEBUG("Protocol switch/streaming requested but no post-upgrade handler for " << req.path());
                     }
                 }
             });

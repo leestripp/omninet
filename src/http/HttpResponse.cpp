@@ -426,6 +426,10 @@ std::vector<uint8_t> Response::buildFull() const {
 void Response::markProtocolSwitch() { m_protocolSwitch = true; }
 bool Response::isProtocolSwitch() const { return m_protocolSwitch; }
 
+// v0.8.3 (MonkeyByte Bug 1, SSE streaming).
+void Response::markStreaming() { m_streaming = true; }
+bool Response::isStreaming() const { return m_streaming; }
+
 // ============================================================================
 // Static Factory Methods
 // ============================================================================
