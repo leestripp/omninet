@@ -2910,3 +2910,515 @@ All changes are **purely additive**:
 - [ ] **JSON handler for non-POST methods** (Phase 11e): GET shouldn't
       usually have a body. The overload exists for completeness but
       the wrapper just returns 400 on empty body. Document this.
+
+
+---
+
+## v0.8.3 — MonkeyByte Bug Fix Plan (2026-07-08)
+
+**Source**: `prompt.txt` — bugs filed by MonkeyByte web-UI integration (chat-agent streaming).
+**OmniNet version**: 0.8.2.
+**Severity mix**: 1 critical, 1 build-time, 2 minor/convenience.
+
+### Bug list at a glance
+
+| # | Severity | Component | Fix effort |
+|---|----------|-----------|------------|
+| 1 | Critical | `src/sse/SSEHandler.cpp` — stub streaming | Large (new HTTP streaming API + per-client async writer) |
+| 2 | Build-time | `src/io/AsyncFile.h` — missing `<unistd.h>` | Trivial (1 line) |
+| 3 | Minor | `src/http/HttpRequest.h` — no `queryParameter()` | Small (2 helpers) |
+| 4 | Minor | `src/http/HttpResponse.h` — `setHeader()` overload ambiguity | Small (collapse overloads) |
+
+### Execution order
+
+Bug 2 first (trivial, removes a downstream CMake patch), then bugs 3+4 (small + can ship together), then bug 1 (the real work, ships as v0.8.3 or 0.9.0 depending on review).
+
+---
+
+### Phase A — Trivial container fix (Bug 2)
+
+**File**: `src/io/AsyncFile.h` (line 4).
+**Change**: Add `#include <unistd.h>` after the `#define OMNINET_IO_ASYNC_FILE_H` include-guard.
+
+```cpp
+#ifndef OMNINET_IO_ASYNC_FILE_H
+#define OMNINET_IO_ASYNC_FILE_H
+
+#include <unistd.h>    // ::close(), ::read(), ::write(), ::fsync(), ::lseek()
+#include <cstddef>
+#include <string>
+#include <string_view>
+#include <vector>
+// ... rest unchanged
+```
+
+**Verification**:
+- Build clean on glibc/Linux desktop (still builds — `<unistd.h>` is harmless).
+- Build clean in an Alpine / musl container.
+- `grep -n "::close\|<unistd.h>" src/io/AsyncFile.h` shows the include.
+- `tests/test_async_file` still passes 12/12 (no API change).
+
+**Removes the downstream sed-hack** documented in the bug report:
+```cmake
+# no longer needed:
+execute_process(COMMAND bash -c "sed -i '1a #include <unistd.h>' ${CMAKE_BINARY_DIR}/_deps/omninet-src/src/io/AsyncFile.h" ...)
+```
+
+---
+
+### Phase B — Small API hygiene (Bugs 3 + 4)
+
+#### Phase B.1 — `queryParameter()` helper (Bug 3)
+
+**File**: `src/http/HttpRequest.h` (lines 59–77, inside `struct QueryParams`).
+
+Add two helpers that match the existing `queryInt` / `queryDouble` style:
+
+```cpp
+// In QueryParams
+std::optional<std::string> queryString(std::string_view key) const;
+std::string                queryString(std::string_view key,
+                                       std::string_view defaultValue) const;
+```
+
+Implementation rules (consistent with `queryInt`):
+- Return `nullopt` if key not present.
+- If the value is `std::vector<std::string>`, return the **first** element.
+- If the value is `std::string`, return it directly.
+- Trailing `queryString(key, default)` returns the default if missing.
+
+Add a one-line convenience on `Request`:
+
+```cpp
+// in Request
+std::optional<std::string> queryParameter(std::string_view key) const {
+    return m_queryParams.queryString(key);
+}
+std::string queryParameter(std::string_view key, std::string_view defaultValue) const {
+    return m_queryParams.queryString(key, defaultValue);
+}
+```
+
+**Tests** to add in `tests/test_http_request.cpp`:
+- `query_string_basic_present` — `?key=hello` returns `"hello"`.
+- `query_string_basic_missing` returns `nullopt`.
+- `query_string_default_value_missing` returns the default.
+- `query_string_multi_value` — `?k=a&k=b` returns `"a"` (first wins, documented).
+- `query_string_empty` — `?key=` returns `""` (empty string, not nullopt).
+- `query_parameter_request_alias` — `req.queryParameter("x")` matches `req.query().queryString("x")`.
+
+**Compatibility**: pure addition, no breakage.
+
+#### Phase B.2 — `setHeader()` overload disambiguation (Bug 4)
+
+**File**: `src/http/HttpResponse.h` (lines 109–110).
+
+Current:
+```cpp
+void setHeader(std::string_view name, std::string_view value);   // (1)
+void setHeader(std::string_view name, std::string&& value);      // (2)  THE PROBLEM
+```
+
+The `string&&` overload was added so callers could write
+`resp.setHeader("Location", std::move(someStdString))` and avoid the
+copy. The cost is ambiguity for any `const char[N]` literal.
+
+**Fix**: drop overload (2) entirely. The `string_view` overload already
+binds to `std::string&&` via the temporary materialization path, just
+with one extra move-construction. For a header value that is at most a
+few KB, this is noise.
+
+Replace lines 109–110 with:
+```cpp
+void setHeader(std::string_view name, std::string_view value);
+```
+
+Then clean up the now-unnecessary `std::string(...)` casts in
+`src/http/HttpResponse.cpp` lines 164, 165, 169 (they were added as
+workarounds for the ambiguity):
+
+```cpp
+// before
+setHeader(std::string("Keep-Alive"), std::string("timeout=") + std::to_string(timeout.count()));
+setHeader(std::string("Connection"), std::string("keep-alive"));
+setHeader(std::string("Connection"), std::string("close"));
+
+// after
+setHeader("Keep-Alive", std::string("timeout=") + std::to_string(timeout.count()));
+setHeader("Connection", "keep-alive");
+setHeader("Connection", "close");
+```
+
+**Same surgery on `ResponseBuilder`** (line 229 in the same header) —
+it has only the `string_view` overload already, so no change needed
+there.
+
+**Tests** to add in `tests/test_http_response.cpp`:
+- `set_header_literal_string` — `resp.setHeader("Cache-Control", "no-cache")` compiles and stores correctly.
+- `set_header_literal_int_via_string` — same for mixed literals.
+- `set_header_string_rvalue` — `resp.setHeader("X", std::move(myStdString))` still works (no copy).
+- `set_header_string_lvalue` — `resp.setHeader("X", myStdString)` still works.
+
+**Compatibility**:
+- Existing callers that used `std::string` casts continue to compile.
+- Existing callers that used literal strings now compile without casts — **this is the fix**.
+- Callers that relied on `string&&` overload specifically to elide a copy will see a small extra move. Acceptable.
+
+---
+
+### Phase C — Real SSE streaming (Bug 1, the big one)
+
+This is the only bug that requires a real API addition. OmniNet
+currently has no concept of an HTTP response that streams multiple
+chunks over time — `Response::build()` writes the whole body in one
+go. SSE needs to keep the TCP socket open and write
+`data: ...\r\n\r\n` frames as they arrive.
+
+**Design constraints** (from the bug report + code):
+- Per-client async write path — the `Handler::addClient(sender)` API
+  already accepts a `std::function<bool(const std::string&)>`; we just
+  need to wire it to a real socket.
+- Connection must stay open until the client disconnects (HTTP/1.1
+  keep-alive + `Transfer-Encoding: chunked`, or HTTP/1.0 close-delimited).
+- Backpressure: slow clients must not block other broadcast()s.
+- Initial response must flush the headers + an empty chunk before the
+  handler returns.
+
+**Sub-phases** — ship as v0.8.3 (A+B+C) if review tolerates scope, else
+split into v0.8.3 (A+B) + v0.9.0 (C).
+
+#### Phase C.1 — Add chunked-write API to `Response`
+
+**File**: `src/http/HttpResponse.h` + `src/http/HttpResponse.cpp`.
+
+New API (additive):
+```cpp
+class Response {
+public:
+    // Start a chunked stream. Writes the response status line and
+    // chunked headers to the underlying socket and returns
+    // immediately. Throws std::runtime_error if the response was
+    // already committed via build()/sendFile().
+    void beginChunked();
+
+    // Write one chunk. data is framed as
+    // "<hex-size>\r\n<data>\r\n" and written to the socket.
+    // Returns false if the socket is closed or the write failed.
+    // Safe to call from any thread (serialized internally).
+    bool writeChunk(std::string_view data);
+
+    // Write one SSE-formatted frame (calls writeChunk after formatting).
+    // Returns false if the socket is closed or the write failed.
+    bool writeChunk(const SSE::Event& event);   // forward-declared
+
+    // Close the chunked stream: writes the terminator
+    // "0\r\n\r\n" and flushes. Idempotent.
+    void endChunked();
+};
+```
+
+Internal state:
+- `enum class State { Headers, Committed, Streaming, Closed };`
+- `std::mutex m_streamMutex` to serialize chunked writes.
+- `std::atomic<bool> m_chunkOpen` so concurrent broadcast()s see the
+  same state.
+- Shared ownership of the underlying `Connection::Socket` so the
+  connection survives after `handleRequest()` returns — see C.3.
+
+Wire format (RFC 7230 §4.1):
+```
+HTTP/1.1 200 OK\r\n
+Content-Type: text/event-stream\r\n
+Cache-Control: no-cache\r\n
+Connection: keep-alive\r\n
+Transfer-Encoding: chunked\r\n
+\r\n
+<hex-size>\r\n<data>\r\n
+...
+0\r\n\r\n
+```
+
+#### Phase C.2 — Expose the underlying socket from `Connection`
+
+**File**: `src/http/HttpConnection.h` + `src/http/HttpConnection.cpp`.
+
+Currently `HTTP::Connection` owns the `std::unique_ptr<Socket>`. To let
+a streaming handler outlive `handleRequest()`, we need either:
+- A `shared_ptr<Socket>` shared between `Connection` and the streaming
+  client state, OR
+- A `weak_ptr<Connection>` registered in the SSE handler so it can
+  detect disconnect and stop writing.
+
+**Chosen approach**: replace `std::unique_ptr<Socket>` with
+`std::shared_ptr<Socket>` in `Connection`. Add
+`std::shared_ptr<Socket> Connection::socket() const`. This is the
+smallest change with the largest blast radius for other code, so it
+gets its own commit.
+
+**Migration check**: every site that does `m_socket->...` still
+works. Every site that does `m_socket = std::make_unique<...>(...)`
+must change to `std::make_shared<...>(...)`. Grep for
+`make_unique<Socket>` / `make_unique<TLSSocket>` in `src/` and
+`tests/` to enumerate sites.
+
+#### Phase C.3 — Rewire `SSEHandler::handleRequest`
+
+**File**: `src/sse/SSEHandler.cpp` (lines 78–122).
+
+Replace the current stub with:
+
+```cpp
+bool Handler::handleRequest(const HTTP::Request& req, HTTP::Response& resp) {
+    if (req.path() != m_path) { /* 404 */ }
+
+    resp.setHeader("Content-Type",  "text/event-stream");
+    resp.setHeader("Cache-Control", "no-cache");
+    resp.setHeader("Connection",    "keep-alive");
+    resp.setHeader("X-Accel-Buffering", "no");  // disable nginx buffering
+
+    resp.beginChunked();
+
+    const std::string clientId = makeClientId();
+
+    // Move a shared_ptr to the socket into the closure; keep a
+    // weak_ptr in m_clients so we can detect dead sockets from the
+    // broadcast() side.
+    auto sock = resp.detachSocket();   // returns shared_ptr<Socket>
+
+    Client c;
+    c.id      = clientId;
+    c.weakSock = sock;                 // weak_ptr<Socket>
+
+    // Sender now writes for real:
+    c.sender = [sock](const std::string& data) -> bool {
+        if (!sock || !sock->isOpen()) return false;
+        // Frame as one chunk.
+        std::ostringstream oss;
+        oss << std::hex << data.size() << "\r\n" << data << "\r\n";
+        auto framed = oss.str();
+        try {
+            sock->sendAll(std::span<const uint8_t>(
+                reinterpret_cast<const uint8_t*>(framed.data()),
+                framed.size()));
+        } catch (...) {
+            return false;
+        }
+        return true;
+    };
+
+    {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        m_clients[clientId] = std::move(c);
+    }
+
+    // Send an initial comment so the client's EventSource opens
+    // immediately and proxies don't time out the connect.
+    broadcast(Event::comment("connected"));
+
+    // Block until the client disconnects OR the handler is stopped.
+    // poll the socket with a short sleep so we don't burn a CPU.
+    while (m_running && sock->isOpen()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    // Cleanup
+    {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        m_clients.erase(clientId);
+    }
+
+    try { resp.endChunked(); } catch (...) {}
+    return true;
+}
+```
+
+**Important compatibility note**: this changes `handleRequest()` from
+"fire-and-forget" to "blocks for the lifetime of the SSE stream". The
+HTTP server's request-handling path must therefore:
+1. Spawn `handleRequest` on a worker thread (the
+   `ThreadPool` from Phase 8a works), OR
+2. Mark the handler as "long-lived" and not block the accept loop.
+
+The cleanest approach: when the handler returns a `Response` whose
+state is `Streaming`, the HTTP server **does not close the socket**
+and **does not send any further data**. The handler owns the response
+lifecycle from that point. Concretely: in `HttpServer::handleClient`,
+wrap the call to `handler->handleRequest(req, resp)` in a
+`std::thread` when the handler returns true and resp is in Streaming
+state.
+
+#### Phase C.4 — Fix `broadcast()` to dead-letter-drop
+
+The current code calls `client->sender(formatted)` and ignores the
+return value. With real sockets, a failed send means the client is
+dead. Update `broadcast()` to:
+
+```cpp
+void Handler::broadcast(const Event& event) {
+    const std::string formatted = event.format();
+    std::lock_guard<std::mutex> lk(m_mutex);
+    for (auto it = m_clients.begin(); it != m_clients.end(); ) {
+        if (!it->second.sender(formatted)) {
+            it = m_clients.erase(it);   // dead-letter drop
+        } else {
+            ++it;
+        }
+    }
+}
+```
+
+Also add a periodic reaper (every 30 s, piggyback on the existing
+keep-alive thread): for every `m_clients` entry, check
+`weakSock.expired() || !weakSock.lock()->isOpen()` and erase if dead.
+This prevents slow-disconnect clients from accumulating forever.
+
+#### Phase C.5 — Keep-alive thread stays
+
+No change needed — `keepAliveWorker()` already calls
+`broadcast(Event::comment("keep-alive"))` which now writes real
+frames. Verified by reading the existing code at lines ~228–238.
+
+---
+
+### Test plan (Bug 1)
+
+New file `tests/test_sse_streaming.cpp`, target `test_sse_streaming`.
+
+Uses `std::thread` + a raw `Socket` to act as the EventSource client.
+For each test:
+1. Start `http_server_demo` on a free port (or spin up an
+   in-process `HttpServer`).
+2. Open a TCP connection, send
+   `GET /events HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n`.
+3. Read until first chunk terminator (`\r\n\r\n`).
+4. Assert headers contain `Transfer-Encoding: chunked` and
+   `Content-Type: text/event-stream`.
+5. Read N hex-framed chunks, decode, assert content.
+6. Trigger `Handler::broadcast()` from the main thread.
+7. Read the resulting chunk on the client thread.
+8. Verify cleanup: close the socket; broadcast one more event;
+   assert the dead client was dropped from `m_clients` (via a
+   `connectionCount()` accessor to be added).
+
+Sub-tests:
+- `sse_initial_comment_arrives` — first chunk is `:connected\r\n`.
+- `sse_broadcast_string_event` — `broadcast("foo", "bar")` →
+  client receives `event: foo\r\ndata: bar\r\n\r\n` framed as a chunk.
+- `sse_broadcast_event_object` — `broadcast(Event::make("hello"))` →
+  client receives `data: hello\r\n\r\n`.
+- `sse_keepalive_periodic` — wait > 30 s with no other traffic;
+  assert at least 2 `: keep-alive\r\n` comments arrive.
+- `sse_broadcast_to_one` — `broadcastTo(clientId, ...)` delivers
+  only to that client; the others receive nothing.
+- `sse_dead_client_dropped` — close client; next broadcast erases it.
+- `sse_backpressure_slow_client` — client reads at 1 byte/s;
+  broadcast() of a 1 MB event to 100 clients finishes in < 1 s (the
+  slow client is just dropped, the others get their frames).
+- `sse_multiple_clients` — 10 concurrent EventSource clients all
+  receive every broadcast().
+- `sse_clean_shutdown` — stop the handler with clients connected;
+  all client sockets see EOF; no leaked threads.
+
+Aim for **10/10 PASS**, target runtime < 60 s on the CI machine
+(keep-alive test is the slow one; bump interval to 5 s for tests via
+a constructor overload `Handler(path, keepAliveInterval)`).
+
+---
+
+### Backward-compat matrix
+
+| Change | Breaks | Notes |
+|--------|--------|-------|
+| Bug 2: add `<unistd.h>` | No | Header is portable across glibc + musl. |
+| Bug 3: add `queryParameter()` | No | Pure addition. |
+| Bug 4: drop `setHeader` `string&&` overload | No for source; ABI break for compiled binaries | Document in CHANGELOG. Use `SONAME` bump if we publish shared libs. |
+| Bug 1: SSE real streaming | API-incompatible | The `handleRequest` signature stays the same; behaviour changes from "fire-and-forget stub" to "blocks until disconnect". Anyone currently using the stub was getting nothing anyway, so this is purely additive. |
+
+### Release plan
+
+- Tag `0.8.3` after Phase A + B + C all green:
+  - 14/14 `test_http_response` (Bug 4)
+  - 110/110 `omnet_test` (no regressions)
+  - 12/12 `test_async_file` (Bug 2)
+  - new `test_http_request` query-parameter tests pass (Bug 3)
+  - 10/10 new `test_sse_streaming` (Bug 1)
+  - manual smoke test: MonkeyByte's `/api/chat/events` endpoint
+    switched from polling to EventSource; latency drops 200 ms to 50 ms.
+- Update `docs/api/sse.md` with a working `EventSource` example (it
+  currently shows a polling fallback).
+- Update `docs/migration/v0.8.2-to-v0.8.3.md` with the four fixes.
+
+### Risks / unknowns
+
+- **Bug 1**: changing `Connection`'s socket ownership from unique to
+  shared ripples through `tests/` and possibly the WebSocket code. Need
+  to grep + run full test suite before declaring C.2 done.
+- **Bug 1**: the "long-lived handler runs on a worker thread" change
+  to `HttpServer` may interact with the in-flight
+  `Request::onReady`/`boundPort` work (v0.7.0). Need to read those
+  commits before merging C.3.
+- **Bug 1**: chunked writes to a half-closed socket can corrupt the
+  next response on a keep-alive connection. Mitigation: when
+  `endChunked()` is called, mark the connection as "do not reuse"
+  even if `Connection: keep-alive` was set.
+
+
+### Deployment constraint: container port = 8000
+
+**Container**: Ubuntu 26.04 LTS (Resolute Raccoon), podman.
+**Host-exposed port**: `8000`.
+**Implication**: the demo / server MUST listen on `8000` for the
+`/omninet/health` endpoint to be reachable from outside the container.
+
+**How OmniNet now supports this** (commit `http_server_demo` env-var override):
+
+```cpp
+// demos/http_server.cpp
+uint16_t serverPort = 8080;
+if (const char* envPort = std::getenv("OMNINET_PORT"); envPort && *envPort) {
+    try {
+        int p = std::stoi(envPort);
+        if (p > 0 && p < 65536) serverPort = static_cast<uint16_t>(p);
+    } catch (...) { /* fall through to config value */ }
+}
+serverConfig.port = static_cast<uint16_t>(config.getInt("server.port", serverPort));
+```
+
+**Invocation** (any of these works):
+```bash
+# Option 1: env var (recommended for containers)
+OMNINET_PORT=8000 ./build/demos/http_server_demo
+
+# Option 2: config file (~/.omninet/omninet.conf)
+#   [server]
+#   port = 8000
+./build/demos/http_server_demo
+
+# Option 3: CLI flag - NOT IMPLEMENTED YET
+# All current demos only support config-file + env-var port overrides.
+```
+
+**Resolution order** (highest precedence first):
+1. `OMNINET_PORT` environment variable (validated: 1..65535, else ignored)
+2. `server.port` value in the config file
+3. Hardcoded default `8080` (preserved for backward compat)
+
+**Things to update before v0.8.3 ships**:
+- [ ] Add the same env-var override to `https_server_demo`, `static_files_demo`, `websocket_echo_demo`, `dashboard_demo`, `async_server_demo`. Currently only `http_server_demo` has it.
+- [ ] Add the same env-var override to the `omninet-init` tool so the generated `omninet.conf` honours `OMNINET_PORT` at `init` time.
+- [ ] Document `OMNINET_PORT` in `README.md` and `docs/deployment/container.md` (new file).
+- [ ] `tools/omninet-health` already accepts a URL arg - update its examples in `--help` to mention `http://localhost:8000` (or make the default URL configurable).
+- [ ] `tools/omninet-mon` default URL is `http://localhost:8080` - add `OMNINET_URL` env var to match.
+- [ ] Container smoke test in `scripts/smoke-test.sh` (new):
+  ```bash
+  OMNINET_PORT=8000 ./build/demos/http_server_demo &
+  sleep 1
+  curl -fsS http://localhost:8000/omninet/health
+  curl -fsS http://localhost:8000/api/hello
+  kill %1
+  ```
+
+**Rationale for not changing the default from 8080 to 8000**:
+- 8080 is the OmniNet-documented default in README.md, docs/, and every example.
+- Changing the default would silently break user configs / containers running on 8080.
+- An env-var override is the standard 12-factor-app pattern for container ports.

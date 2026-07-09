@@ -5,6 +5,7 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include <cstdlib>
 
 using namespace OmniNet;
 using namespace OmniNet::HTTP;
@@ -41,14 +42,24 @@ int main() {
         staticDir = ".";
     }
     
-    // Create server configuration from config system
-    Server::Config serverConfig;
+    // Create server configuration from config system.
+    // OMNINET_PORT env var wins over the config file (useful for
+    // container deployments where the host port is fixed, e.g. 8000).
+    uint16_t serverPort = 8080;
+    if (const char* envPort = std::getenv("OMNINET_PORT"); envPort && *envPort) {
+        try {
+            int p = std::stoi(envPort);
+            if (p > 0 && p < 65536) serverPort = static_cast<uint16_t>(p);
+        } catch (...) { /* fall through to config value */ }
+    }
     serverConfig.address = config.getString("server.address", "127.0.0.1");
-    serverConfig.port = static_cast<uint16_t>(config.getInt("server.port", 8080));
+    serverConfig.port    = static_cast<uint16_t>(config.getInt("server.port", serverPort));
     serverConfig.workerCount = static_cast<size_t>(config.getInt("server.workers", 4));
     serverConfig.requestTimeout = std::chrono::seconds(config.getInt("server.timeout", 30));
     serverConfig.corsEnabled = config.getBool("cors.enabled", true);
     serverConfig.corsAllowedOrigins = config.getString("cors.origins", "*");
+    std::cerr << "[Demo] Listening on " << serverConfig.address << ":"
+              << serverConfig.port << std::endl;
     
     // Create server
     Server server(serverConfig);

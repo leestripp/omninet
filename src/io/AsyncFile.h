@@ -3,6 +3,8 @@
 #ifndef OMNINET_IO_ASYNC_FILE_H
 #define OMNINET_IO_ASYNC_FILE_H
 
+#include <unistd.h>    // ::close(), ::read(), ::write(), ::fsync(), ::lseek()
+
 #include <cstddef>
 #include <string>
 #include <string_view>
