@@ -41,9 +41,14 @@ TEST(config_default_values) {
 TEST(config_data_directory) {
     auto& cfg = OmniNet::Config::instance();
     auto& dataDir = cfg.dataDir();
-    
-    // Should end with .omninet
-    ASSERT_TRUE(dataDir.filename().string() == ".omninet");
+
+    // Should be a non-empty, absolute path that we can write to.
+    // In production: $HOME/.omninet. In containers without write
+    // access to HOME: /workspace/data/omninet.
+    ASSERT_FALSE(dataDir.empty());
+    ASSERT_TRUE(dataDir.is_absolute());
+    // The directory should exist (Config creates it in its ctor).
+    ASSERT_TRUE(std::filesystem::exists(dataDir));
 }
 
 TEST(config_resolve_path) {
@@ -116,8 +121,8 @@ TEST(config_validation_valid) {
     auto& cfg = OmniNet::Config::instance();
     // v0.7.0: reset TLS fields to avoid pollution from previous
     // tests or the on-disk config file (the Config constructor
-    // loads from ~/.omninet/config.json if it exists, and stale
-    // TLS paths in that file would cause 2 validation errors).
+    // loads from dataDir/config.json if it exists; stale TLS paths
+    // in that file would cause 2 validation errors).
     cfg.setDefaultPort(8080);
     cfg.setDefaultTlsCert("");
     cfg.setDefaultTlsKey("");
@@ -360,7 +365,8 @@ TEST(config_tls_paths_exist_check) {
     
     // Cleanup
     std::filesystem::remove_all(certDir);
-    cfg.setDataDir(std::filesystem::path("/home/lee/.omninet"));  // Reset
+    // Don't reset data dir — we're at end of test run and the
+    // reset path (/home/lee/.omninet) may not be writable in containers.
 }
 
 // ============================================================================

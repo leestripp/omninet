@@ -29,12 +29,45 @@ Config& Config::instance() {
 }
 
 Config::Config() {
-    // Set default data directory (~/.omninet)
-    const char* home = std::getenv("HOME");
-    if (home) {
-        m_dataDir = std::filesystem::path(home) / ".omninet";
+    // Set default data directory.
+    // Priority: 1) OMNINET_DATA_DIR env var (explicit override)
+    //           2) $HOME/.omninet if that path is writable
+    //           3) /workspace/data/omninet (container-friendly fallback)
+    //
+    // Container note: /home/ubuntu may exist but be owned by a
+    // non-root user. When running as root, $HOME/.omninet might
+    // be unwritable. We detect this by attempting a write; if it
+    // fails we silently use /workspace/data/omninet instead.
+    const char* dataDirEnv = std::getenv("OMNINET_DATA_DIR");
+    if (dataDirEnv) {
+        m_dataDir = dataDirEnv;
     } else {
-        m_dataDir = "/tmp/.omninet";
+        const char* home = std::getenv("HOME");
+        std::filesystem::path candidate;
+        if (home) {
+            candidate = std::filesystem::path(home) / ".omninet";
+        } else {
+            candidate = "/workspace/data/omninet";
+        }
+
+        // Verify the candidate is writable before using it.
+        std::error_code ec;
+        std::filesystem::create_directories(candidate, ec);
+        if (!ec) {
+            auto testFile = candidate / ".write_test";
+            std::ofstream tf(testFile, std::ios::binary);
+            if (tf.good()) {
+                tf.close();
+                std::filesystem::remove(testFile, ec);
+                // Candidate is writable — use it.
+            } else {
+                candidate = "/workspace/data/omninet";
+            }
+        } else {
+            candidate = "/workspace/data/omninet";
+        }
+
+        m_dataDir = candidate;
     }
     
     // Ensure directory exists

@@ -3543,7 +3543,21 @@ cmake --build build --target clang_tidy
 
 ---
 
-## v0.8.4 — SSE Handler Refactor (in progress, 2026-07-09)
+## Container Data Dir Fix (2026-07-09, committed 9031973)
+
+**Problem**: In the podman container, `HOME=/home/ubuntu` but that
+directory is owned by `ubuntu`. When running as root, tests couldn't
+write to `/home/ubuntu/.omninet`, causing `test_config` to crash with
+`filesystem error: cannot create directories: Permission denied`.
+
+**Fix** (`src/config/Config.cpp`):
+- Priority 1: `OMNINET_DATA_DIR` env var (explicit override)
+- Priority 2: `HOME/.omninet` **if writable** (write test)
+- Priority 3: `/workspace/data/omninet` (container fallback)
+
+`tests/test_config.cpp` updated to not assert `.omninet` filename.
+
+**Status**: ✅ Done (9031973)
 
 **Context**: The v0.8.3 SSEHandler.cpp grew to ~540 lines with
 subscriptions, keep-alive thread, dead-letter-drop, multiple
