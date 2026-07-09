@@ -4,6 +4,25 @@ cmake_minimum_required(VERSION 3.16)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # ============================================================================
+# Compiler Selection (v0.9.0)
+# ============================================================================
+# Prefer clang/clang++ when no compiler was forced by the user. The user
+# can still force gcc with `CC=gcc CXX=g++ cmake -S . -B build`. This
+# matches the project-wide migration from gcc -> clang (see CodeMax.md
+# v0.9.0 task).
+if(NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED CMAKE_CXX_COMPILER)
+    find_program(_OMNINET_CLANG clang)
+    find_program(_OMNINET_CLANGXX clang++)
+    if(_OMNINET_CLANG AND _OMNINET_CLANGXX)
+        message(STATUS "OmniNet: defaulting to clang/clang++ (set CC/CXX to override)")
+        set(CMAKE_C_COMPILER   "${_OMNINET_CLANG}"   CACHE STRING "C compiler")
+        set(CMAKE_CXX_COMPILER "${_OMNINET_CLANGXX}" CACHE STRING "C++ compiler")
+    endif()
+    unset(_OMNINET_CLANG)
+    unset(_OMNINET_CLANGXX)
+endif()
+
+# ============================================================================
 # Version Detection from Git Tags
 # ============================================================================
 
@@ -68,7 +87,9 @@ message(STATUS "OmniNet Version: ${PROJECT_VERSION} (from git tag: ${GIT_TAG})")
 project(OmniNet VERSION ${PROJECT_VERSION} LANGUAGES C CXX)
 
 # C++23 required (Phase 1 of async refactor)
-# Compiler requirements: GCC 13+ / Clang 17+ / MSVC 19.36+
+# Compiler requirements: Clang 17+ (default, v0.9.0), GCC 13+ still supported.
+# MSVC 19.36+ also supported. Default is set above to clang/clang++ when
+# available; users can override with CC=gcc CXX=g++ cmake -S . -B build.
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -346,77 +367,56 @@ add_subdirectory(benchmarks)
 add_subdirectory(tools)
 
 # ============================================================================
-# Cppcheck Static Analysis
+# Static Analysis (v0.9.0: clang-tidy only)
 # ============================================================================
-find_package(Cppcheck QUIET)
-if(Cppcheck_FOUND)
-    message(STATUS "cppcheck found: ${CPPCHECK_EXECUTABLE}")
-    
-    # Create directory for cppcheck reports
-    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/cppcheck")
-    
-    # Helper macro to add cppcheck to a target
-    macro(add_cppcheck_target TARGET_NAME)
+# clang-tidy is the only static-analysis tool. cppcheck has been
+# removed entirely (no legacy alias) as part of the compiler
+# migration. If clang-tidy is missing, static analysis is
+# disabled — install clang-tidy and re-configure to enable.
+
+find_program(CLANG_TIDY_EXECUTABLE clang-tidy)
+if(CLANG_TIDY_EXECUTABLE)
+    message(STATUS "clang-tidy found: ${CLANG_TIDY_EXECUTABLE}")
+
+    # Helper macro to add a clang-tidy target for a directory.
+    # clang-tidy reads compile_commands.json which CMake auto-generates
+    # when CMAKE_EXPORT_COMPILE_COMMANDS=ON.
+    macro(add_clang_tidy_target TARGET_NAME DIR)
         add_custom_target(${TARGET_NAME}
-            COMMAND ${CPPCHECK_EXECUTABLE}
-                --std=c++23
-                --enable=all
-                --inconclusive
-                --verbose
+            COMMAND ${CLANG_TIDY_EXECUTABLE}
+                -p ${CMAKE_BINARY_DIR}
                 --quiet
-                --output-file=${CMAKE_BINARY_DIR}/cppcheck/${TARGET_NAME}.xml
-                --xml
-                --template=file:{file}:{line}:{column}:{severity}:{id}:{message}
-                ${ARGN}
+                ${DIR}/*.cpp ${DIR}/*.h ${DIR}/*/*.cpp ${DIR}/*/*.h
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-            COMMENT "Running cppcheck static analysis for ${TARGET_NAME}"
-        )
-        # Also create a console output version
-        add_custom_target(${TARGET_NAME}_console
-            COMMAND ${CPPCHECK_EXECUTABLE}
-                --std=c++23
-                --enable=all
-                --inconclusive
-                --quiet
-                --template=file:{file}:{line}:{column}:{severity}:{id}:{message}
-                ${ARGN}
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-            COMMENT "Running cppcheck for ${TARGET_NAME} (console output)"
+            COMMENT "Running clang-tidy for ${TARGET_NAME}"
         )
     endmacro()
-    
-    # Analyze library source files
-    add_cppcheck_target(cppcheck_lib
-        src/
-    )
-    
-    # Analyze test source files
-    add_cppcheck_target(cppcheck_tests
-        tests/
-    )
-    
-    # Analyze demo source files
-    add_cppcheck_target(cppcheck_demos
-        demos/
-    )
-    
-    # Analyze tool source files
-    add_cppcheck_target(cppcheck_tools
-        tools/
-    )
-    
-    # Master target to run all cppcheck analyses
-    add_custom_target(cppcheck
-        COMMAND ${CMAKE_COMMAND} -E echo "Running all cppcheck analyses..."
-        COMMAND ${CMAKE_COMMAND} --build . --target cppcheck_lib_console
-        COMMAND ${CMAKE_COMMAND} --build . --target cppcheck_tests_console
-        COMMAND ${CMAKE_COMMAND} --build . --target cppcheck_demos_console
-        COMMAND ${CMAKE_COMMAND} --build . --target cppcheck_tools_console
+
+    # Per-tree targets.
+    add_clang_tidy_target(clang_tidy_lib   src)
+    add_clang_tidy_target(clang_tidy_tests tests)
+    add_clang_tidy_target(clang_tidy_demos demos)
+    add_clang_tidy_target(clang_tidy_tools tools)
+
+    # Master target: run all four.
+    add_custom_target(clang_tidy
+        COMMAND ${CMAKE_COMMAND} -E echo "Running all clang-tidy analyses..."
+        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy_lib
+        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy_tests
+        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy_demos
+        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy_tools
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        COMMENT "Running all cppcheck analyses"
+        COMMENT "Running all clang-tidy analyses"
     )
-    
-    message(STATUS "cppcheck targets created: cppcheck, cppcheck_lib, cppcheck_tests, cppcheck_demos, cppcheck_tools")
+
+    # Alias for `make static_analysis`.
+    add_custom_target(static_analysis
+        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Running static_analysis (alias for clang_tidy)"
+    )
+
+    message(STATUS "clang-tidy targets created: clang_tidy, clang_tidy_lib, clang_tidy_tests, clang_tidy_demos, clang_tidy_tools")
 else()
-    message(STATUS "cppcheck not found - static analysis disabled (install cppcheck to enable)")
+    message(STATUS "clang-tidy not found - static analysis disabled (install clang-tidy to enable)")
 endif()

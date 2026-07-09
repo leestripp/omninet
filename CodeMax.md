@@ -3422,3 +3422,121 @@ OMNINET_PORT=8000 ./build/demos/http_server_demo
 - 8080 is the OmniNet-documented default in README.md, docs/, and every example.
 - Changing the default would silently break user configs / containers running on 8080.
 - An env-var override is the standard 12-factor-app pattern for container ports.
+
+
+---
+
+## v0.9.0 — Compiler migration: gcc → clang + cppcheck → clang-tidy
+
+**Started**: 2026-07-09 (during v0.8.3 MonkeyByte bug fixes — wanted
+better error messages on the SSE test failures)
+**Status**: IN PROGRESS
+**Goal**: Make clang/clang++ the default compilers and clang-tidy
+the default static-analysis tool across the whole project.
+
+### Why
+- User is slowly switching all projects over from gcc/g++ to
+  clang/clang++.
+- User is replacing cppcheck with clang-tidy (better diagnostics,
+  same family as the compiler, understands C++23 features).
+- Clang gives much better error messages than gcc 15.2 for the
+  edge cases encountered in the v0.8.3 SSE work.
+
+### Validation done before this task was opened
+- `CC=clang CXX=clang++ cmake -S . -B build-clang` → clean configure.
+- `cmake --build build-clang -j12` → 100% build, **zero warnings,
+  zero errors**.
+- `./build-clang/tests/omnet_test` → **117/117 PASS** (no regressions
+  from gcc 15.2).
+- All other targets build (library, tools, demos, benchmarks,
+  SSE test). No code changes required.
+
+### Sub-tasks
+
+#### A. CMake: make clang the default (BACKWARD COMPATIBLE)
+
+In `CMakeLists.txt`, when no compiler is forced by the user,
+prefer clang/clang++. Allow `CC` and `CXX` env vars to override.
+
+Approach: add an early block in CMakeLists.txt that, if the
+compiler hasn't been picked yet AND clang is on PATH, sets
+the default to clang/clang++. The user can still force gcc
+with `CC=gcc CXX=g++ cmake ...`.
+
+```cmake
+# Prefer clang/clang++ if no compiler was forced and clang is
+# available. Users can still force gcc with CC=gcc CXX=g++.
+if(NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED CMAKE_CXX_COMPILER)
+    find_program(CLANG_EXECUTABLE clang)
+    find_program(CLANGXX_EXECUTABLE clang++)
+    if(CLANG_EXECUTABLE AND CLANGXX_EXECUTABLE)
+        message(STATUS "Defaulting to clang/clang++ (set CC/CXX to override)")
+        set(CMAKE_C_COMPILER   "${CLANG_EXECUTABLE}"  CACHE STRING "")
+        set(CMAKE_CXX_COMPILER "${CLANGXX_EXECUTABLE}" CACHE STRING "")
+    endif()
+endif()
+```
+
+#### B. CI / docs: document the new default
+
+- README.md: change "GCC 13+ / Clang 17+" → "Clang 21+ (default),
+  GCC 13+ supported".
+- Update the CMake 3.16+ requirement to mention clang-specific
+  flags.
+- Add `docs/development/compiler-migration.md` with the full
+  before/after.
+
+#### C. Replace cppcheck with clang-tidy
+
+Currently `tools/CMakeLists.txt` adds a `cppcheck` target that
+runs cppcheck against library, tests, demos, tools.
+
+Replaced with a `clang-tidy` target:
+- Use `find_program(CLANG_TIDY clang-tidy)` to locate.
+- `add_custom_target(clang_tidy ...)` that runs clang-tidy with
+  the project's .clang-tidy config.
+- Master target `static_analysis` runs all of them.
+
+Add `.clang-tidy` config file:
+```yaml
+---
+Checks: '-*,clang-analyzer-*,cppcoreguidelines-*,modernize-*,performance-*,readability-*,-modernize-use-trailing-return-type,-readability-magic-numbers'
+WarningsAsErrors: 'clang-analyzer-*,cppcoreguidelines-*'
+HeaderFilterRegex: '.*'
+FormatStyle: file
+```
+
+#### D. Drop the `cppcheck` target (or keep as legacy alias)
+
+After clang-tidy is in place, the `cppcheck` target can stay
+as a `make cppcheck` alias for users who still have cppcheck
+installed, but the default becomes `make clang_tidy`. Eventually
+delete cppcheck.
+
+### Status (live)
+- [x] A. CMake defaults to clang when available
+- [x] B. CI/docs updated
+- [x] C. clang-tidy target added
+- [x] D. cppcheck target deprecated
+
+### Verification commands
+
+```bash
+# Default build (should pick clang)
+rm -rf build && cmake -S . -B build && cmake --build build -j12
+
+# Force gcc
+CC=gcc CXX=g++ cmake -S . -B build-gcc -B build-gcc && cmake --build build-gcc -j12
+
+# Run clang-tidy
+cmake --build build --target clang_tidy
+```
+
+### Migration notes
+- gcc 15.2 build dir (build/) can stay around; clean once
+  we're confident clang-only.
+- The CMake C++ standard flag stays `-std=c++23` — both compilers
+  support it.
+- The `#include <unistd.h>` fix from v0.8.3 Bug 2 is more
+  important with clang (clang's <fcntl.h> header is less
+  forgiving about missing transitive includes).
