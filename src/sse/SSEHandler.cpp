@@ -1,6 +1,8 @@
 // OmniNet - SSE Handler Implementation
 #include "utils/Utils.h"
+#include "utils/Logger.h"
 #include "crypto/Crypto.h"
+#include "net/Socket.h"
 #include "SSEHandler.h"
 
 #include <thread>
@@ -75,60 +77,192 @@ Handler::~Handler() {
     }
 }
 
+// v0.8.3 (MonkeyByte Bug 1): deprecated as a route handler.
+// The HTTP server now uses on_upgrade (in attach()) to set the
+// response, then the on_post_upgrade callback spawns a worker
+// thread that owns the socket and writes chunks. This method is
+// kept only for backward compatibility - it does NOT actually
+// stream anything.
 bool Handler::handleRequest(const HTTP::Request& req, HTTP::Response& resp) {
     // Check path
     if (req.path() != m_path) {
         return false;
     }
-    
+
     // Must be GET
     if (req.method() != HTTP::Method::GET) {
         resp = HTTP::Response::methodNotAllowed("GET");
         return true;
     }
-    
-    // Build SSE response
+
+    // Set up the response headers. Note: NO body - the body
+    // arrives later as chunked frames written by the worker thread.
     resp.setStatus(HTTP::StatusCode::OK);
     resp.setContentType("text/event-stream");
-    resp.setHeader(std::string_view("Cache-Control"), std::string_view("no-cache"));
-    resp.setHeader(std::string_view("Connection"), std::string_view("keep-alive"));
-    resp.setHeader(std::string_view("Access-Control-Allow-Origin"), std::string_view("*"));
-    
-    // Generate client ID
-    auto clientId = SecureToken::generateUrlSafe(16);
-    
-    // Send initial comment
-    std::string initial = ": connected\r\n\r\n";
-    
-    // Create client entry
-    auto client = std::make_shared<Client>();
-    client->lastActivity = std::chrono::steady_clock::now();
-    
-    auto sender = [&initial](const std::string& data) -> bool {
-        // In real implementation, would send to actual socket
-        (void)data;
-        return true;
-    };
-    
-    addClient(clientId, sender);
-    
-    // Send initial event
-    client->sender(initial);
-    
-    // Note: In a real implementation, the request would hang until client disconnects
-    // This is handled by the HTTP server
-    
+    resp.setHeader("Cache-Control", "no-cache");
+    resp.setHeader("Connection", "keep-alive");
+    resp.setHeader("Access-Control-Allow-Origin", "*");
+    resp.setTransferEncoding("chunked");
+    resp.markStreaming();
+
     return true;
+}
+
+// v0.8.3 (MonkeyByte Bug 1): register this handler as an SSE
+// endpoint. The HTTP server wires the protocol switch and runs
+// runClientStream() in a detached worker thread per client.
+void Handler::attach(HTTP::Server& server) {
+    Handler* self = this;
+    std::string path = m_path;
+
+    server.registerProtocolSwitch(path, {
+        // on_upgrade: set the response to 200 OK + chunked.
+        // Server writes the headers, then fires on_post_upgrade.
+        .on_upgrade = [path](const HTTP::Request& req, HTTP::Response& resp) {
+            (void)path; (void)req;
+            resp.setStatus(HTTP::StatusCode::OK);
+            resp.setContentType("text/event-stream");
+            resp.setHeader("Cache-Control", "no-cache");
+            resp.setHeader("Connection", "keep-alive");
+            resp.setHeader("X-Accel-Buffering", "no");
+            resp.setTransferEncoding("chunked");
+            resp.markStreaming();
+        },
+
+        // on_post_upgrade: spawn worker thread that owns the
+        // socket and writes SSE chunks until client disconnects.
+        .on_post_upgrade = [self](std::unique_ptr<Socket> socket,
+                                  const HTTP::Request& req) {
+            std::thread([self, sock = std::move(socket), req]() mutable {
+                try {
+                    self->runClientStream(std::move(sock), req);
+                } catch (const std::exception& e) {
+                    OMNINET_LOG_ERROR(std::string("SSE worker exception: ") + e.what());
+                } catch (...) {
+                    OMNINET_LOG_ERROR(std::string("SSE worker unknown exception"));
+                }
+            }).detach();
+        },
+    });
+}
+
+// v0.8.3 (MonkeyByte Bug 1): run one client connection until
+// the client disconnects. Owns the socket.
+void Handler::runClientStream(std::unique_ptr<Socket> socket,
+                              const HTTP::Request& req) {
+    if (!socket || !socket->isOpen()) return;
+
+    // Generate client ID.
+    std::string clientId = OmniNet::SecureToken::generateUrlSafe(16);
+    if (m_connectHandler) {
+        if (auto overrideId = m_connectHandler(req); !overrideId.empty()) {
+            clientId = overrideId;
+        }
+    }
+
+    // Set a short recv timeout so we periodically check if the
+    // broadcast map still has us (and avoid burning a CPU in a
+    // tight loop on disconnect detection).
+    constexpr auto kPollTimeout = std::chrono::milliseconds(50);
+    try { socket->setRecvTimeout(kPollTimeout); } catch (...) {}
+
+    // Sender: write one chunked frame to the socket. Returns
+    // false on any socket error so broadcast() can dead-letter-drop.
+    auto sock = socket.get();
+    auto sender = [sock](const std::string& data) -> bool {
+        return writeChunked(*sock, data);
+    };
+
+    addClient(clientId, sender);
+
+    // Send an initial comment so the client's EventSource opens
+    // immediately and proxies don't time out the connect.
+    std::string initial = Event::comment("connected").format();
+    if (!sender(initial)) {
+        removeClient(clientId);
+        return;
+    }
+
+    OMNINET_LOG_DEBUG(std::string("SSE client connected: ") + clientId +
+        " on " + m_path);
+
+    // Wait for client disconnect. recv() returns empty (or
+    // throws) when the client closes or the timeout expires.
+    // We poll on the recv timeout; the keep-alive worker handles
+    // periodic comment writes via broadcast().
+    while (m_running && socket && socket->isOpen()) {
+        try {
+            auto data = socket->recvAll(1);
+            // Any data from the client means client is alive but
+            // doesn't speak the SSE wire protocol - we ignore it.
+            // Empty data after timeout means client is still alive
+            // (we just timed out the recv, no real disconnect).
+            (void)data;
+        } catch (...) {
+            // Real disconnect.
+            break;
+        }
+    }
+
+    // Cleanup.
+    removeClient(clientId);
+
+    if (socket) {
+        try { writeChunkedEnd(*socket); } catch (...) {}
+        try { socket->close(); } catch (...) {}
+    }
+
+    OMNINET_LOG_DEBUG(std::string("SSE client disconnected: ") + clientId);
+}
+
+// v0.8.3: write one chunked frame. Hex-encodes the size, then
+// writes data, then the trailing CRLF. Returns false on socket error.
+bool Handler::writeChunked(Socket& sock, std::string_view data) {
+    if (!sock.isOpen()) return false;
+    std::ostringstream oss;
+    oss << std::hex << data.size() << "\r\n";
+    auto header = oss.str();
+    try {
+        sock.sendAll(std::span<const uint8_t>(
+            reinterpret_cast<const uint8_t*>(header.data()),
+            header.size()));
+        sock.sendAll(std::span<const uint8_t>(
+            reinterpret_cast<const uint8_t*>(data.data()),
+            data.size()));
+        sock.sendAll(std::span<const uint8_t>(
+            reinterpret_cast<const uint8_t*>("\r\n"), 2));
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+// v0.8.3: write the chunked terminator (0\r\n\r\n).
+void Handler::writeChunkedEnd(Socket& sock) {
+    if (!sock.isOpen()) return;
+    try {
+        sock.sendAll(std::span<const uint8_t>(
+            reinterpret_cast<const uint8_t*>("0\r\n\r\n"), 5));
+    } catch (...) {}
 }
 
 void Handler::broadcast(const Event& event) {
     auto formatted = event.format();
-    
+
     std::lock_guard<std::mutex> lock(m_clientsMutex);
-    for (auto& [id, client] : m_clients) {
-        if (client->connected) {
-            client->sender(formatted);
+    // v0.8.3 (MonkeyByte Bug 1, C.4): dead-letter-drop. If a
+    // sender returns false, the socket is dead — erase the
+    // client so subsequent broadcasts skip it.
+    for (auto it = m_clients.begin(); it != m_clients.end(); ) {
+        if (!it->second->connected) {
+            it = m_clients.erase(it);
+            continue;
         }
+        if (!it->second->sender(formatted)) {
+            it = m_clients.erase(it);
+            continue;
+        }
+        ++it;
     }
 }
 
@@ -186,13 +320,21 @@ void Handler::onDisconnect(DisconnectHandler handler) {
 
 void Handler::broadcastTo(const std::string& eventType, const Event& event) {
     auto formatted = event.format();
-    
+
     std::lock_guard<std::mutex> lock(m_clientsMutex);
-    for (auto& [id, client] : m_clients) {
-        if (client->connected && 
-            client->subscriptions.count(eventType) > 0) {
-            client->sender(formatted);
+    // v0.8.3 (MonkeyByte Bug 1, C.4): dead-letter-drop on send failure.
+    for (auto it = m_clients.begin(); it != m_clients.end(); ) {
+        if (!it->second->connected ||
+            it->second->subscriptions.count(eventType) == 0) {
+            // Skip (don't drop just because of filter mismatch).
+            ++it;
+            continue;
         }
+        if (!it->second->sender(formatted)) {
+            it = m_clients.erase(it);
+            continue;
+        }
+        ++it;
     }
 }
 

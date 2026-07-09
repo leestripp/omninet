@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "http/HttpServer.h"
+#include "net/Socket.h"
 
 namespace OmniNet::SSE {
 
@@ -45,7 +46,30 @@ public:
     ~Handler();
     
     // Handle HTTP request for SSE stream
+    // v0.8.3 (MonkeyByte Bug 1): deprecated as a route handler.
+    // Use attach(HTTP::Server&) to register the streaming endpoint
+    // and let the post-upgrade mechanism drive the SSE lifecycle.
+    // This method now does nothing (the server's on_upgrade handles
+    // the response, and the post-upgrade callback writes the stream).
+    // Kept for backward compat - returns true if path matches.
     bool handleRequest(const HTTP::Request& req, HTTP::Response& resp);
+
+    // v0.8.3 (MonkeyByte Bug 1): register this handler as an SSE
+    // endpoint on the given HTTP server. Wires up:
+    //   1) on_upgrade: build 200 OK + Transfer-Encoding: chunked + mark streaming
+    //   2) on_post_upgrade: spawn worker thread that owns the socket
+    //      and writes SSE chunks until the client disconnects.
+    // Idempotent: safe to call more than once (last call wins).
+    // Thread-safe with respect to broadcast().
+    void attach(HTTP::Server& server);
+
+    // v0.8.3 (MonkeyByte Bug 1): per-connection worker entry point.
+    // Spawned by the on_post_upgrade callback; runs until the client
+    // disconnects. Public so it can be unit-tested with a mock
+    // unique_ptr<Socket> (the post-upgrade callback path can't be
+    // tested directly because it requires a real HTTP roundtrip).
+    void runClientStream(std::unique_ptr<Socket> socket,
+                         const HTTP::Request& req);
     
     // --- Broadcasting ---
     
@@ -59,6 +83,7 @@ public:
     
     // Get number of connected clients
     size_t clientCount() const;
+    size_t connectionCount() const { return clientCount(); }  // alias
     
     // Remove client by ID
     void removeClient(const std::string& clientId);
@@ -97,12 +122,20 @@ public:
 
 private:
     struct Client {
-        std::function<bool(const std::string&)> sender;
+        std::function<bool(const std::string&)> sender;  // returns false if dead
         std::unordered_set<std::string> subscriptions;
         std::atomic<bool> connected{true};
         std::chrono::steady_clock::time_point lastActivity;
     };
+
+    // v0.8.3 (MonkeyByte Bug 1): write one chunked frame to the
+    // socket. Hex-encodes the size, writes data, flushes.
+    // Returns false on any socket error.
+    static bool writeChunked(Socket& sock, std::string_view data);
     
+    // v0.8.3: write the chunked-stream terminator (0\r\n\r\n).
+    static void writeChunkedEnd(Socket& sock);
+
     void addClient(const std::string& clientId, std::function<bool(const std::string&)> sender);
     void keepAliveWorker();
     

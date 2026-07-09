@@ -45,6 +45,7 @@ int main() {
     // Create server configuration from config system.
     // OMNINET_PORT env var wins over the config file (useful for
     // container deployments where the host port is fixed, e.g. 8000).
+    Server::Config serverConfig;
     uint16_t serverPort = 8080;
     if (const char* envPort = std::getenv("OMNINET_PORT"); envPort && *envPort) {
         try {
