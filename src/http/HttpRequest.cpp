@@ -145,6 +145,19 @@ double QueryParams::queryDouble(std::string_view key, double defaultValue) const
     return v ? *v : defaultValue;
 }
 
+// v0.8.3 (MonkeyByte Bug 3): generic string accessor.
+std::optional<std::string> QueryParams::queryString(std::string_view key) const {
+    auto v = get(key);  // returns optional<string_view>
+    if (!v) return std::nullopt;
+    return std::string(*v);  // copy out for safety
+}
+
+std::string QueryParams::queryString(std::string_view key,
+                                     std::string_view defaultValue) const {
+    auto v = queryString(key);
+    return v ? *v : std::string(defaultValue);
+}
+
 // ============================================================================
 // Request
 // ============================================================================
@@ -321,6 +334,16 @@ const QueryParams& Request::query() const {
         const_cast<Request*>(this)->parseQueryString();
     }
     return m_queryParams;
+}
+
+// v0.8.3 (MonkeyByte Bug 3): convenience accessors.
+std::optional<std::string> Request::queryParameter(std::string_view key) const {
+    return query().queryString(key);
+}
+
+std::string Request::queryParameter(std::string_view key,
+                                    std::string_view defaultValue) const {
+    return query().queryString(key, defaultValue);
 }
 
 Version Request::version() const {

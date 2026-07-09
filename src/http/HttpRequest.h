@@ -75,6 +75,19 @@ struct QueryParams {
     int queryInt(std::string_view key, int defaultValue) const;
     std::optional<double> queryDouble(std::string_view key) const;
     double queryDouble(std::string_view key, double defaultValue) const;
+
+    // v0.8.3 (MonkeyByte Bug 3): generic string accessor that
+    // returns an OWNED std::string. Complements queryInt/queryDouble
+    // (which return numbers) and `get()` (which returns a view into
+    // the params map and can dangle if the map is moved).
+    // - queryString(key)           -> std::optional<std::string>,
+    //                                nullopt if key absent.
+    // - queryString(key, default)  -> std::string, default if absent.
+    // For multi-value params (e.g., ?k=a&k=b), returns the first value
+    // (use getAll() to retrieve all values).
+    std::optional<std::string> queryString(std::string_view key) const;
+    std::string                queryString(std::string_view key,
+                                           std::string_view defaultValue) const;
 };
 
 // ============================================================================
@@ -112,6 +125,14 @@ public:
     std::string_view path() const;
     std::string_view queryString() const;
     const QueryParams& query() const;
+
+    // v0.8.3 (MonkeyByte Bug 3): convenience accessors that delegate
+    // to QueryParams::queryString(). Returns an OWNED std::string.
+    // Use these instead of `query().get()` when you need a value
+    // you can safely hold past the request lifetime.
+    std::optional<std::string> queryParameter(std::string_view key) const;
+    std::string                queryParameter(std::string_view key,
+                                              std::string_view defaultValue) const;
     
     Version version() const;
     

@@ -423,17 +423,143 @@ OMNINET_TEST(http_request_headers) {
     ASSERT_TRUE(true);  // Just verify setting header doesn't crash
 }
 OMNINET_TEST(http_request_query_string) {
-    std::string raw = 
+    std::string raw =
         "GET /search?q=test&page=1&sort=name HTTP/1.1\r\n"
         "Host: localhost\r\n"
         "\r\n";
-    
+
     OmniNet::HTTP::Request req;
     req.parse(raw);
-    
+
     auto& query = req.query();
     // Check what keys exist
     ASSERT_TRUE(query.has("q") || query.has("page") || !query.params.empty());
+}
+
+// v0.8.3 (MonkeyByte Bug 3): queryString / queryParameter helpers.
+OMNINET_TEST(http_query_string_present) {
+    std::string raw =
+        "GET /api?key=hello HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+
+    auto v = req.queryParameter("key");
+    ASSERT_TRUE(v.has_value());
+    ASSERT_EQ(*v, std::string("hello"));
+}
+
+OMNINET_TEST(http_query_string_missing) {
+    std::string raw =
+        "GET /api?key=hello HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+
+    auto v = req.queryParameter("not_present");
+    ASSERT_FALSE(v.has_value());
+
+    // Default value overload returns the default.
+    auto s = req.queryParameter("not_present", std::string_view("fallback"));
+    ASSERT_EQ(s, std::string("fallback"));
+}
+
+OMNINET_TEST(http_query_string_multi_value_overwrites) {
+    // Current parser semantics (?k=a&k=b&k=c): each repetition
+    // OVERWRITES the previous value in the params map (the params
+    // map's key type is std::string, not std::vector<std::string>).
+    // So queryParameter("k") returns the LAST value, "c".
+    // (Use getAll() to retrieve all values, but for repeated scalar
+    // params only the last one is kept by the current parser.)
+    std::string raw =
+        "GET /api?k=a&k=b&k=c HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+
+    auto v = req.queryParameter("k");
+    ASSERT_TRUE(v.has_value());
+    ASSERT_EQ(*v, std::string("c"));
+
+    // getAll() wraps the single scalar value in a 1-element vector.
+    auto all = req.query().getAll("k");
+    ASSERT_TRUE(all.has_value());
+    ASSERT_EQ(all->size(), 1u);
+    ASSERT_EQ((*all)[0], std::string("c"));
+}
+
+OMNINET_TEST(http_query_string_empty) {
+    // ?key= -> empty string, NOT nullopt.
+    std::string raw =
+        "GET /api?key= HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+
+    auto v = req.queryParameter("key");
+    ASSERT_TRUE(v.has_value());
+    ASSERT_EQ(*v, std::string(""));
+}
+
+OMNINET_TEST(http_query_string_url_decoded) {
+    // URL-decoded values: "hello%20world" -> "hello world".
+    std::string raw =
+        "GET /api?msg=hello%20world HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+
+    auto v = req.queryParameter("msg");
+    ASSERT_TRUE(v.has_value());
+    ASSERT_EQ(*v, std::string("hello world"));
+}
+
+OMNINET_TEST(http_query_string_default_empty) {
+    // Default-value overload returns the default if key is absent.
+    std::string raw =
+        "GET /api HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+
+    auto s = req.queryParameter("limit", std::string_view("100"));
+    ASSERT_EQ(s, std::string("100"));
+}
+
+OMNINET_TEST(http_query_string_queryparams_alias) {
+    // req.queryParameter("x") and req.query().queryString("x")
+    // MUST return the same value.
+    std::string raw =
+        "GET /api?x=42&y=hello HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "\r\n";
+
+    OmniNet::HTTP::Request req;
+    req.parse(raw);
+
+    auto a = req.queryParameter("x");
+    auto b = req.query().queryString("x");
+    ASSERT_TRUE(a.has_value());
+    ASSERT_TRUE(b.has_value());
+    ASSERT_EQ(*a, *b);
+
+    // Default-value overloads also agree.
+    auto c = req.queryParameter("z", std::string_view("fallback"));
+    auto d = req.query().queryString("z", std::string_view("fallback"));
+    ASSERT_EQ(c, d);
+    ASSERT_EQ(c, std::string("fallback"));
 }
 OMNINET_TEST(http_request_post_body) {
     std::string raw = 
@@ -1274,6 +1400,15 @@ int main() {
     RUN(http_query_multiple_params);
     RUN(http_query_empty_param);
     RUN(http_query_no_value);
+
+    // v0.8.3 (MonkeyByte Bug 3)
+    RUN(http_query_string_present);
+    RUN(http_query_string_missing);
+    RUN(http_query_string_multi_value_overwrites);
+    RUN(http_query_string_empty);
+    RUN(http_query_string_url_decoded);
+    RUN(http_query_string_default_empty);
+    RUN(http_query_string_queryparams_alias);
     RUN(http_header_exactly_one_value);
     RUN(http_header_with_spaces);
     RUN(http_header_empty_value);
