@@ -98,6 +98,11 @@ add_executable(test_websocket_echo
     test_websocket_echo.cpp
 )
 
+# SSE streaming tests (v0.8.3 MonkeyByte Bug 1)
+add_executable(test_sse_streaming
+    test_sse_streaming.cpp
+)
+
 # HTTP Client tests (v0.8.0 Phase 1)
 add_executable(test_http_client
     test_http_client.cpp
@@ -181,6 +186,11 @@ target_link_libraries(test_http_response PRIVATE
 )
 
 target_link_libraries(test_websocket_broadcast PRIVATE
+    OmniNet
+    pthread
+)
+
+target_link_libraries(test_sse_streaming PRIVATE
     OmniNet
     pthread
 )

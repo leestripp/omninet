@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -458,6 +459,7 @@ TEST(broadcast_reaches_clients) {
 // ============================================================================
 
 int main() {
+    signal(SIGPIPE, SIG_IGN);
     std::cout << "========================================" << std::endl;
     std::cout << "WebSocket end-to-end tests (v0.7.0)" << std::endl;
     std::cout << "========================================" << std::endl;
