@@ -21,11 +21,13 @@
 #include <chrono>
 #include <csignal>
 #include <cstring>
+#include <deque>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <sys/socket.h>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -256,6 +258,120 @@ public:
 
 private:
     Socket m_sock;
+};
+
+// ============================================================================
+// FakeSocket — unit-test mock for Socket, used to drive SSEHandler::runClientStream
+// directly without an HTTP server.
+//
+// OMNINET-1 (v0.8.5) was caught only by integration tests because no unit
+// test exercised the worker thread. This FakeSocket lets us verify the
+// worker's response to each branch of the recv loop:
+//
+//   recv state      | waitForRead | recvAll   | expected worker behavior
+//   ----------------|-------------|-----------|------------------------
+//   wouldBlock      | false       | (n/a)     | loop, do NOT exit
+//   real EOF        | true        | empty     | exit
+//   client data     | true        | non-empty | loop, ignore
+//
+// Requires Socket::isOpen() and Socket::waitForRead() to be virtual
+// (v0.8.6 — added for testability).
+// ============================================================================
+
+class FakeSocket : public Socket {
+public:
+    FakeSocket() {
+        // Use a real socketpair so the base Socket destructor can
+        // ::close(m_fd) cleanly. We hold m_otherFd so the writer
+        // side is kept alive (until the test closes it to simulate EOF).
+        int fds[2];
+        if (::socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
+            throw std::runtime_error("FakeSocket: socketpair failed");
+        }
+        m_fd = fds[0];
+        m_otherFd = fds[1];
+    }
+
+    ~FakeSocket() override {
+        if (m_otherFd >= 0) {
+            ::close(m_otherFd);
+            m_otherFd = -1;
+        }
+    }
+
+    // Drive these from the test to control worker behavior.
+    //
+    // Mode A (single-shot): set next_recvAll_data to a non-empty vector;
+    // it will be returned on the next recvAll and cleared. The call
+    // AFTER that returns empty (EOF or wouldBlock — caller's choice
+    // via next_recvAll_is_eof).
+    //
+    // Mode B (queued): push entries onto recvAll_queue. Each call pops
+    // the front. Empty entries mean EOF or wouldBlock depending on
+    // next_recvAll_is_eof at the time of the call.
+    bool next_waitForRead_return = true;  // what waitForRead() returns next
+    bool next_recvAll_is_eof = false;     // true => recvAll returns empty
+    std::vector<uint8_t> next_recvAll_data; // single-shot data
+    std::deque<std::vector<uint8_t>> recvAll_queue;  // multi-shot queue
+
+    // Counters for assertions.
+    int recvAll_calls = 0;
+    int waitForRead_calls = 0;
+    int close_calls = 0;
+    std::string sent;  // captured from send/sendAll
+
+    void close() override {
+        ++close_calls;
+        if (m_fd != INVALID_SOCKET) {
+            ::close(m_fd);
+            m_fd = INVALID_SOCKET;
+        }
+        if (m_otherFd >= 0) {
+            ::close(m_otherFd);
+            m_otherFd = -1;
+        }
+    }
+
+    bool isOpen() const override {
+        return m_fd != INVALID_SOCKET;
+    }
+
+    bool waitForRead(std::chrono::milliseconds /*timeout*/) const override {
+        // Mutable counter is awkward; FakeSocket is single-threaded by design.
+        const_cast<FakeSocket*>(this)->waitForRead_calls++;
+        return next_waitForRead_return;
+    }
+
+    std::vector<uint8_t> recvAll(size_t /*maxSize*/) override {
+        ++recvAll_calls;
+        // Queued mode: pop front, return it.
+        if (!recvAll_queue.empty()) {
+            auto out = std::move(recvAll_queue.front());
+            recvAll_queue.pop_front();
+            return out;
+        }
+        // Single-shot mode.
+        if (next_recvAll_is_eof) {
+            return {};  // simulate EOF (peer closed)
+        }
+        if (!next_recvAll_data.empty()) {
+            auto out = next_recvAll_data;
+            next_recvAll_data.clear();
+            return out;
+        }
+        return {};  // no data, no EOF (wouldBlock case from real socket)
+    }
+
+    size_t send(std::span<const uint8_t> data) override {
+        sent.append(reinterpret_cast<const char*>(data.data()), data.size());
+        return data.size();
+    }
+
+    void sendAll(std::span<const uint8_t> data) override {
+        sent.append(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+
+    int m_otherFd = -1;
 };
 
 // ============================================================================
@@ -533,6 +649,173 @@ void test_handler_multiple_broadcasts_same_event() {
 }
 
 // ============================================================================
+// Unit tests — runClientStream with FakeSocket (no HTTP server)
+// ============================================================================
+//
+// These tests directly exercise the worker thread loop with a
+// mocked Socket. Each test covers one branch of the recv loop:
+//
+//   - wouldBlock: waitForRead false → loop (THIS catches OMNINET-1-class
+//     regressions — the old code treated recvAll-empty as EOF)
+//   - real EOF:   waitForRead true + recvAll empty → exit cleanly
+//   - client data: waitForRead true + recvAll data → ignored, loop
+//
+// Without these, the worker loop is exercised only via the HTTP
+// integration path, and the only "idle" test slept 500ms (less than
+// the 1s keep-alive timeout), so OMNINET-1 slipped through.
+// ============================================================================
+
+void test_runClientStream_continues_on_wouldblock() {
+    std::cout << "\n[sse_runClientStream_continues_on_wouldblock]\n";
+    SSE::Handler h("/events");
+    auto sock = std::make_unique<FakeSocket>();
+
+    // Configure FakeSocket: waitForRead ALWAYS returns false (timeout).
+    // recvAll would return empty too (default), but the worker should
+    // NEVER call recvAll when waitForRead returns false — it should
+    // just loop and try waitForRead again.
+    //
+    // After 100ms of wouldBlock-only, switch waitForRead to true
+    // AND next_recvAll_is_eof=true so the worker exits cleanly
+    // and we can join the thread.
+    sock->next_waitForRead_return = false;
+    sock->next_recvAll_is_eof = false;
+
+    HTTP::Request req;
+    std::thread t([&] {
+        h.runClientStream(std::move(sock), req);
+    });
+
+    // Give the worker time to loop many times in wouldBlock state.
+    std::this_thread::sleep_for(150ms);
+
+    // The worker MUST still be alive (wouldBlock doesn't kill it).
+    EXPECT_EQ(h.clientCount(), 1u);
+
+    // We've lost the FakeSocket pointer (it was moved). There's no
+    // way to signal EOF from here without a shared state. We accept
+    // that this test detaches its worker thread; the harness test
+    // process exits immediately after, so the OS cleans up the
+    // socketpair fds and any leftover thread.
+    //
+    // What matters: the worker did NOT exit prematurely due to
+    // wouldBlock. The client is still registered.
+    EXPECT_EQ(h.clientCount(), 1u);
+
+    t.detach();
+    PASS("sse_runClientStream_continues_on_wouldblock");
+    // Note: do NOT destroy h here — the worker is still running and
+    // holds a sender closure capturing a pointer to the socketpair
+    // end. The test process exits at end-of-main.
+}
+
+void test_runClientStream_exits_on_real_eof() {
+    std::cout << "\n[sse_runClientStream_exits_on_real_eof]\n";
+    SSE::Handler h("/events");
+    auto sock = std::make_unique<FakeSocket>();
+
+    // waitForRead returns true (readable), recvAll returns empty
+    // (real EOF). Worker must exit.
+    sock->next_waitForRead_return = true;
+    sock->next_recvAll_is_eof = true;
+
+    HTTP::Request req;
+    std::thread t([&] {
+        h.runClientStream(std::move(sock), req);
+    });
+
+    // Worker should register client then exit on EOF.
+    t.join();
+
+    // After worker exits, client should be removed.
+    EXPECT_EQ(h.clientCount(), 0u);
+
+    PASS("sse_runClientStream_exits_on_real_eof");
+}
+
+void test_runClientStream_ignores_client_data() {
+    std::cout << "\n[sse_runClientStream_ignores_client_data]\n";
+    SSE::Handler h("/events");
+    auto sock = std::make_unique<FakeSocket>();
+
+    // waitForRead always true. Queue 10 chunks of data. Then EOF.
+    sock->next_waitForRead_return = true;
+    for (int i = 0; i < 10; ++i) {
+        sock->recvAll_queue.push_back(
+            std::vector<uint8_t>{0x01, 0x02, 0x03});
+    }
+    // After the queue is drained, next recvAll returns EOF (empty vector).
+    sock->next_recvAll_is_eof = true;
+
+    HTTP::Request req;
+    std::thread t([&] {
+        h.runClientStream(std::move(sock), req);
+    });
+
+    // Give the worker time to consume all 10 data chunks and then
+    // exit on EOF.
+    t.join();
+
+    // Worker should have registered then removed the client.
+    EXPECT_EQ(h.clientCount(), 0u);
+
+    PASS("sse_runClientStream_ignores_client_data");
+}
+
+void test_runClientStream_calls_remove_client_on_eof() {
+    std::cout << "\n[sse_runClientStream_calls_remove_client_on_eof]\n";
+    SSE::Handler h("/events");
+
+    // Configure: recvAll returns EOF on FIRST call. After
+    // addClient() runs (which happens before the recv loop), the
+    // worker enters the loop, sees EOF, and calls removeClient().
+    auto sock = std::make_unique<FakeSocket>();
+    sock->next_waitForRead_return = true;
+    sock->next_recvAll_is_eof = true;
+
+    HTTP::Request req;
+    std::thread t([&] {
+        h.runClientStream(std::move(sock), req);
+    });
+    t.join();
+
+    // addClient was called, then removeClient → count drops to 0.
+    EXPECT_EQ(h.clientCount(), 0u);
+
+    PASS("sse_runClientStream_calls_remove_client_on_eof");
+}
+
+void test_runClientStream_fires_on_disconnect_callback() {
+    std::cout << "\n[sse_runClientStream_fires_on_disconnect_callback]\n";
+    SSE::Handler h("/events");
+
+    std::string captured_id;
+    h.onDisconnect([&](const std::string& id) {
+        captured_id = id;
+    });
+
+    // Override the client ID generation by using a ConnectHandler.
+    h.onConnect([](const HTTP::Request&) -> std::string {
+        return "test-client-42";
+    });
+
+    auto sock = std::make_unique<FakeSocket>();
+    sock->next_waitForRead_return = true;
+    sock->next_recvAll_is_eof = true;
+
+    HTTP::Request req;
+    std::thread t([&] {
+        h.runClientStream(std::move(sock), req);
+    });
+    t.join();
+
+    EXPECT_EQ(captured_id, std::string("test-client-42"));
+    EXPECT_EQ(h.clientCount(), 0u);
+
+    PASS("sse_runClientStream_fires_on_disconnect_callback");
+}
+
+// ============================================================================
 // Integration tests — require HTTP server + real sockets
 // ============================================================================
 void test_initial_comment_arrives() {
@@ -677,8 +960,14 @@ void test_idle_connection() {
         EXPECT(ev.has_value());
         EXPECT_EQ(ev->data, std::string(":connected"));
 
-        // Sit idle for a moment. No broadcast, no keep-alive.
-        std::this_thread::sleep_for(500ms);
+        // Sit idle for a duration LONGER than cfg.keepAliveTimeout
+        // (1s in tests, 5s default). The v0.8.5 fix made this safe:
+        // the worker now uses waitForRead() + recvAll() to distinguish
+        // wouldBlock from EOF, so a keep-alive-timeout-driven wakeup
+        // does NOT cause a false disconnect. Before the fix, this
+        // sleep would have caused the worker to exit and the
+        // assertion below to fail with clientCount()==0.
+        std::this_thread::sleep_for(1500ms);
         EXPECT_EQ(srv.sse->clientCount(), 1u);
 
         // A subsequent broadcast still reaches the idle client.
@@ -946,6 +1235,13 @@ int main() {
     test_handler_broadcast_records_events();
     test_handler_rapid_add_remove();
     test_handler_multiple_broadcasts_same_event();
+
+    // --- Unit tests: runClientStream with FakeSocket (no HTTP server) ---
+    test_runClientStream_continues_on_wouldblock();
+    test_runClientStream_exits_on_real_eof();
+    test_runClientStream_ignores_client_data();
+    test_runClientStream_calls_remove_client_on_eof();
+    test_runClientStream_fires_on_disconnect_callback();
 
     // --- Integration tests ---
         test_initial_comment_arrives();

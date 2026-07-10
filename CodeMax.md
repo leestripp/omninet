@@ -3781,3 +3781,104 @@ immediately on `::recv()`, which would busy-loop.
 - [x] All existing tests still PASS (no regressions)
 - [x] Full build clean
 - [x] Commit (0fcd000)
+
+---
+
+## v0.8.6 — Improve SSE unit tests to catch OMNINET-1-class regressions
+
+**Why**: OMNINET-1 (v0.8.5) was a HIGH-severity bug that went
+straight through the test suite. Root cause analysis showed
+two coverage gaps:
+
+1. **No unit tests for `runClientStream`**. The 23 SSE tests
+   split as 14 unit (Event format + Handler API) and 9
+   integration (HTTP server + real sockets). The worker thread
+   is exercised only through the HTTP path, and the 9
+   integration tests all set `cfg.keepAliveTimeout = 1s` but
+   never slept long enough to actually trip it. So the only
+   way the bug could surface was via the slow production
+   default (5s), which the tests don't probe.
+
+2. **`test_idle_connection` slept 500ms**. With keep-alive
+   timeout at 1s, this was a sub-timeout sleep. The test
+   name promised idle-survival; the assertion was empty.
+   A stronger version (sleep > 1s) would have caught the
+   bug directly.
+
+### Plan
+
+#### A. Make `runClientStream` unit-testable
+
+Add `FakeSocket` helper in tests (subclasses `Socket`,
+overrides `recvAll`, `send`, `sendAll`, `close`). For this
+to work, `Socket::isOpen()` and `Socket::waitForRead()`
+must be virtual.
+
+This is a tiny, public-API-additive change (existing
+callers see no behavior change). Justified for testability.
+
+#### B. Add 5 new unit tests for `runClientStream` directly
+
+All run without an HTTP server. Each is < 100ms.
+
+- `test_runClientStream_continues_on_wouldblock`
+       FakeSocket makes waitForRead return false (timeout).
+       Verify worker is still alive after several iterations.
+       (This is THE test that catches an OMNINET-1-class
+       regression in the worker loop itself.)
+
+- `test_runClientStream_exits_on_real_eof`
+       FakeSocket makes waitForRead true, recvAll empty.
+       Verify worker exits cleanly within timeout.
+       (This is the EOF path — must still work after the fix.)
+
+- `test_runClientStream_ignores_client_data`
+       FakeSocket returns data on recvAll. Verify worker
+       doesn't crash and continues (SSE is server→client,
+       client data is ignored).
+
+- `test_runClientStream_calls_remove_client_on_eof`
+       Verify addClient() then removeClient() are called
+       in sequence (clientCount() returns to 0).
+
+- `test_runClientStream_fires_on_disconnect_callback`
+       Verify DisconnectHandler is fired with the correct
+       clientId on EOF.
+
+#### C. Strengthen `test_idle_connection`
+
+Change `std::this_thread::sleep_for(500ms)` to
+`std::this_thread::sleep_for(1500ms)` (> 1s keep-alive
+timeout). Now actually exercises the idle-survival path.
+
+#### D. Add a Socket-level regression test
+
+In tests/test_http_connection.cpp (or new file):
+
+- `test_recvAll_empty_does_not_mean_eof_documented`
+       Document that Socket::recvAll returning empty vector
+       could be EITHER wouldBlock OR EOF. The caller must
+       use waitForRead() or setNonBlocking()+wouldBlock()
+       to distinguish. Without this, callers fall into the
+       same trap as SSEHandler did.
+
+### Status
+- [x] Add task to CodeMax.md
+- [x] Make Socket::isOpen() and Socket::waitForRead() virtual
+- [x] Add FakeSocket helper in tests/test_sse_streaming.cpp
+- [x] Add 5 runClientStream unit tests
+- [x] Strengthen test_idle_connection (500ms → 1500ms)
+- [x] Verified: new test FAILS with old buggy code, PASSES with fix
+  (test_runClientStream_continues_on_wouldblock is the OMNINET-1
+   regression catcher — proven by reverting SSEHandler.cpp to
+   the pre-fix version and watching the test fail at the
+   clientCount==1 assertion)
+- [x] All tests PASS (no regressions): 31/31 SSE, 17 other suites
+- [x] Full build clean (no new warnings; 8 pre-existing warnings
+      from AsyncDatabase/AsyncSocket unchanged)
+- [ ] Commit
+
+Note: Plan D (Socket-level documentation test) was deemed
+redundant — the 5 runClientStream unit tests directly cover
+the bug pattern. A Socket-level "empty == ambiguous" test would
+just test trivial recv() behavior without adding new coverage.

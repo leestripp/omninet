@@ -116,7 +116,7 @@ public:
     // --- State ---
     
     // Check if socket is open
-    bool isOpen() const;
+    virtual bool isOpen() const;
     
     // Close the socket
     virtual void close();
@@ -167,7 +167,7 @@ public:
     // --- Waiting ---
     
     // Wait until data is available to read
-    bool waitForRead(std::chrono::milliseconds timeout) const;
+    virtual bool waitForRead(std::chrono::milliseconds timeout) const;
     
     // Wait until socket is ready to write
     bool waitForWrite(std::chrono::milliseconds timeout) const;
