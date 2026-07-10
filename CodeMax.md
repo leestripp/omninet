@@ -3780,4 +3780,4 @@ immediately on `::recv()`, which would busy-loop.
 - [x] New tests PASS
 - [x] All existing tests still PASS (no regressions)
 - [x] Full build clean
-- [ ] Commit
+- [x] Commit (0fcd000)
