@@ -3641,3 +3641,143 @@ Tests `test_broadcast_to_one` (was #4) and `test_keepalive_periodic`
     broadcast_empty, broadcast_records_events, rapid_add_remove, multiple_broadcasts
 - [x] All 23 SSE tests PASS
 - [x] Commit (3a838cc)
+
+---
+
+## v0.8.5 — Fix OMNINET-1: SSEHandler kills idle connections (HIGH)
+
+**Filed by**: codemax team (vendored OmniNet) — 2026-07-10
+
+**Source**: prompt.txt OMNINET-1, Firefox BiDi testing of
+`demos/codemax-webui/`. The bug shows up as the browser's
+EventSource entering a tight reconnect loop (~5 s cycle) because
+the SSE worker thread exits after the HTTP-level keep-alive
+recv timeout fires (treating `recvAll(1)` returning empty as EOF
+instead of wouldBlock).
+
+**Severity**: HIGH — every SSE connection dies within ~5 s.
+Visible to every user of any OmniNet SSE endpoint.
+
+### Root cause analysis
+
+`SSEHandler::runClientStream` (src/sse/SSEHandler.cpp ~160):
+
+```cpp
+while (socket->isOpen()) {
+    try {
+        auto data = socket->recvAll(1);
+        if (data.empty()) break;  // EOF ← BUG: also fires on wouldBlock
+    } catch (...) { break; }
+}
+```
+
+The socket gets a recv timeout applied during normal HTTP setup:
+
+- `HttpServer::processRequests()` calls
+  `Connection::setKeepAliveTimeout(m_config.keepAliveTimeout)`
+  (HttpServer.cpp:517).
+- `setKeepAliveTimeout(5s)` calls `socket->setRecvTimeout(5000ms)`
+  (HttpConnection.cpp:128-131).
+- This sets `SO_RCVTIMEO` on the socket.
+
+When the post-upgrade callback hands the socket to the SSE
+worker thread, the worker inherits the 5-second recv timeout.
+But SSE is server-to-client; the client never sends data, so
+after 5 s `::recv()` returns -1 with `EAGAIN`.
+
+Our `Socket::recv()` (Socket.cpp:236-238) silently converts
+EAGAIN/EWOULDBLOCK to a return value of `0`:
+
+```cpp
+ssize_t result = ::recv(m_fd, ...);
+if (result < 0) {
+    if (wouldBlock()) return 0;  // ← hides EAGAIN
+    throw SocketException(...);
+}
+```
+
+Then `Socket::recvAll()` (Socket.cpp:280-283) returns an empty
+vector for that `0`:
+
+```cpp
+size_t received = recv(recvSpan);
+if (received == 0) return {};  // Connection closed or no data
+```
+
+The SSE worker can't distinguish "no data right now" (wouldBlock)
+from "peer closed" (EOF) — both arrive as empty vector. So the
+worker exits the loop after the keep-alive timeout, writes
+`0\r\n\r\n` (chunked terminator), and closes the socket. Browser
+sees TCP close, fires `EventSource.onerror`, retries after ~3 s.
+
+### Fix
+
+Replace the recv loop with `waitForRead()` + `recvAll()`, so
+we can cleanly distinguish timeout (wouldBlock) from real
+readability (data or EOF):
+
+```cpp
+while (socket->isOpen()) {
+    // Block for a long time waiting for real readability.
+    // Returns false on timeout (just loop). Returns true
+    // when data is available or the peer closed.
+    if (!socket->waitForRead(std::chrono::hours(1))) continue;
+    if (!socket->isOpen()) break;  // race: closed by other thread
+
+    try {
+        auto data = socket->recvAll(1);
+        if (data.empty()) break;  // genuine EOF
+    } catch (...) {
+        break;  // socket error
+    }
+}
+```
+
+Why `waitForRead` (not `setRecvTimeout(huge)`):
+- `SO_RCVTIMEO` interacts subtly with shutdown: `close()` from
+  another thread → EBADF → throws → caught → exit. That still
+  works. But `waitForRead` doesn't rely on any timeout at all —
+  we control the budget explicitly via `select()`, which is
+  independent of `SO_RCVTIMEO`.
+- `select()` on a closed fd returns EBADF → recv throws → exit.
+  Same shutdown semantics, more explicit.
+- `timeval` can represent up to ~68 years; 1 hour is "essentially
+  forever" for SSE purposes.
+
+Why not just disable the timeout: `setRecvTimeout(0)` returns
+immediately on `::recv()`, which would busy-loop.
+
+### Test additions
+
+3 new tests in tests/test_sse_streaming.cpp:
+
+- `test_sse_idle_survives_keepalive_timeout`
+  Open SSE conn, sleep >keep-alive-timeout, verify connection
+  still alive (received the initial `:connected` comment,
+  clientCount still 1, can still receive new events).
+
+- `test_sse_idle_with_broadcast_after_long_idle`
+  Open SSE conn, sleep 2× keep-alive-timeout with no traffic,
+  then broadcast — verify the event arrives (no false disconnect).
+
+- `test_sse_eof_detection_still_works`
+  Open SSE conn, read initial comment, close socket from client
+  side, sleep, verify clientCount drops to 0 (the EOF path
+  still triggers, we didn't break disconnect detection).
+
+### Verification
+
+- test_sse_streaming: 26/26 PASS (23 existing + 3 new)
+- omnet_test: 117/117 PASS (no regressions)
+- Full build clean on clang 21.1.8
+- All other test suites still PASS
+
+### Status
+- [x] Read prompt.txt
+- [x] Add task to CodeMax.md
+- [x] Reproduce bug with a failing test (sleep 2× keepalive timeout)
+- [x] Apply fix (waitForRead + recvAll)
+- [x] New tests PASS
+- [x] All existing tests still PASS (no regressions)
+- [x] Full build clean
+- [ ] Commit

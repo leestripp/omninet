@@ -155,14 +155,52 @@ void Handler::runClientStream(std::unique_ptr<Socket> socket,
     OMNINET_LOG_DEBUG(std::string("SSE client connected: ") + clientId +
                       " on " + m_path);
 
-    // Block in recv() until the client disconnects.
-    // recvAll() returns empty on EOF (FIN) or throws on socket error.
+    // Block in select() waiting for the client to disconnect.
+    //
+    // OMNINET-1 (v0.8.5, codemax prompt.txt 2026-07-10):
+    // The HttpServer applies cfg.keepAliveTimeout (5 s by default,
+    // 1 s in tests) as an SO_RCVTIMEO on every accepted socket. After
+    // the SSE upgrade, the worker thread owns the same socket. SSE is
+    // server-to-client, so the client never sends data — meaning the
+    // recv() must block waiting for real EOF (FIN), not wake up on
+    // the keep-alive timeout.
+    //
+    // The previous code used `socket->recvAll(1)` in a loop, which
+    // returned an empty vector on `EAGAIN` (the would-block case from
+    // SO_RCVTIMEO firing). The worker treated the empty vector as
+    // EOF, exited the loop, and closed the socket — causing the
+    // browser's EventSource to enter a tight reconnect cycle every
+    // keep-alive-timeout seconds.
+    //
+    // Fix: use `socket->waitForRead()` (a `select()` wrapper) so we
+    // can cleanly distinguish:
+    //   - select() returned false → timeout, just loop again
+    //   - select() returned true → data or EOF is available, do a
+    //     single recv() to find out which
+    //
+    // select() ignores SO_RCVTIMEO, so it can use a long timeout
+    // without interfering with shutdown. Shutdown via close() from
+    // another thread still works: select() sees EBADF, recv() throws
+    // SocketException, the catch-all exits the loop.
     while (socket->isOpen()) {
+        // Block for up to 1 hour. SSE is "essentially forever" for
+        // any practical deployment; the only thing that should wake
+        // us up is the peer closing the socket.
+        if (!socket->waitForRead(std::chrono::hours(1))) {
+            continue;  // spurious wakeup, loop
+        }
+        if (!socket->isOpen()) break;  // closed by another thread
+
         try {
             auto data = socket->recvAll(1);
-            if (data.empty()) break;  // EOF
-            // SSE is server→client; ignore client→server.
+            if (data.empty()) {
+                // Real EOF: peer closed.
+                break;
+            }
+            // SSE is server→client; ignore any client→server data.
         } catch (...) {
+            // Socket error (e.g., EBADF after close from another
+            // thread). Treat as disconnect and exit cleanly.
             break;
         }
     }

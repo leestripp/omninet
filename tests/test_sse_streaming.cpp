@@ -692,6 +692,113 @@ void test_idle_connection() {
     srv.stop();
 }
 
+// ============================================================================
+// OMNINET-1 regression: SSE must survive the HTTP-level keep-alive timeout.
+//
+// The HttpServer applies `cfg.keepAliveTimeout` (= 1 s in tests, 5 s by
+// default in production) as an `SO_RCVTIMEO` on every accepted socket.
+// After the SSE upgrade, the worker thread owns the same socket. SSE is
+// server-to-client, so `recv()` must block waiting for real EOF — not
+// silently wake up on the keep-alive timeout and treat wouldBlock as EOF.
+//
+// `test_idle_connection` above only sleeps 500 ms (less than the 1 s
+// keep-alive timeout), so it does NOT trigger the bug. The tests below
+// sleep > keep-alive timeout and verify the connection survives.
+// ============================================================================
+
+void test_sse_idle_survives_keepalive_timeout() {
+    std::cout << "\n[sse_idle_survives_keepalive_timeout]\n";
+    TestServer srv;
+    srv.start();
+
+    {
+        SseTestClient c("127.0.0.1", srv.port, "/events");
+        c.readHeaders();
+        auto ev = c.readEvent(2s);
+        EXPECT(ev.has_value());
+        EXPECT_EQ(ev->data, std::string(":connected"));
+
+        // Sleep 2x the keep-alive timeout (cfg = 1s in tests).
+        // The bug: the SSE worker exits its recv loop on the
+        // wouldBlock that fires at 1s, treating it as EOF. The
+        // worker then closes the socket, dropping the client.
+        std::this_thread::sleep_for(2500ms);
+
+        // Server-side: client still registered (no false disconnect).
+        EXPECT_EQ(srv.sse->clientCount(), 1u);
+
+        // Client-side: socket still open on the wire.
+        EXPECT(c.isOpen());
+
+        // A subsequent broadcast still reaches the client.
+        srv.sse->broadcast("after-timeout", "alive");
+        auto ev2 = c.readEvent(2s);
+        EXPECT(ev2.has_value());
+        EXPECT_EQ(ev2->data, std::string("alive"));
+    }
+
+    PASS("sse_idle_survives_keepalive_timeout");
+    srv.stop();
+}
+
+void test_sse_idle_with_broadcast_after_long_idle() {
+    std::cout << "\n[sse_idle_with_broadcast_after_long_idle]\n";
+    TestServer srv;
+    srv.start();
+
+    {
+        SseTestClient c("127.0.0.1", srv.port, "/events");
+        c.readHeaders();
+        (void)c.readEvent(2s);  // discard :connected
+
+        // Idle for 3x the keep-alive timeout. No traffic at all.
+        std::this_thread::sleep_for(3500ms);
+        EXPECT_EQ(srv.sse->clientCount(), 1u);
+        EXPECT(c.isOpen());
+
+        // First broadcast after the long idle MUST be received.
+        srv.sse->broadcast("wake", "still-listening");
+        auto ev = c.readEvent(3s);
+        EXPECT(ev.has_value());
+        EXPECT_EQ(ev->event, std::string("wake"));
+        EXPECT_EQ(ev->data, std::string("still-listening"));
+
+        // Second broadcast (after another sub-timeout gap) also works.
+        std::this_thread::sleep_for(1500ms);
+        srv.sse->broadcast("wake2", "really-still-here");
+        auto ev2 = c.readEvent(3s);
+        EXPECT(ev2.has_value());
+        EXPECT_EQ(ev2->data, std::string("really-still-here"));
+    }
+
+    PASS("sse_idle_with_broadcast_after_long_idle");
+    srv.stop();
+}
+
+void test_sse_eof_detection_still_works() {
+    std::cout << "\n[sse_eof_detection_still_works]\n";
+    TestServer srv;
+    srv.start();
+
+    {
+        SseTestClient c("127.0.0.1", srv.port, "/events");
+        c.readHeaders();
+        (void)c.readEvent(2s);  // discard :connected
+
+        EXPECT_EQ(srv.sse->clientCount(), 1u);
+
+        // Client abruptly closes the socket. The SSE worker MUST
+        // detect this (real EOF, not wouldBlock) and remove the
+        // client within a reasonable window.
+        c.close();
+        std::this_thread::sleep_for(1500ms);
+        EXPECT_EQ(srv.sse->clientCount(), 0u);
+    }
+
+    PASS("sse_eof_detection_still_works");
+    srv.stop();
+}
+
 void test_multiple_clients() {
     std::cout << "\n[sse_multiple_clients]\n";
     TestServer srv;
@@ -847,6 +954,9 @@ int main() {
     test_broadcast_to_multiple_clients();
     test_dead_client_dropped();
     test_idle_connection();
+    test_sse_idle_survives_keepalive_timeout();
+    test_sse_idle_with_broadcast_after_long_idle();
+    test_sse_eof_detection_still_works();
     test_multiple_clients();
     test_chunked_terminator_on_disconnect();
     test_backpressure_slow_client();
