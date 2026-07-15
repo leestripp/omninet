@@ -3963,3 +3963,101 @@ it up correctly without changes.
       omnet_test: 117 -> 121 (+4 new)
       All 17 other suites: PASS
 - [ ] Commit
+
+---
+
+## v0.8.8 - Fix DB QueryResult phantom empty row after DELETE (MEDIUM)
+
+**Filed**: 2026-07-15 via prompt.txt (Bug 2) by the daedalus
+project. NEW in 0.8.8, not present in 0.8.6. Severity: MEDIUM
+(one phantom empty row on the first range-iteration after a
+DELETE or DB-file reopen; subsequent iterations are fine).
+
+### Symptom
+
+After running DELETE (or after reopen on a fresh path), the
+NEXT range-based db.query() returns one extra row whose
+contents are all empty strings. Subsequent range queries
+return the correct number of rows.
+
+```
+db.execute("CREATE TABLE foo (v TEXT)");
+db.execute("INSERT INTO foo VALUES ('a')");
+db.execute("DELETE FROM foo WHERE v = 'a'");
+
+std::vector<std::string> seen;
+for (const auto and row : db.query("SELECT v FROM foo")) {
+    seen.push_back(row.empty() ? "" : row[0]);
+}
+// BUG:  seen == { "" }
+// want: seen == { }   (table is empty, 0 rows)
+```
+
+### Root cause
+
+QueryResult ctor (post-Bug-1 fix) sets m_atEnd = true when
+m_stmt-step() returns false. But Iterator ctor for begin()
+copies m_currentRow and sets m_atEnd = false (from the
+`end` constructor arg), without checking whether the
+QueryResult is already at end. So begin() Iterator claims
+to be at a valid row, end() Iterator is at end, and the
+loop body runs once on an empty row.
+
+The Iterator ctor needs to mirror the QueryResult's at-end
+state when constructing a begin() iterator.
+
+### Suggested fix from daedalus (NOT what I'm using)
+
+Daedalus suggested calling fetchNext() in the Iterator ctor
+to populate m_currentRow. This would re-introduce the
+Bug 1 pattern (skip the first row) because the QueryResult
+ctor has already step()d to the first row. So I'm using a
+different fix: check m_atEnd in the Iterator ctor.
+
+### Fix (correct version)
+
+In QueryResult::Iterator::Iterator(QueryResult*, bool):
+
+  if (!end and result) {
+      if (result->m_atEnd) {
+          m_atEnd = true;   // empty result: begin == end
+      } else {
+          m_currentRow = result->m_currentRow;
+      }
+  }
+
+The Iterator just needs to know whether the QueryResult has
+a current row, which m_atEnd accurately reflects after the
+Bug 1 ctor fix.
+
+### Tests to add (TDD)
+
+- database_query_range_empty_after_delete
+       Exact bug-report repro: insert, delete, range-iterate,
+       expect 0 rows.
+- database_query_range_empty_after_reopen
+       Open, insert, close, remove file, re-open on same
+       path, range-iterate, expect 0 rows.
+- database_query_range_empty_table
+       CREATE TABLE only (no rows), range-iterate, expect
+       0 rows. Edge case: no DELETE involved.
+- database_query_range_after_delete_then_insert
+       The follow-up: after the phantom case, subsequent
+       queries must work. Insert again, range-iterate, expect
+       1 row with the new value. (Sanity check that the
+       fix doesn't break the non-empty path.)
+
+### Status
+- [x] Read prompt.txt (Bug 2)
+- [x] Add task to CodeMax.md
+- [x] Write failing test (red) - reproduced phantom row:
+      Assertion '__n < this->size()' failed when test tried
+      row[0] on the empty phantom vector
+- [x] Apply fix (green) - Iterator ctor respects m_atEnd:
+      when constructing begin() on an empty result set,
+      m_atEnd is set to true so begin() == end()
+- [x] All tests PASS
+      omnet_test: 121 -> 125 (+4 new)
+      All 17 other suites: PASS
+      0 build warnings (was 0, still 0)
+- [ ] Commit

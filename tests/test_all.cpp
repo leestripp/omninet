@@ -544,6 +544,138 @@ OMNINET_TEST(database_query_range_early_break_unlocks_mutex) {
     }
 }
 
+// v0.8.8 regression tests for prompt.txt Bug 2 (phantom empty row
+// on first range-iteration after DELETE or DB-file reopen). The
+// Iterator ctor for begin() didn't check the QueryResult's
+// m_atEnd, so an empty result set still yielded one bogus empty row.
+OMNINET_TEST(database_query_range_empty_after_delete) {
+    // Exact bug-report repro.
+    std::string path = "test_temp.db";
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    OmniNet::DB::Database db;
+    db.open(path);
+    db.execute("CREATE TABLE foo (v TEXT)");
+    db.execute("INSERT INTO foo VALUES ('a')");
+    db.execute("DELETE FROM foo WHERE v = 'a'");
+    // Table is now empty.
+
+    std::vector<std::string> seen;
+    for (const auto& row : db.query("SELECT v FROM foo")) {
+        // Capture both empty and non-empty rows for diagnostic.
+        seen.push_back(row.empty() ? std::string("") : row[0]);
+    }
+
+    // Pre-fix:  seen == { "" }    (BUG: phantom empty row)
+    // Post-fix: seen == { }       (table is empty, 0 rows)
+    ASSERT_EQ(seen.size(), 0u);
+
+    db.close();
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+}
+
+OMNINET_TEST(database_query_range_empty_after_reopen) {
+    // Open, insert, close. Remove the file. Re-open on the same
+    // path. The new connection should see an empty table with no
+    // phantom row.
+    std::string path = "test_temp.db";
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    {
+        OmniNet::DB::Database db1;
+        db1.open(path);
+        db1.execute("CREATE TABLE foo (v TEXT)");
+        db1.execute("INSERT INTO foo VALUES ('a')");
+        db1.close();
+    }
+    std::filesystem::remove(path);
+
+    OmniNet::DB::Database db2;
+    db2.open(path);
+    db2.execute("CREATE TABLE foo (v TEXT)");
+    // No INSERT - freshly opened DB has an empty foo table.
+
+    std::vector<std::string> seen;
+    for (const auto& row : db2.query("SELECT v FROM foo")) {
+        seen.push_back(row.empty() ? std::string("") : row[0]);
+    }
+
+    ASSERT_EQ(seen.size(), 0u);
+
+    db2.close();
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+}
+
+OMNINET_TEST(database_query_range_empty_table) {
+    // CREATE TABLE only, no INSERTs. Sanity check for the empty
+    // case without DELETE / reopen noise.
+    std::string path = "test_temp.db";
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    OmniNet::DB::Database db;
+    db.open(path);
+    db.execute("CREATE TABLE empty_t (v TEXT)");
+
+    std::vector<std::string> seen;
+    for (const auto& row : db.query("SELECT v FROM empty_t")) {
+        seen.push_back(row.empty() ? std::string("") : row[0]);
+    }
+
+    ASSERT_EQ(seen.size(), 0u);
+
+    db.close();
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+}
+
+OMNINET_TEST(database_query_range_after_delete_then_insert) {
+    // Sanity check: after the phantom case, subsequent range
+    // queries must work correctly. Insert after delete, expect
+    // 1 row with the new value.
+    std::string path = "test_temp.db";
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    OmniNet::DB::Database db;
+    db.open(path);
+    db.execute("CREATE TABLE foo (v TEXT)");
+    db.execute("INSERT INTO foo VALUES ('a')");
+    db.execute("DELETE FROM foo WHERE v = 'a'");
+
+    // First range query (would have been the phantom case).
+    std::vector<std::string> first;
+    for (const auto& row : db.query("SELECT v FROM foo")) {
+        first.push_back(row[0]);
+    }
+    ASSERT_EQ(first.size(), 0u);
+
+    // Insert again, second range query must see the new row.
+    db.execute("INSERT INTO foo VALUES ('b')");
+    std::vector<std::string> second;
+    for (const auto& row : db.query("SELECT v FROM foo")) {
+        second.push_back(row[0]);
+    }
+    ASSERT_EQ(second.size(), 1u);
+    ASSERT_EQ(second[0], std::string("b"));
+
+    db.close();
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+}
+
 // ============================================================================
 // HTTP Request Tests
 // ============================================================================
@@ -1536,6 +1668,10 @@ int main() {
     RUN(database_query_range_exactly_one_row);
     RUN(database_query_callback_still_works);
     RUN(database_query_range_early_break_unlocks_mutex);
+    RUN(database_query_range_empty_after_delete);
+    RUN(database_query_range_empty_after_reopen);
+    RUN(database_query_range_empty_table);
+    RUN(database_query_range_after_delete_then_insert);
     
     std::cout << "\nHTTP Request Tests:\n";
     RUN(http_request_parse);

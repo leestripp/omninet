@@ -407,7 +407,20 @@ bool Database::QueryResult::hasResults() const {
 Database::QueryResult::Iterator::Iterator(QueryResult* result, bool end)
     : m_result(result), m_atEnd(end) {
     if (!end && result) {
-        m_currentRow = result->m_currentRow;
+        // v0.8.8 (prompt.txt Bug 2, daedalus): after a DELETE / DB
+        // reopen, the QueryResult ctor step()s to "no rows" and sets
+        // m_atEnd = true. The ctor (Bug 1 fix) correctly populates
+        // m_currentRow for non-empty results. But Iterator ctor was
+        // blindly copying m_currentRow even when the QueryResult was
+        // already at end, so begin() Iterator claimed to be at a
+        // valid row -> loop body ran once on an empty row -> phantom
+        // empty row yielded to the user. Mirror the QueryResult's
+        // at-end state when constructing a begin() Iterator.
+        if (result->m_atEnd) {
+            m_atEnd = true;  // empty result set: begin() == end()
+        } else {
+            m_currentRow = result->m_currentRow;
+        }
     }
 }
 
