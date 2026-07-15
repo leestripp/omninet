@@ -3882,3 +3882,84 @@ Note: Plan D (Socket-level documentation test) was deemed
 redundant — the 5 runClientStream unit tests directly cover
 the bug pattern. A Socket-level "empty == ambiguous" test would
 just test trivial recv() behavior without adding new coverage.
+
+---
+
+## v0.8.7 - Fix DB Range Query: first row data silently lost (HIGH)
+
+**Filed**: 2026-07-10 via prompt.txt (Bug 1) by the daedalus
+project (consuming OmniNet). Severity: HIGH - silent data
+loss. Every range-based `db.query()` returns one empty row at
+the start, dropping the real first row.
+
+### Bug summary
+
+Range-based iteration over Database::QueryResult yields N
+rows but the first one is always empty; the real first row
+appears at index 1 with a phantom empty-string prepended.
+
+```cpp
+db.execute("INSERT INTO foo VALUES ('a'), ('b'), ('c')");
+std::vector<std::string> seen;
+for (const auto and row : db.query("SELECT v FROM foo")) {
+    seen.push_back(row[0]);
+}
+// BUG:  seen == { "", "b", "c" }
+// want: seen == { "a", "b", "c" }
+```
+
+### Root cause (verified)
+
+src/db/Database.cpp:328 QueryResult ctor:
+- Calls m_stmt-step() to advance to the first row.
+- Stores step result in m_hasCurrentRow.
+- Never populates m_currentRow with the row data.
+
+Then QueryResult::Iterator ctor (line 395) does:
+```
+m_currentRow = result->m_currentRow;   // empty vector
+```
+
+So begin() returns an Iterator holding an empty row. The
+user first *it returns "". Then ++it calls fetchNext()
+which steps to the SECOND row, populates that, returns it.
+
+### Fix
+
+Apply Option A from the bug report (smaller diff): populate
+m_currentRow in the ctor right after the first step(). The
+Iterator ctor already copies m_currentRow from the result, so
+once the result holds the first row data, the Iterator picks
+it up correctly without changes.
+
+### Tests to add (TDD)
+
+- test_query_range_first_row_not_empty
+       Insert 3 rows, range-iterate, expect rows[0] == "a"
+       (not ""), rows[1] == "b", rows[2] == "c". Reproduces
+       Bug 1 exactly with the bug-report's example.
+- test_query_range_exactly_one_row
+       Insert 1 row, range-iterate, expect 1 row with the
+       correct value. Edge case.
+- test_query_callback_overload_still_works
+       Pin the existing callback API behavior - make sure the
+       fix did not regress the callback path (used by daedalus
+       as the workaround).
+- test_query_range_early_break_unlocks_mutex
+       Range-iterate, break after 1 row (before EOF), then
+       issue another db.execute() to verify the mutex was
+       released by the destructor.
+
+### Status
+- [x] Read prompt.txt
+- [x] Add task to CodeMax.md
+- [x] Write failing test (red)  — confirmed:
+      Assertion '__n < this->size()' failed when test tried
+      row[0] on the empty first-row vector
+- [x] Apply fix (green)       — Option A: populate m_currentRow
+      after step() in QueryResult ctor
+- [x] New tests PASS
+- [x] All existing tests still PASS (no regressions)
+      omnet_test: 117 -> 121 (+4 new)
+      All 17 other suites: PASS
+- [ ] Commit

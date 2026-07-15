@@ -331,7 +331,19 @@ Database::QueryResult::QueryResult(Database& db, const std::string& sql)
     m_db.m_mutex.lock();
     // Fetch the first row
     m_hasCurrentRow = m_stmt->step();
-    if (!m_hasCurrentRow) {
+    if (m_hasCurrentRow) {
+        // v0.8.7 (prompt.txt Bug 1, daedalus): populate m_currentRow
+        // from the row that the ctor's step() just advanced to.
+        // Without this, begin() returns an Iterator holding an empty
+        // m_currentRow, so the user's first *it yields an empty
+        // vector and ++it consumes the SECOND row. Net effect: the
+        // real first row is silently dropped on every range-based
+        // db.query("SELECT ...") loop.
+        m_currentRow.clear();
+        for (int i = 0; i < m_stmt->columnCount(); ++i) {
+            m_currentRow.push_back(m_stmt->columnText(i));
+        }
+    } else {
         m_atEnd = true;
         m_db.m_mutex.unlock();
     }

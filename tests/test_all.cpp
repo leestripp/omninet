@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <atomic>
+#include <thread>
 
 #include "utils/Logger.h"
 #include "utils/Exception.h"
@@ -324,13 +326,13 @@ OMNINET_TEST(database_open_close) {
     if (std::filesystem::exists(path)) {
         std::filesystem::remove(path);
     }
-    
+
     OmniNet::DB::Database db;
     db.open(path);
     ASSERT_TRUE(db.isOpen());
     db.close();
     ASSERT_FALSE(db.isOpen());
-    
+
     if (std::filesystem::exists(path)) {
         std::filesystem::remove(path);
     }
@@ -340,24 +342,24 @@ OMNINET_TEST(database_execute_query) {
     if (std::filesystem::exists(path)) {
         std::filesystem::remove(path);
     }
-    
+
     OmniNet::DB::Database db;
     db.open(path);
-    
+
     db.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)");
     db.execute("INSERT INTO test (name) VALUES ('Alice')");
     db.execute("INSERT INTO test (name) VALUES ('Bob')");
-    
+
     std::vector<std::string> names;
     db.query("SELECT name FROM test", [&names](const std::vector<std::string>& row) {
         names.push_back(row[0]);
         return true;
     });
-    
+
     ASSERT_EQ(names.size(), 2);
     ASSERT_EQ(names[0], "Alice");
     ASSERT_EQ(names[1], "Bob");
-    
+
     db.close();
     if (std::filesystem::exists(path)) {
         std::filesystem::remove(path);
@@ -368,30 +370,174 @@ OMNINET_TEST(database_sql_injection_prevention) {
     if (std::filesystem::exists(path)) {
         std::filesystem::remove(path);
     }
-    
+
     OmniNet::DB::Database db;
     db.open(path);
-    
+
     db.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
-    
+
     // Insert normal data (callers must escape special chars for user input)
     db.execute("INSERT INTO users (name) VALUES ('Alice')");
     db.execute("INSERT INTO users (name) VALUES ('Bob')");
     db.execute("INSERT INTO users (name) VALUES ('Charlie')");
-    
+
     // Query all users
     std::vector<std::string> names;
     db.query("SELECT name FROM users", [&names](const std::vector<std::string>& row) {
         names.push_back(row[0]);
         return true;
     });
-    
+
     // Verify all 3 users inserted
     ASSERT_EQ(names.size(), 3);
     ASSERT_EQ(names[0], "Alice");
     ASSERT_EQ(names[1], "Bob");
     ASSERT_EQ(names[2], "Charlie");
-    
+
+    db.close();
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+}
+
+// v0.8.7 regression tests for prompt.txt Bug 1 (Database::QueryResult
+// loses the first row's data). The range-based query API was returning
+// N rows where the first one was always empty; the real first row was
+// missing. See Database::QueryResult ctor in src/db/Database.cpp.
+OMNINET_TEST(database_query_range_first_row_not_empty) {
+    std::string path = "test_temp.db";
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    OmniNet::DB::Database db;
+    db.open(path);
+    db.execute("CREATE TABLE foo (v TEXT)");
+    db.execute("INSERT INTO foo VALUES ('a')");
+    db.execute("INSERT INTO foo VALUES ('b')");
+    db.execute("INSERT INTO foo VALUES ('c')");
+
+    std::vector<std::string> seen;
+    for (const auto& row : db.query("SELECT v FROM foo")) {
+        seen.push_back(row[0]);
+    }
+
+    // Pre-fix: seen == {"", "b", "c"}  (BUG: "a" missing, "" bogus)
+    // Post-fix: seen == {"a", "b", "c"}
+    ASSERT_EQ(seen.size(), 3u);
+    ASSERT_EQ(seen[0], std::string("a"));
+    ASSERT_EQ(seen[1], std::string("b"));
+    ASSERT_EQ(seen[2], std::string("c"));
+
+    db.close();
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+}
+
+OMNINET_TEST(database_query_range_exactly_one_row) {
+    std::string path = "test_temp.db";
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    OmniNet::DB::Database db;
+    db.open(path);
+    db.execute("CREATE TABLE one (v TEXT)");
+    db.execute("INSERT INTO one VALUES ('solo')");
+
+    std::vector<std::string> seen;
+    for (const auto& row : db.query("SELECT v FROM one")) {
+        seen.push_back(row[0]);
+    }
+
+    // Edge case: the only row must NOT be empty, AND the loop must
+    // terminate after exactly one row.
+    ASSERT_EQ(seen.size(), 1u);
+    ASSERT_EQ(seen[0], std::string("solo"));
+
+    db.close();
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+}
+
+OMNINET_TEST(database_query_callback_still_works) {
+    // Pin the callback API behavior (used by daedalus as the Bug 1
+    // workaround). Make sure the fix to the range-based API didn't
+    // regress the callback path.
+    std::string path = "test_temp.db";
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    OmniNet::DB::Database db;
+    db.open(path);
+    db.execute("CREATE TABLE cb (v TEXT)");
+    db.execute("INSERT INTO cb VALUES ('x')");
+    db.execute("INSERT INTO cb VALUES ('y')");
+    db.execute("INSERT INTO cb VALUES ('z')");
+
+    std::vector<std::string> seen;
+    db.query("SELECT v FROM cb", [&seen](const std::vector<std::string>& row) {
+        seen.push_back(row[0]);
+        return true;
+    });
+
+    ASSERT_EQ(seen.size(), 3u);
+    ASSERT_EQ(seen[0], std::string("x"));
+    ASSERT_EQ(seen[1], std::string("y"));
+    ASSERT_EQ(seen[2], std::string("z"));
+
+    db.close();
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+}
+
+OMNINET_TEST(database_query_range_early_break_unlocks_mutex) {
+    // The QueryResult dtor holds the database mutex from the ctor
+    // until either (a) fetchNext() returns false (EOF) or (b) the
+    // dtor runs (early break, exception, etc.). Verify that an early
+    // break leaves the mutex in a state where a follow-up execute()
+    // succeeds immediately.
+    std::string path = "test_temp.db";
+    if (std::filesystem::exists(path)) {
+        std::filesystem::remove(path);
+    }
+
+    OmniNet::DB::Database db;
+    db.open(path);
+    db.execute("CREATE TABLE eb (v TEXT)");
+    db.execute("INSERT INTO eb VALUES ('1')");
+    db.execute("INSERT INTO eb VALUES ('2')");
+    db.execute("INSERT INTO eb VALUES ('3')");
+
+    int count = 0;
+    for (const auto& row : db.query("SELECT v FROM eb")) {
+        (void)row;
+        ++count;
+        if (count >= 1) break;  // bail out before EOF
+    }
+
+    // If the dtor didn't unlock, this execute() would deadlock.
+    // We use a timeout via a child thread to detect a deadlock.
+    std::atomic<bool> ok{false};
+    std::thread t([&] {
+        db.execute("INSERT INTO eb VALUES ('after_break')");
+        ok.store(true);
+    });
+    t.join();
+    ASSERT_TRUE(ok.load());
+
+    // And confirm the row was actually written.
+    int total = 0;
+    db.query("SELECT COUNT(*) FROM eb", [&total](const std::vector<std::string>& row) {
+        total = std::stoi(row[0]);
+        return true;
+    });
+    ASSERT_EQ(total, 4);
+
     db.close();
     if (std::filesystem::exists(path)) {
         std::filesystem::remove(path);
@@ -1386,6 +1532,10 @@ int main() {
     RUN(database_open_close);
     RUN(database_execute_query);
     RUN(database_sql_injection_prevention);
+    RUN(database_query_range_first_row_not_empty);
+    RUN(database_query_range_exactly_one_row);
+    RUN(database_query_callback_still_works);
+    RUN(database_query_range_early_break_unlocks_mutex);
     
     std::cout << "\nHTTP Request Tests:\n";
     RUN(http_request_parse);
