@@ -43,9 +43,13 @@ public:
     AsyncDatabase(const AsyncDatabase&) = delete;
     AsyncDatabase& operator=(const AsyncDatabase&) = delete;
 
-    // Movable (for use with pool)
-    AsyncDatabase(AsyncDatabase&&) noexcept = default;
-    AsyncDatabase& operator=(AsyncDatabase&&) noexcept = default;
+    // Non-movable: holds an Async::Executor& reference. The DatabasePool
+    // passes these around as std::shared_ptr, so move semantics aren't
+    // needed. v0.8.7 was defaulting these, which the compiler silently
+    // deleted (-> warning -Wdefaulted-function-deleted) because you
+    // can't move-ref bind a reference member.
+    AsyncDatabase(AsyncDatabase&&) noexcept = delete;
+    AsyncDatabase& operator=(AsyncDatabase&&) noexcept = delete;
 
     // ----- Async operations -----
 

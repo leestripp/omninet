@@ -38,11 +38,17 @@ public:
     AsyncSocket(IoContext& ctx, std::unique_ptr<Socket> socket)
         : m_context(ctx), m_socket(std::move(socket)) {}
 
-    // Move only
-    AsyncSocket(AsyncSocket&&) noexcept = default;
-    AsyncSocket& operator=(AsyncSocket&&) noexcept = default;
+    // Non-copyable
     AsyncSocket(const AsyncSocket&) = delete;
     AsyncSocket& operator=(const AsyncSocket&) = delete;
+
+    // Non-movable: holds an IoContext& reference, which can't be
+    // rebound. Lifetime is tied to the IoContext the socket was
+    // constructed against. Stored in std::unique_ptr by callers, so
+    // move semantics aren't needed. (v0.8.7 was defaulting these,
+    // which the compiler silently deleted -> warning.)
+    AsyncSocket(AsyncSocket&&) noexcept = delete;
+    AsyncSocket& operator=(AsyncSocket&&) noexcept = delete;
 
     ~AsyncSocket() = default;
 
