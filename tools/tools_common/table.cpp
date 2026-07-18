@@ -188,7 +188,7 @@ KeyValueList& KeyValueList::add(const std::string& key, int64_t value) {
 }
 
 KeyValueList& KeyValueList::add(const std::string& key, bool value) {
-    return add(key, value ? "true" : "false");
+    return add(key, std::string(value ? "true" : "false"));
 }
 
 KeyValueList& KeyValueList::add(const std::string& key, const std::string& value, const std::string& unit) {

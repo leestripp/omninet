@@ -117,7 +117,7 @@ Formatter& Formatter::kv(const std::string& key, size_t value) {
 }
 
 Formatter& Formatter::kv(const std::string& key, bool value) {
-    return kv(key, value ? "true" : "false");
+    return kv(key, std::string(value ? "true" : "false"));
 }
 
 Formatter& Formatter::header(const std::string& title) {
