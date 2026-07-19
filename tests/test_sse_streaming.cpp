@@ -599,6 +599,46 @@ void test_handler_broadcast_records_events() {
     PASS("sse_handler_broadcast_records_events");
 }
 
+void test_handler_send_to_client_only_target() {
+    std::cout << "\n[sse_handler_send_to_client_only_target]\n";
+    SSE::Handler h("/events");
+
+    std::vector<std::string> aliceEvents;
+    std::vector<std::string> bobEvents;
+
+    auto aliceSender = [&aliceEvents](const std::string ev) -> bool {
+        aliceEvents.push_back(ev);
+        return true;
+    };
+    auto bobSender = [&bobEvents](const std::string ev) -> bool {
+        bobEvents.push_back(ev);
+        return true;
+    };
+
+    h.addClient("alice", aliceSender);
+    h.addClient("bob", bobSender);
+
+    h.sendToClient("alice", "test", "hello");
+    EXPECT_EQ(aliceEvents.size(), 1u);
+    EXPECT_EQ(bobEvents.size(), 0u);
+    EXPECT(aliceEvents[0].find("event: test") != std::string::npos);
+    EXPECT(aliceEvents[0].find("data: hello") != std::string::npos);
+
+    // Sending to a non-existent client is a no-op.
+    h.sendToClient("charlie", "test", "ignored");
+    EXPECT_EQ(aliceEvents.size(), 1u);
+    EXPECT_EQ(bobEvents.size(), 0u);
+
+    // Target the other client via Event object.
+    h.sendToClient("bob", SSE::Event::named("dm", "private"));
+    EXPECT_EQ(aliceEvents.size(), 1u);
+    EXPECT_EQ(bobEvents.size(), 1u);
+    EXPECT(bobEvents[0].find("event: dm") != std::string::npos);
+    EXPECT(bobEvents[0].find("data: private") != std::string::npos);
+
+    PASS("sse_handler_send_to_client_only_target");
+}
+
 void test_handler_rapid_add_remove() {
     std::cout << "\n[sse_handler_rapid_add_remove]\n";
     SSE::Handler h("/events");
@@ -1233,6 +1273,7 @@ int main() {
     test_handler_on_disconnect_callback();
     test_handler_broadcast_empty_clients();
     test_handler_broadcast_records_events();
+    test_handler_send_to_client_only_target();
     test_handler_rapid_add_remove();
     test_handler_multiple_broadcasts_same_event();
 

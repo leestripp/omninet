@@ -265,6 +265,27 @@ void Handler::broadcast(const std::string& eventType, const std::string& data) {
     broadcast(Event::named(eventType, data));
 }
 
+void Handler::sendToClient(const std::string& clientId, const Event& event) {
+    auto formatted = event.format();
+    std::shared_ptr<Client> client;
+    {
+        std::lock_guard<std::mutex> lock(m_clientsMutex);
+        auto it = m_clients.find(clientId);
+        if (it == m_clients.end()) return;
+        client = it->second;
+    }
+    if (!client->connected) return;
+    try {
+        client->sender(formatted);
+    } catch (...) {
+        // ignore — worker will clean up
+    }
+}
+
+void Handler::sendToClient(const std::string& clientId, const std::string& eventType, const std::string& data) {
+    sendToClient(clientId, Event::named(eventType, data));
+}
+
 size_t Handler::clientCount() const {
     std::lock_guard<std::mutex> lock(m_clientsMutex);
     return m_clients.size();

@@ -78,6 +78,10 @@ public:
     // Convenience: broadcast a named string event.
     void broadcast(const std::string& eventType, const std::string& data);
 
+    // Send event to a specific client by ID.
+    void sendToClient(const std::string& clientId, const Event& event);
+    void sendToClient(const std::string& clientId, const std::string& eventType, const std::string& data);
+
     // --- Client Management ---
 
     // Register a client. Public so tests and programmatic use (non-HTTP)
