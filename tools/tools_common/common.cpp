@@ -1,6 +1,8 @@
 // OmniNet Tools - Common Utilities Implementation
 #include "common.h"
 
+#include "utils/XdgPaths.h"
+
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -21,17 +23,32 @@ namespace OmniNet::Tools {
 // Paths Implementation
 // ============================================================================
 
+std::filesystem::path Paths::configDir() {
+    return OmniNet::Utils::effectiveConfigDir();
+}
+
 std::filesystem::path Paths::dataDir() {
-    const char* home = std::getenv("HOME");
-    if (home) {
-        return fs::path(home) / ".omninet";
-    }
-    // Fallback
-    return fs::path("/tmp/.omninet");
+    return OmniNet::Utils::effectiveDataDir();
+}
+
+std::filesystem::path Paths::stateDir() {
+    return OmniNet::Utils::effectiveStateDir();
+}
+
+std::filesystem::path Paths::cacheDir() {
+    return OmniNet::Utils::effectiveCacheDir();
+}
+
+std::filesystem::path Paths::runtimeDir() {
+    return OmniNet::Utils::effectiveRuntimeDirSubdir();
+}
+
+std::filesystem::path Paths::legacyDataDir() {
+    return OmniNet::Utils::legacyDataDir();
 }
 
 std::filesystem::path Paths::configFile() {
-    return dataDir() / "config.json";
+    return OmniNet::Utils::effectiveConfigFile();
 }
 
 std::filesystem::path Paths::databaseFile() {
@@ -39,7 +56,7 @@ std::filesystem::path Paths::databaseFile() {
 }
 
 std::filesystem::path Paths::logFile() {
-    return dataDir() / "omninet.log";
+    return stateDir() / "omninet.log";
 }
 
 std::filesystem::path Paths::certsDir() {
@@ -209,7 +226,7 @@ std::optional<pid_t> PidFile::read(const std::filesystem::path& path) {
     if (!file.is_open()) {
         return std::nullopt;
     }
-    pid_t pid;
+    pid_t pid = 0;
     file >> pid;
     if (file.fail()) {
         return std::nullopt;
@@ -236,12 +253,14 @@ bool Initializer::createDataDir() {
 }
 
 bool Initializer::createDefaultConfig() {
-    auto dir = Paths::dataDir();
-    auto configPath = dir / "config.json";
+    auto configPath = Paths::configFile();
+    auto configDir = configPath.parent_path();
     
     if (fs::exists(configPath)) {
         return true; // Already exists
     }
+    
+    fs::create_directories(configDir);
     
     std::string defaultConfig = R"({
     "version": "1.0",
@@ -290,7 +309,11 @@ bool Initializer::createServersDir() {
 }
 
 bool Initializer::setupAll() {
+    if (!fs::create_directories(Paths::configDir())) return false;
     if (!createDataDir()) return false;
+    if (!fs::create_directories(Paths::stateDir())) return false;
+    if (!fs::create_directories(Paths::cacheDir())) return false;
+    if (!fs::create_directories(Paths::runtimeDir())) return false;
     if (!createCertsDir()) return false;
     if (!createServersDir()) return false;
     if (!createDefaultConfig()) return false;

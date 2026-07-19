@@ -137,19 +137,13 @@ ctest --test-dir build --output-on-failure
 
 ### Static Analysis
 
-If `clang-tidy` is installed, CMake creates these targets:
+`clang-tidy` is not integrated into the CMake build by default. The `.clang-tidy` file is kept in the repository for developers who want to run it manually:
 
 ```bash
-cmake --build build --target clang_tidy          # All trees
-cmake --build build --target clang_tidy_lib      # src/
-cmake --build build --target clang_tidy_tests    # tests/
-cmake --build build --target clang_tidy_demos    # demos/
-cmake --build build --target clang_tidy_tools    # tools/
-# Alias:
-cmake --build build --target static_analysis
+clang-tidy -p build src/utils/XdgPaths.cpp
 ```
 
-`clang-tidy` reads `compile_commands.json`, which CMake generates automatically (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`).
+`compile_commands.json` is still generated automatically (`CMAKE_EXPORT_COMPILE_COMMANDS=ON`) for IDE support and for manual clang-tidy runs.
 
 ## 5. Code Organization and Architecture
 
@@ -199,7 +193,9 @@ Most modules have a `.h` and `.cpp` file in the same directory. Internal-only co
 - **Deprecated APIs**: Mark old APIs with `[[deprecated("use X instead")]]` rather than removing them immediately.
 - **Compiler-specific macros**: Use `#ifdef __GNUC__` guards where needed (e.g., deprecation macros).
 
-### clang-tidy Policy
+### clang-tidy Policy (manual runs only)
+
+The repository still ships a `.clang-tidy` file for optional manual runs. When invoked manually:
 
 - Enabled check families: `clang-analyzer-*`, `cppcoreguidelines-*`, `modernize-*`, `performance-*`, `readability-*`.
 - Checks treated as errors: `clang-analyzer-*`, `cppcoreguidelines-init-variables`, null-dereference, undefined-binary-operator.
@@ -243,7 +239,7 @@ Available macros: `OMNINET_TEST`, `OMNINET_REGISTER_TEST`, `OMNINET_RUN_TESTS`, 
 
 ## 8. Security Considerations
 
-- **Secrets**: The data directory `~/.omninet/` contains certificates, config, and database files. Do not commit these.
+- **Secrets**: OmniNet stores certificates, config, and database files under the user's XDG directories (default: `~/.config/omninet/`, `~/.local/share/omninet/`, `~/.local/state/omninet/`). Legacy installations may still use `~/.omninet/`. Do not commit these.
 - **Passwords**: User passwords are hashed with bcrypt (`src/crypto/Password.cpp`). Raw tokens and API keys are returned only once at creation.
 - **TLS defaults**: Client TLS contexts default to `SSL_VERIFY_PEER` with the system CA bundle (v0.7.2+).
 - **CORS**: `*` is a special allow-all value. For credentialed requests, use explicit origins. The allowlist is parsed into a `std::unordered_set` for per-request lookup.
@@ -262,12 +258,20 @@ Available macros: `OMNINET_TEST`, `OMNINET_REGISTER_TEST`, `OMNINET_RUN_TESTS`, 
 
 ### Configuration and Data Directory
 
-- Default data directory: `~/.omninet/`.
-- Config file: `~/.omninet/config.json`.
-- Logs: `~/.omninet/logs/omninet.log` (rotated).
-- Database: `~/.omninet/dashboard.db`.
-- Certificates: `~/.omninet/certs/`.
+OmniNet follows the [XDG Base Directory Specification](docs/xdg-standard.md) (see `docs/xdg-standard.md`). On a fresh install the default locations are:
+
+| Kind | Default location | Environment override |
+|------|------------------|----------------------|
+| Config | `~/.config/omninet/config.json` | `$XDG_CONFIG_HOME` |
+| Data (database, certs, servers) | `~/.local/share/omninet/` | `$XDG_DATA_HOME` |
+| State (logs, rotated logs) | `~/.local/state/omninet/omninet.log` | `$XDG_STATE_HOME` |
+| Cache | `~/.cache/omninet/` | `$XDG_CACHE_HOME` |
+| Runtime (PID files) | `$XDG_RUNTIME_DIR/omninet/` | `$XDG_RUNTIME_DIR` |
+
+Legacy behavior: if `~/.omninet/` already exists, OmniNet continues to use it until you run `./build/tools/omninet-init --migrate-xdg`. The legacy override `OMNINET_DATA_DIR` is still honored.
+
 - Use `Config::instance()` to read/write global configuration.
+- Use `Config::instance().dataDir()` for data files, `.stateDir()` for logs, `.configDir()` for config, `.cacheDir()` for cache, and `.runtimeDir()` for runtime files.
 
 ### Routing
 
@@ -327,10 +331,10 @@ cmake --build build --target test_config
 ./build/tests/test_config
 ```
 
-### Run static analysis
+### Run clang-tidy manually (optional)
 
 ```bash
-cmake --build build --target static_analysis
+clang-tidy -p build src/utils/XdgPaths.cpp
 ```
 
 ### Inspect current task

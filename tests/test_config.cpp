@@ -43,8 +43,9 @@ TEST(config_data_directory) {
     auto& dataDir = cfg.dataDir();
 
     // Should be a non-empty, absolute path that we can write to.
-    // In production: $HOME/.omninet. In containers without write
-    // access to HOME: /workspace/data/omninet.
+    // Under XDG: $XDG_DATA_HOME/omninet (default ~/.local/share/omninet).
+    // In legacy mode: ~/.omninet.
+    // In containers without write access to HOME: /workspace/data/omninet.
     ASSERT_FALSE(dataDir.empty());
     ASSERT_TRUE(dataDir.is_absolute());
     // The directory should exist (Config creates it in its ctor).
@@ -206,8 +207,9 @@ TEST(config_env_override) {
     
     // The singleton was already initialized, so we need to reload
     // For this test, just verify the env var is readable
-    ASSERT_TRUE(std::getenv("OMNINET_PORT") != nullptr);
-    ASSERT_EQ(std::string(std::getenv("OMNINET_PORT")), "7777");
+    const char* portEnv = std::getenv("OMNINET_PORT");
+    ASSERT_TRUE(portEnv != nullptr);
+    ASSERT_EQ(std::string(portEnv), "7777");
 }
 
 // ============================================================================
@@ -313,20 +315,18 @@ TEST(config_json_cors_loading) {
 TEST(config_tls_default_paths) {
     auto& cfg = OmniNet::Config::instance();
     
-    // Default TLS paths should be under ~/.omninet/certs/
+    // Default TLS paths should be under dataDir()/certs/
     auto certPath = cfg.defaultTlsCertPath();
     auto keyPath = cfg.defaultTlsKeyPath();
     
     // Paths should be empty if certs don't exist yet
-    // When they exist, should point to ~/.omninet/certs/omninet.*
+    // When they exist, should point to <dataDir>/certs/omninet.*
     if (!certPath.empty()) {
-        ASSERT_TRUE(certPath.string().find(".omninet") != std::string::npos);
         ASSERT_TRUE(certPath.string().find("certs") != std::string::npos);
         ASSERT_TRUE(certPath.string().find("omninet.crt") != std::string::npos);
     }
     
     if (!keyPath.empty()) {
-        ASSERT_TRUE(keyPath.string().find(".omninet") != std::string::npos);
         ASSERT_TRUE(keyPath.string().find("certs") != std::string::npos);
         ASSERT_TRUE(keyPath.string().find("omninet.key") != std::string::npos);
     }

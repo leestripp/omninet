@@ -31,11 +31,27 @@ public:
     
     // --- Paths ---
     
-    // Get/set data directory (~/.omninet by default)
+    // Get/set data directory ($XDG_DATA_HOME/omninet by default)
     const std::filesystem::path& dataDir() const;
     void setDataDir(const std::filesystem::path& path);
+
+    // Config directory ($XDG_CONFIG_HOME/omninet by default)
+    const std::filesystem::path& configDir() const;
+    void setConfigDir(const std::filesystem::path& path);
+
+    // State directory ($XDG_STATE_HOME/omninet by default)
+    const std::filesystem::path& stateDir() const;
+    void setStateDir(const std::filesystem::path& path);
+
+    // Cache directory ($XDG_CACHE_HOME/omninet by default)
+    const std::filesystem::path& cacheDir() const;
+    void setCacheDir(const std::filesystem::path& path);
+
+    // Runtime directory ($XDG_RUNTIME_DIR/omninet by default)
+    const std::filesystem::path& runtimeDir() const;
+    void setRuntimeDir(const std::filesystem::path& path);
     
-    // Config file path (~/.omninet/config.json)
+    // Config file path ($XDG_CONFIG_HOME/omninet/config.json)
     std::filesystem::path configFile() const;
     
     // Resolve path relative to data directory
@@ -85,7 +101,7 @@ public:
     const std::optional<std::string>& defaultTlsKey() const;
     void setDefaultTlsKey(const std::string& path);
     
-    // Default TLS certificate/key file paths (~/.omninet/certs/)
+    // Default TLS certificate/key file paths ($XDG_DATA_HOME/omninet/certs/)
     // Returns path to default certificate if exists, empty otherwise
     std::filesystem::path defaultTlsCertPath() const;
     
@@ -128,7 +144,7 @@ public:
     // Load config from file (JSON)
     void loadFromFile(const std::string& path);
     
-    // Load from default config file (~/.omninet/config.json)
+    // Load from default config file ($XDG_CONFIG_HOME/omninet/config.json)
     // Creates with defaults if file doesn't exist
     void load();
     
@@ -196,6 +212,10 @@ private:
     json toJsonInternal() const;
     
     std::filesystem::path m_dataDir;
+    std::filesystem::path m_configDir;
+    std::filesystem::path m_stateDir;
+    std::filesystem::path m_cacheDir;
+    std::filesystem::path m_runtimeDir;
     std::optional<std::string> m_logFile;
     LogLevel m_logLevel = LogLevel::INFO;
     uint16_t m_defaultPort = 8080;

@@ -41,6 +41,11 @@ target_link_libraries(omninet_tools_common PRIVATE
     OpenSSL::Crypto
 )
 
+# Link against the OmniNet library for shared utilities such as XdgPaths.
+target_link_libraries(omninet_tools_common PUBLIC
+    OmniNet
+)
+
 # Platform-specific
 if(WIN32)
     target_link_libraries(omninet_tools_common PRIVATE

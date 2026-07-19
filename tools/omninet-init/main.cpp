@@ -1,5 +1,7 @@
 // omninet-init - OmniNet Initialization Tool
-// Set up the ~/.omninet directory structure and default configuration
+// Set up the OmniNet directory structure and default configuration.
+// Uses the XDG Base Directory Specification by default; falls back to
+// ~/.omninet for legacy installations until migrated.
 
 #include <iostream>
 #include <unistd.h>
@@ -16,6 +18,7 @@
 #include "tools_common/config.h"
 #include "tools_common/database.h"
 #include "tools_common/password.h"
+#include "utils/XdgPaths.h"
 
 namespace fs = std::filesystem;
 using namespace OmniNet::Tools;
@@ -32,6 +35,7 @@ struct InitInitOptions {
     bool skipCerts = false;
     bool skipAdmin = false;
     bool enableTls = false;
+    bool migrateXdg = false;
     std::string port = "8080";
     std::string httpsPort = "8443";
     std::string address = "0.0.0.0";
@@ -72,6 +76,25 @@ int main(int argc, char* argv[]) {
     std::cout << "\n";
     out.header("OmniNet Initialization");
     std::cout << '\n';
+
+    // Handle XDG migration before anything else.
+    if (opts.migrateXdg) {
+        out.subheader("Migrating to XDG layout");
+        if (!OmniNet::Utils::hasLegacyDataDir()) {
+            out.info("No legacy ~/.omninet directory found; nothing to migrate.");
+            return 0;
+        }
+        std::string error;
+        if (OmniNet::Utils::migrateLegacyToXdg(&error)) {
+            out.success("Migration complete. Legacy directory renamed to ~/.omninet.bak");
+            out.info("Config:  " + Paths::configFile().string());
+            out.info("Data:    " + Paths::dataDir().string());
+            out.info("State:   " + Paths::stateDir().string());
+            return 0;
+        }
+        out.error("Migration failed: " + error);
+        return 1;
+    }
     
     // Check if already initialized
     auto dataDir = Paths::dataDir();
@@ -84,6 +107,12 @@ int main(int argc, char* argv[]) {
             return 0;
         }
         out.warning("Reinitializing OmniNet (--force specified)");
+    }
+
+    // Warn users with a legacy (but not yet fully initialized) layout.
+    if (OmniNet::Utils::hasLegacyDataDir() && std::getenv("OMNINET_DATA_DIR") == nullptr) {
+        out.warning("Legacy ~/.omninet directory detected.");
+        out.info("Run 'omninet-init --migrate-xdg' to move to the XDG layout.");
     }
     
     // Step 1: Create directories
@@ -123,10 +152,14 @@ int main(int argc, char* argv[]) {
     out.success("OmniNet has been initialized successfully!");
     std::cout << '\n';
     
-    out.kv("Data Directory", dataDir.string());
+    out.kv("Config Directory", Paths::configDir().string());
     out.kv("Config File", Paths::configFile().string());
+    out.kv("Data Directory", Paths::dataDir().string());
     out.kv("Database", Paths::databaseFile().string());
+    out.kv("State Directory", Paths::stateDir().string());
     out.kv("Logs", Paths::logFile().string());
+    out.kv("Cache Directory", Paths::cacheDir().string());
+    out.kv("Runtime Directory", Paths::runtimeDir().string());
     out.kv("Certificates", Paths::certsDir().string());
     std::cout << '\n';
     
@@ -169,6 +202,7 @@ InitInitOptions parseArgs(int argc, char* argv[]) {
             std::cout << "  --skip-certs        Skip certificate generation\n";
             std::cout << "  --skip-admin        Skip admin user creation\n";
             std::cout << "  --admin-password    Set admin password (non-interactive)\n";
+            std::cout << "  --migrate-xdg       Migrate legacy ~/.omninet to XDG layout\n";
             exit(0);
         }
         else if (arg == "-V" || arg == "--version") {
@@ -191,6 +225,9 @@ InitInitOptions parseArgs(int argc, char* argv[]) {
             if (i + 1 < argc) {
                 opts.adminPassword = argv[++i];
             }
+        }
+        else if (arg == "--migrate-xdg") {
+            opts.migrateXdg = true;
         }
         else if (arg == "-p" || arg == "--port") {
             if (i + 1 < argc) {
@@ -225,7 +262,7 @@ InitInitOptions parseArgs(int argc, char* argv[]) {
 // ============================================================================
 
 bool setupDataDirectory(const InitInitOptions& opts, Formatter& out) {
-    out.subheader("Creating Data Directory");
+    out.subheader("Creating Directories");
     
     auto dataDir = Paths::dataDir();
     
@@ -233,13 +270,10 @@ bool setupDataDirectory(const InitInitOptions& opts, Formatter& out) {
         dataDir = opts.dataDir;
     }
     
-    out.info("Creating: " + dataDir.string());
-    
     std::error_code ec;
     fs::create_directories(dataDir, ec);
-    
     if (ec) {
-        out.error("Failed: " + ec.message());
+        out.error("Failed to create data directory: " + ec.message());
         return false;
     }
     
@@ -252,8 +286,29 @@ bool setupDataDirectory(const InitInitOptions& opts, Formatter& out) {
     if (ec) {
         out.warning("Failed to create servers directory");
     }
+
+    // Under the XDG layout, also create config/state/cache/runtime dirs.
+    fs::create_directories(Paths::configDir(), ec);
+    if (ec) {
+        out.warning("Failed to create config directory");
+    }
+
+    fs::create_directories(Paths::stateDir(), ec);
+    if (ec) {
+        out.warning("Failed to create state directory");
+    }
+
+    fs::create_directories(Paths::cacheDir(), ec);
+    if (ec) {
+        out.warning("Failed to create cache directory");
+    }
+
+    fs::create_directories(Paths::runtimeDir(), ec);
+    if (ec) {
+        out.warning("Failed to create runtime directory");
+    }
     
-    out.success("Data directory created");
+    out.success("Directories created");
     return true;
 }
 

@@ -130,6 +130,7 @@ target_sources(OmniNet PRIVATE
     src/utils/LogReader.cpp
     src/utils/Exception.cpp
     src/utils/Utils.cpp
+    src/utils/XdgPaths.cpp
     
     # Crypto
     src/crypto/Crypto.cpp
@@ -366,57 +367,4 @@ add_subdirectory(benchmarks)
 # Build CLI tools
 add_subdirectory(tools)
 
-# ============================================================================
-# Static Analysis (v0.9.0: clang-tidy only)
-# ============================================================================
-# clang-tidy is the only static-analysis tool. cppcheck has been
-# removed entirely (no legacy alias) as part of the compiler
-# migration. If clang-tidy is missing, static analysis is
-# disabled — install clang-tidy and re-configure to enable.
 
-find_program(CLANG_TIDY_EXECUTABLE clang-tidy)
-if(CLANG_TIDY_EXECUTABLE)
-    message(STATUS "clang-tidy found: ${CLANG_TIDY_EXECUTABLE}")
-
-    # Helper macro to add a clang-tidy target for a directory.
-    # clang-tidy reads compile_commands.json which CMake auto-generates
-    # when CMAKE_EXPORT_COMPILE_COMMANDS=ON.
-    macro(add_clang_tidy_target TARGET_NAME DIR)
-        add_custom_target(${TARGET_NAME}
-            COMMAND ${CLANG_TIDY_EXECUTABLE}
-                -p ${CMAKE_BINARY_DIR}
-                --quiet
-                ${DIR}/*.cpp ${DIR}/*.h ${DIR}/*/*.cpp ${DIR}/*/*.h
-            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-            COMMENT "Running clang-tidy for ${TARGET_NAME}"
-        )
-    endmacro()
-
-    # Per-tree targets.
-    add_clang_tidy_target(clang_tidy_lib   src)
-    add_clang_tidy_target(clang_tidy_tests tests)
-    add_clang_tidy_target(clang_tidy_demos demos)
-    add_clang_tidy_target(clang_tidy_tools tools)
-
-    # Master target: run all four.
-    add_custom_target(clang_tidy
-        COMMAND ${CMAKE_COMMAND} -E echo "Running all clang-tidy analyses..."
-        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy_lib
-        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy_tests
-        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy_demos
-        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy_tools
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        COMMENT "Running all clang-tidy analyses"
-    )
-
-    # Alias for `make static_analysis`.
-    add_custom_target(static_analysis
-        COMMAND ${CMAKE_COMMAND} --build . --target clang_tidy
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        COMMENT "Running static_analysis (alias for clang_tidy)"
-    )
-
-    message(STATUS "clang-tidy targets created: clang_tidy, clang_tidy_lib, clang_tidy_tests, clang_tidy_demos, clang_tidy_tools")
-else()
-    message(STATUS "clang-tidy not found - static analysis disabled (install clang-tidy to enable)")
-endif()

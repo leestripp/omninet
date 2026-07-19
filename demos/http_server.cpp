@@ -17,7 +17,7 @@ int main() {
     // Initialize OmniNet
     OmniNet::init();
     
-    // Load config from ~/.omninet/config.json
+    // Load config from the XDG config directory.
     auto& config = OmniNet::Config::instance();
     
     // Enable debug logging (from config)
@@ -28,10 +28,10 @@ int main() {
         OmniNet::LogLevel::INFO
     );
     
-    // Set log file to ~/.omninet/logs/omninet.log
-    auto dataDir = config.dataDir();
-    std::filesystem::create_directories(dataDir / "logs");
-    auto logPath = (dataDir / "logs" / "omninet.log").string();
+    // Set log file to the XDG state directory.
+    auto stateDir = config.stateDir();
+    std::filesystem::create_directories(stateDir);
+    auto logPath = (stateDir / "omninet.log").string();
     OmniNet::Logger::instance().setLogFile(logPath);
     std::cerr << "[Demo] Logging to: " << logPath << std::endl;
     

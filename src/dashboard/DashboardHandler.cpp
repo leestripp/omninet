@@ -45,9 +45,9 @@ Handler::Handler(const Config& config)
         std::chrono::minutes(15)
     );
     
-    // Initialize log reader - use ~/.omninet/logs/omninet.log
-    auto dataDir = OmniNet::Config::instance().dataDir();
-    auto logPath = dataDir / "logs" / "omninet.log";
+    // Initialize log reader - use the XDG state directory.
+    auto stateDir = OmniNet::Config::instance().stateDir();
+    auto logPath = stateDir / "omninet.log";
     if (std::filesystem::exists(logPath)) {
         m_logReader = std::make_unique<LogReader>(logPath.string());
     }

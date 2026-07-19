@@ -76,11 +76,14 @@ int main(int argc, char* argv[]) {
     std::cout << '\n';
     
     // System info
-    auto dataDir = Paths::dataDir();
-    out.kv("Data Directory", dataDir.string());
+    out.kv("Config Directory", Paths::configDir().string());
     out.kv("Config File", Paths::configFile().string());
+    out.kv("Data Directory", Paths::dataDir().string());
     out.kv("Database File", Paths::databaseFile().string());
+    out.kv("State Directory", Paths::stateDir().string());
     out.kv("Log File", Paths::logFile().string());
+    out.kv("Cache Directory", Paths::cacheDir().string());
+    out.kv("Runtime Directory", Paths::runtimeDir().string());
     std::cout << '\n';
     
     // Run checks
@@ -503,12 +506,15 @@ void printJsonOutput() {
         }
     }
     
-    // Data directory
-    auto dataDir = Paths::dataDir();
-    result["paths"]["data_dir"] = dataDir.string();
+    // Paths
+    result["paths"]["config_dir"] = Paths::configDir().string();
     result["paths"]["config_file"] = configPath.string();
+    result["paths"]["data_dir"] = Paths::dataDir().string();
     result["paths"]["database_file"] = dbPath.string();
+    result["paths"]["state_dir"] = Paths::stateDir().string();
     result["paths"]["log_file"] = logPath.string();
+    result["paths"]["cache_dir"] = Paths::cacheDir().string();
+    result["paths"]["runtime_dir"] = Paths::runtimeDir().string();
     
     std::cout << result.dump(2) << "\n";
 }

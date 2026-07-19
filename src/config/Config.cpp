@@ -1,6 +1,7 @@
 // OmniNet - Configuration Implementation
 #include "Config.h"
 #include "utils/Logger.h"
+#include "utils/XdgPaths.h"
 
 #include <fstream>
 #include <thread>
@@ -16,6 +17,7 @@
 #endif
 
 using namespace std::chrono_literals;
+namespace fs = std::filesystem;
 
 namespace OmniNet {
 
@@ -29,59 +31,72 @@ Config& Config::instance() {
 }
 
 Config::Config() {
-    // Set default data directory.
-    // Priority: 1) OMNINET_DATA_DIR env var (explicit override)
-    //           2) $HOME/.omninet if that path is writable
-    //           3) /workspace/data/omninet (container-friendly fallback)
+    // Set default directories using the XDG Base Directory Specification.
+    // Priority:
+    //   1) OMNINET_DATA_DIR env var (legacy explicit override)
+    //   2) Existing ~/.omninet directory (legacy layout, migration suggested)
+    //   3) XDG layout: config/data/state/cache/runtime
+    //   4) /workspace/data/omninet (container-friendly fallback)
     //
-    // Container note: /home/ubuntu may exist but be owned by a
-    // non-root user. When running as root, $HOME/.omninet might
-    // be unwritable. We detect this by attempting a write; if it
-    // fails we silently use /workspace/data/omninet instead.
-    const char* dataDirEnv = std::getenv("OMNINET_DATA_DIR");
-    if (dataDirEnv) {
-        m_dataDir = dataDirEnv;
-    } else {
-        const char* home = std::getenv("HOME");
-        std::filesystem::path candidate;
-        if (home) {
-            candidate = std::filesystem::path(home) / ".omninet";
-        } else {
-            candidate = "/workspace/data/omninet";
-        }
+    // Container note: /home/ubuntu may exist but be owned by a non-root user.
+    // When running as root, XDG directories under $HOME may be unwritable.
+    // We detect this by attempting a write; if it fails we fall back to
+    // /workspace/data/omninet as a single legacy-style tree.
+    auto initFromXdg = [this]() {
+        m_configDir = Utils::configDir();
+        m_dataDir = Utils::dataDir();
+        m_stateDir = Utils::stateDir();
+        m_cacheDir = Utils::cacheDir();
+        m_runtimeDir = Utils::runtimeDirSubdir();
+    };
 
-        // Verify the candidate is writable before using it.
+    auto initFromLegacy = [this](const std::filesystem::path& root) {
+        m_configDir = root;
+        m_dataDir = root;
+        m_stateDir = root;
+        m_cacheDir = root;
+        m_runtimeDir = root;
+    };
+
+    if (Utils::useLegacyLayout()) {
+        initFromLegacy(Utils::legacyDataDir());
+    } else {
+        initFromXdg();
+
+        // Container writability check: if the XDG data dir is not writable,
+        // fall back to /workspace/data/omninet.
         std::error_code ec;
-        std::filesystem::create_directories(candidate, ec);
+        std::filesystem::create_directories(m_dataDir, ec);
         if (!ec) {
-            auto testFile = candidate / ".write_test";
+            auto testFile = m_dataDir / ".write_test";
             std::ofstream tf(testFile, std::ios::binary);
-            if (tf.good()) {
+            if (!tf.good()) {
+                initFromLegacy("/workspace/data/omninet");
+            } else {
                 tf.close();
                 std::filesystem::remove(testFile, ec);
-                // Candidate is writable — use it.
-            } else {
-                candidate = "/workspace/data/omninet";
             }
         } else {
-            candidate = "/workspace/data/omninet";
+            initFromLegacy("/workspace/data/omninet");
         }
-
-        m_dataDir = candidate;
     }
-    
-    // Ensure directory exists
+
+    // Ensure directories exist
+    std::filesystem::create_directories(m_configDir);
     std::filesystem::create_directories(m_dataDir);
-    
+    std::filesystem::create_directories(m_stateDir);
+    std::filesystem::create_directories(m_cacheDir);
+    std::filesystem::create_directories(m_runtimeDir);
+
     // Default database path
     m_databasePath = m_dataDir / "omninet.db";
-    
+
     // Default log file
-    m_logFile = (m_dataDir / "omninet.log").string();
-    
+    m_logFile = (m_stateDir / "omninet.log").string();
+
     // Load from environment first
     loadFromEnvironment();
-    
+
     // Then try to load from config file
     auto configPath = configFile();
     if (std::filesystem::exists(configPath)) {
@@ -97,7 +112,7 @@ Config::~Config() {
 }
 
 std::filesystem::path Config::configFile() const {
-    return m_dataDir / "config.json";
+    return m_configDir / "config.json";
 }
 
 const std::filesystem::path& Config::dataDir() const {
@@ -109,9 +124,53 @@ void Config::setDataDir(const std::filesystem::path& path) {
     m_dataDir = path;
     std::filesystem::create_directories(m_dataDir);
     m_databasePath = m_dataDir / "omninet.db";
+}
+
+const std::filesystem::path& Config::configDir() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_configDir;
+}
+
+void Config::setConfigDir(const std::filesystem::path& path) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_configDir = path;
+    std::filesystem::create_directories(m_configDir);
+}
+
+const std::filesystem::path& Config::stateDir() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_stateDir;
+}
+
+void Config::setStateDir(const std::filesystem::path& path) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_stateDir = path;
+    std::filesystem::create_directories(m_stateDir);
     if (!m_logFile) {
-        m_logFile = (m_dataDir / "omninet.log").string();
+        m_logFile = (m_stateDir / "omninet.log").string();
     }
+}
+
+const std::filesystem::path& Config::cacheDir() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_cacheDir;
+}
+
+void Config::setCacheDir(const std::filesystem::path& path) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_cacheDir = path;
+    std::filesystem::create_directories(m_cacheDir);
+}
+
+const std::filesystem::path& Config::runtimeDir() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_runtimeDir;
+}
+
+void Config::setRuntimeDir(const std::filesystem::path& path) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_runtimeDir = path;
+    std::filesystem::create_directories(m_runtimeDir);
 }
 
 std::filesystem::path Config::resolve(const std::string& filename) const {
@@ -331,7 +390,11 @@ void Config::loadFromEnvironment() {
     }
     
     if (const char* dataDir = std::getenv("OMNINET_DATA_DIR")) {
+        m_configDir = dataDir;
         m_dataDir = dataDir;
+        m_stateDir = dataDir;
+        m_cacheDir = dataDir;
+        m_runtimeDir = dataDir;
         std::filesystem::create_directories(m_dataDir);
     }
     
@@ -421,7 +484,12 @@ void Config::loadFromJson(const json& j) {
     if (j.contains("database")) {
         const auto& db = j["database"];
         if (db.contains("path") && !db["path"].empty()) {
-            m_databasePath = db["path"].get<std::string>();
+            auto dbPath = db["path"].get<std::string>();
+            if (!dbPath.empty() && dbPath.front() == '/') {
+                m_databasePath = dbPath;
+            } else {
+                m_databasePath = m_dataDir / dbPath;
+            }
         }
     }
     
@@ -437,7 +505,12 @@ void Config::loadFromJson(const json& j) {
             else if (level == "CRITICAL") m_logLevel = LogLevel::CRITICAL;
         }
         if (logging.contains("file") && !logging["file"].empty()) {
-            m_logFile = logging["file"].get<std::string>();
+            auto logPath = logging["file"].get<std::string>();
+            if (!logPath.empty() && logPath.front() == '/') {
+                m_logFile = logPath;
+            } else {
+                m_logFile = (m_stateDir / logPath).string();
+            }
         }
     }
     
@@ -611,10 +684,23 @@ json Config::toJsonInternal() const {
         {"maxMessageSize", 1048576},
         {"maxConnections", 1024}
     };
+
+    // Store relative paths when they live under the XDG data/state dirs.
+    auto relativeIfUnder = [](const fs::path& target, const fs::path& base) -> std::string {
+        try {
+            auto rel = fs::relative(target, base);
+            if (!rel.empty() && rel.string().find("..") == std::string::npos) {
+                return rel.string();
+            }
+        } catch (...) {
+            // Fall through to absolute path.
+        }
+        return target.string();
+    };
     
     // Database
     j["database"] = {
-        {"path", m_databasePath.string()},
+        {"path", relativeIfUnder(m_databasePath, m_dataDir)},
         {"busyTimeoutMs", 5000},
         {"foreignKeys", true},
         {"walMode", true}
@@ -650,7 +736,7 @@ json Config::toJsonInternal() const {
     }
     j["logging"] = {
         {"level", levelStr},
-        {"file", m_logFile.value_or("omninet.log")},
+        {"file", m_logFile ? relativeIfUnder(fs::path(*m_logFile), m_stateDir) : "omninet.log"},
         {"toConsole", true},
         {"toFile", true},
         {"maxSizeMb", 10},
@@ -749,7 +835,7 @@ void Config::createDefaultConfig() {
         }},
         {"logging", {
             {"level", "INFO"},
-            {"file", ""},  // Empty = no file logging by default, use ~/.omninet/logs/omninet.log programmatically
+            {"file", ""},  // Empty = no file logging by default; otherwise resolved relative to stateDir()
             {"toConsole", true},
             {"toFile", true},
             {"maxSizeMb", 10},

@@ -16,7 +16,7 @@ int main() {
     // Initialize OpenSSL
     OmniNet::init();
     
-    // Load config from ~/.omninet/config.json
+    // Load config from the XDG config directory.
     auto& omninetConfig = OmniNet::Config::instance();
     
     // Enable logging (from config)
@@ -27,10 +27,10 @@ int main() {
         OmniNet::LogLevel::INFO
     );
     
-    // Set log file to ~/.omninet/logs/omninet.log
-    auto dataDir = omninetConfig.dataDir();
-    std::filesystem::create_directories(dataDir / "logs");
-    auto logPath = (dataDir / "logs" / "omninet.log").string();
+    // Set log file to the XDG state directory.
+    auto stateDir = omninetConfig.stateDir();
+    std::filesystem::create_directories(stateDir);
+    auto logPath = (stateDir / "omninet.log").string();
     OmniNet::Logger::instance().setLogFile(logPath);
     
     // Determine static files directory

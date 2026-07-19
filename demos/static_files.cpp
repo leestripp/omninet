@@ -17,7 +17,7 @@ int main(int argc, char* argv[]) {
     // Initialize OmniNet
     OmniNet::init();
     
-    // Load config from ~/.omninet/config.json
+    // Load config from the XDG config directory.
     auto& config = OmniNet::Config::instance();
     
     // Get root directory (default to current directory or argument)

@@ -82,10 +82,10 @@ using namespace OmniNet::HTTP;
 int main() {
     OmniNet::init();
     
-    // Configure logging to ~/.omninet/logs/
+    // Configure logging to the XDG state directory
     auto& config = Config::instance();
-    auto logPath = (config.dataDir() / "logs" / "omninet.log").string();
-    std::filesystem::create_directories(config.dataDir() / "logs");
+    auto logPath = (config.stateDir() / "omninet.log").string();
+    std::filesystem::create_directories(config.stateDir());
     Logger::instance().setLogFile(logPath);
     Logger::instance().setLevel(LogLevel::INFO);
     
@@ -224,7 +224,7 @@ Logger::instance().errorF("Error: %s", err.c_str());
 // Use config
 LoggingConfig logConfig;
 logConfig.level = "DEBUG";
-logConfig.file = "~/.omninet/logs/omninet.log";
+logConfig.file = "omninet.log";  // Resolved relative to Config::stateDir()
 logConfig.maxSizeMb = 10;
 logConfig.maxFiles = 5;
 Logger::instance().initFromConfig(logConfig);
@@ -439,16 +439,30 @@ int main() {
 
 ## Data Directory
 
-OmniNet stores data in `~/.omninet/`:
+OmniNet follows the [XDG Base Directory Specification](docs/xdg-standard.md). Default locations on Linux/Unix:
 
 ```
-~/.omninet/
-├── config.json        # Configuration
-├── logs/              # Log files
-│   ├── omninet.log    # Main log
-│   └── omninet.log.*  # Rotated logs
-├── dashboard.db       # SQLite (users, sessions)
-└── certs/             # TLS certificates
+~/.config/omninet/
+└── config.json              # Configuration
+
+~/.local/share/omninet/
+├── omninet.db               # SQLite database (users, sessions)
+├── certs/                   # TLS certificates
+└── servers/                 # Server instance configs
+
+~/.local/state/omninet/
+├── omninet.log              # Main log
+└── omninet.log.*            # Rotated logs
+
+~/.cache/omninet/            # Cache files
+
+$XDG_RUNTIME_DIR/omninet/    # PID files and runtime sockets
+```
+
+Legacy `~/.omninet/` directories are still supported. To migrate an existing tree to the XDG layout, run:
+
+```bash
+./build/tools/omninet-init --migrate-xdg
 ```
 
 ## Documentation

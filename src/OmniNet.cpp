@@ -7,7 +7,7 @@ namespace OmniNet {
 void init() {
     Crypto::initialize();
     
-    // Initialize config - this creates ~/.omninet and config.json
+    // Initialize config - this creates the XDG OmniNet directories and config.json
     Config::instance();
 }
 

@@ -103,6 +103,11 @@ add_executable(test_http_client
     test_http_client.cpp
 )
 
+# XDG Base Directory tests
+add_executable(test_xdg_paths
+    test_xdg_paths.cpp
+)
+
 # Link with OmniNet and dependencies
 target_link_libraries(omnet_test PRIVATE OmniNet pthread)
 target_link_libraries(test_buffer_protection PRIVATE OmniNet pthread)
@@ -197,6 +202,11 @@ target_link_libraries(test_http_client PRIVATE
     pthread
 )
 
+target_link_libraries(test_xdg_paths PRIVATE
+    OmniNet
+    pthread
+)
+
 # Enable C++23
 target_compile_features(omnet_test PRIVATE cxx_std_23)
 target_compile_features(test_buffer_protection PRIVATE cxx_std_23)
@@ -218,6 +228,7 @@ target_compile_features(test_http_response PRIVATE cxx_std_23)
 target_compile_features(test_websocket_broadcast PRIVATE cxx_std_23)
 target_compile_features(test_websocket_echo PRIVATE cxx_std_23)
 target_compile_features(test_http_client PRIVATE cxx_std_23)
+target_compile_features(test_xdg_paths PRIVATE cxx_std_23)
 
 # Include directories - use parent source dir
 target_include_directories(omnet_test PRIVATE
@@ -257,6 +268,9 @@ target_include_directories(test_async_file PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 target_include_directories(test_http_client PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_include_directories(test_xdg_paths PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 

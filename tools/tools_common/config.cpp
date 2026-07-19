@@ -279,7 +279,7 @@ std::filesystem::path ServerInstanceConfig::pidFile() const {
     auto safeName = name;
     std::replace(safeName.begin(), safeName.end(), '/', '_');
     safeName = "omninet-" + safeName + ".pid";
-    return Paths::dataDir() / safeName;
+    return Paths::runtimeDir() / safeName;
 }
 
 // ============================================================================

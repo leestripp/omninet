@@ -54,22 +54,29 @@ struct ToolOptions {
 
 class Paths {
 public:
-    // Get OmniNet data directory (~/.omninet)
+    // XDG Base Directory paths (see docs/xdg-standard.md)
+    static std::filesystem::path configDir();
     static std::filesystem::path dataDir();
-    
-    // Get config file path
+    static std::filesystem::path stateDir();
+    static std::filesystem::path cacheDir();
+    static std::filesystem::path runtimeDir();
+
+    // Legacy single-tree root (~/.omninet or $OMNINET_DATA_DIR)
+    static std::filesystem::path legacyDataDir();
+
+    // Get config file path ($XDG_CONFIG_HOME/omninet/config.json)
     static std::filesystem::path configFile();
     
-    // Get database path
+    // Get database path ($XDG_DATA_HOME/omninet/omninet.db)
     static std::filesystem::path databaseFile();
     
-    // Get log file path
+    // Get log file path ($XDG_STATE_HOME/omninet/omninet.log)
     static std::filesystem::path logFile();
     
-    // Get certificates directory
+    // Get certificates directory ($XDG_DATA_HOME/omninet/certs)
     static std::filesystem::path certsDir();
     
-    // Get servers directory
+    // Get servers directory ($XDG_DATA_HOME/omninet/servers)
     static std::filesystem::path serversDir();
     
     // Resolve path relative to data dir
@@ -176,15 +183,15 @@ std::string getVersionString();
 std::string getFullVersionString();
 
 // ============================================================================
-// Initializer (for setting up ~/.omninet)
+// Initializer (for setting up the OmniNet XDG directories)
 // ============================================================================
 
 class Initializer {
 public:
-    // Create ~/.omninet with default structure
+    // Create the data directory ($XDG_DATA_HOME/omninet)
     static bool createDataDir();
     
-    // Create default config.json
+    // Create default config.json under $XDG_CONFIG_HOME/omninet
     static bool createDefaultConfig();
     
     // Create certificates directory
@@ -193,7 +200,7 @@ public:
     // Create servers directory
     static bool createServersDir();
     
-    // Create all default directories
+    // Create all default directories (config/data/state/cache/runtime)
     static bool setupAll();
 };
 

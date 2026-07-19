@@ -326,7 +326,12 @@ void Logger::initFromConfig(const LoggingConfig& config) {
     
     // Set file logging if enabled
     if (config.toFile && !config.file.empty()) {
-        setLogFile(config.file);
+        std::string logPath = config.file;
+        // Resolve relative log paths against the XDG state directory.
+        if (!logPath.empty() && logPath.front() != '/') {
+            logPath = (Config::instance().stateDir() / logPath).string();
+        }
+        setLogFile(logPath);
         
         // Set rotation parameters if maxSizeMb > 0
         if (config.maxSizeMb > 0) {

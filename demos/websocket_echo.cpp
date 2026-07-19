@@ -15,7 +15,7 @@ int main() {
     // Initialize OmniNet
     OmniNet::init();
     
-    // Load config from ~/.omninet/config.json
+    // Load config from the XDG config directory.
     auto& config = OmniNet::Config::instance();
     
     // Create WebSocket server with config settings
