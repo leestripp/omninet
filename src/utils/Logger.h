@@ -177,7 +177,7 @@ private:
 
 // Simple snprintf-style formatter (avoids dependency on fmt library)
 template<typename... Args>
-inline void formatTo(std::string& output, const char* format, Args&&... args) {
+inline void formatTo(std::string& output, [[maybe_unused]] const char* format, Args&&... args) {
     std::ostringstream oss;
     (oss << ... << std::forward<Args>(args));
     output += oss.str();

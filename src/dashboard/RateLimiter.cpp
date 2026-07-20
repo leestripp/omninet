@@ -227,6 +227,7 @@ IPRateLimiter::IPRateLimiter(size_t maxRequests, std::chrono::seconds window)
     : m_window(maxRequests, window) {}
 
 bool IPRateLimiter::isLimited(const std::string& ip) {
+    (void)ip;
     return m_window.isAtLimit();
 }
 

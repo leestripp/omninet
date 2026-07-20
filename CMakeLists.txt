@@ -115,6 +115,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang"
     endif()
 endif()
 
+# Enable standard warning flags for all targets in the project.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra -Wpedantic)
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    add_compile_options(/W4)
+endif()
+
 # Export compile commands for IDE support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -311,6 +318,13 @@ if(OMNINET_ENABLE_VEC)
     # We use RENAME to override this behavior
     add_library(vec0_extension SHARED ${sqlite_vec_SOURCE_DIR}/sqlite-vec.c)
     target_include_directories(vec0_extension PUBLIC ${sqlite_vec_SOURCE_DIR})
+    # sqlite-vec is third-party code; suppress its noisy C-only warnings.
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        target_compile_options(vec0_extension PRIVATE
+            -Wno-c23-extensions
+            -Wno-unterminated-string-initialization
+        )
+    endif()
     set_target_properties(vec0_extension PROPERTIES
         OUTPUT_NAME "vec0"  # Results in libvec0.so on Linux
         LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}

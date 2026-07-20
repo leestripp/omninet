@@ -230,7 +230,8 @@ TEST(executor_try_submit) {
 
 TEST(handler_signature_compiles) {
     // Just check that the types compile
-    AsyncHandler handler = [](const HTTP::Request& req, Executor& exec) -> Task<HTTP::Response> {
+    AsyncHandler handler = []([[maybe_unused]] const HTTP::Request& req,
+                              [[maybe_unused]] Executor& exec) -> Task<HTTP::Response> {
         HTTP::Response resp;
         resp.setBody("hello");
         co_return resp;

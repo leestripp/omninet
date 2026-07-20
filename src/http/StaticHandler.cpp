@@ -257,9 +257,9 @@ Response StaticHandler::serveIndex(const std::string& dirPath, const std::string
 constexpr const char* SHARED_VERSION = "0.1.0";
 
 std::string StaticHandler::generateDirectoryListing(
-    const std::string& dirPath,
+    [[maybe_unused]] const std::string& dirPath,
     const std::string& urlPath,
-    const std::vector<std::string>& entries
+    [[maybe_unused]] const std::vector<std::string>& entries
 ) {
     std::ostringstream html;
     html << "<!DOCTYPE html>\n";

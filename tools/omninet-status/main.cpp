@@ -360,7 +360,7 @@ bool checkBlockedIPs(const StatusOptions& opts, Formatter& out) {
 // Intrusion Check
 // ============================================================================
 
-bool checkIntrusion(const StatusOptions& opts, Formatter& out) {
+bool checkIntrusion([[maybe_unused]] const StatusOptions& opts, Formatter& out) {
     out.subheader("Intrusion Detection");
     
     ConfigReader reader;

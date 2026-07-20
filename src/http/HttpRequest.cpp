@@ -98,7 +98,7 @@ bool QueryParams::has(std::string_view key) const {
 size_t QueryParams::count(std::string_view key) const {
     auto it = params.find(std::string(key));
     if (it == params.end()) return 0;
-    if (auto* str = std::get_if<std::string>(&it->second)) {
+    if (std::get_if<std::string>(&it->second)) {
         return 1;
     }
     if (auto* vec = std::get_if<std::vector<std::string>>(&it->second)) {
@@ -268,7 +268,6 @@ size_t Request::parse(std::span<const uint8_t> data) {
                 break;
             }
             case State::BODY: {
-                size_t bodyStart = pos;
                 size_t remaining = len - pos;
                 if (remaining >= m_contentLength) {
                     m_body.assign(data.begin() + pos, data.begin() + pos + m_contentLength);

@@ -674,6 +674,30 @@ Client::exchange(std::unique_ptr<OmniNet::Socket> socket,
         return std::unexpected(ClientError::SendFailed);
     }
 
+    // Stream chunked request body if a body writer was provided.
+    if (req.has_body_writer()) {
+        try {
+            while (true) {
+                std::vector<uint8_t> chunk = req.m_body_writer();
+                if (chunk.empty()) break;
+                std::string chunk_header = toHex(chunk.size()) + "\r\n";
+                socket->sendAll(std::span<const uint8_t>(
+                    reinterpret_cast<const uint8_t*>(chunk_header.data()),
+                    chunk_header.size()));
+                socket->sendAll(std::span<const uint8_t>(
+                    chunk.data(), chunk.size()));
+                socket->sendAll(std::span<const uint8_t>(
+                    reinterpret_cast<const uint8_t*>("\r\n"), 2));
+            }
+            std::string final_chunk = "0\r\n\r\n";
+            socket->sendAll(std::span<const uint8_t>(
+                reinterpret_cast<const uint8_t*>(final_chunk.data()),
+                final_chunk.size()));
+        } catch (...) {
+            return std::unexpected(ClientError::SendFailed);
+        }
+    }
+
     std::string raw;
     try {
         raw = readAll(*socket, cfg, stop);

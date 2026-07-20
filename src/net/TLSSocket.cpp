@@ -28,8 +28,9 @@ TLSSocket::TLSSocket(SOCKET fd, bool serverMode)
 // v0.7.2 (codemax Bug 1): constructor that wraps an unconnected
 // socket fd with a shared TLSContext. Used by TLSContext::createSocket().
 TLSSocket::TLSSocket(std::shared_ptr<TLSContext> context)
-    : Socket(INVALID_SOCKET), m_serverMode(!context || context->serverMode()),
-      m_handshakeDone(false), m_context(std::move(context)) {
+    : Socket(INVALID_SOCKET), m_context(std::move(context)),
+      m_serverMode(!m_context || m_context->serverMode()),
+      m_handshakeDone(false) {
     if (m_context) {
         // Use the shared context's SSL_CTX instead of creating our own.
         // Note: initContext() is NOT called here because m_ctx is set

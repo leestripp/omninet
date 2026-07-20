@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <csignal>
 #include <iostream>
 #include <map>
 #include <span>
@@ -428,6 +429,7 @@ void test_streaming_read_some_partial() {
 }
 
 int main() {
+    signal(SIGPIPE, SIG_IGN);
     test_url_parse();
     test_invalid_url();
     test_get();

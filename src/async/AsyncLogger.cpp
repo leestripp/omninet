@@ -21,7 +21,7 @@ AsyncLogger::AsyncLogger(Config config) : m_config(config) {
 
     // Use internal std::jthread
     m_writerThread = std::make_unique<std::jthread>(
-        [this](std::stop_token st) { writer_loop(); }
+        [this](std::stop_token) { writer_loop(); }
     );
 }
 

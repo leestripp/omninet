@@ -69,7 +69,7 @@ bool IntrusionDetector::checkAndBlock(
     const std::string& clientIp,
     const std::string& method,
     const std::string& path,
-    const HTTP::Request* req
+    [[maybe_unused]] const HTTP::Request* req
 ) {
     std::lock_guard<std::mutex> lock(m_mutex);
     // v0.7.0 fix (prompt.txt 2026-06-19 BUG-1): call the *unlocked*

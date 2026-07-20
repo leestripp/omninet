@@ -257,14 +257,13 @@ IntrusionStore::IntrusionStore(Database& db) : m_db(db) {}
 
 std::vector<BlockedIP> IntrusionStore::getBlockedIPs() {
     std::vector<BlockedIP> blocked;
-    auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     
     std::string sql = R"(
         SELECT ip, expires, blocked_at 
         FROM blocked_ips 
         WHERE expires > ?)";
     
-    m_db.query(sql, [&blocked, now](const std::vector<std::string>& row) {
+    m_db.query(sql, [&blocked](const std::vector<std::string>& row) {
         BlockedIP entry;
         entry.ip = row[0];
         entry.expires = std::chrono::system_clock::from_time_t(std::stoll(row[1]));
@@ -310,7 +309,7 @@ std::vector<IntrusionLogEntry> IntrusionStore::getRecentLogs(size_t limit) {
     return logs;
 }
 
-std::vector<IntrusionLogEntry> IntrusionStore::getLogsForIP(const std::string& ip, size_t limit) {
+std::vector<IntrusionLogEntry> IntrusionStore::getLogsForIP([[maybe_unused]] const std::string& ip, size_t limit) {
     std::vector<IntrusionLogEntry> logs;
     std::string sql = "SELECT * FROM intrusion_logs WHERE client_ip = ? ORDER BY timestamp DESC LIMIT " + std::to_string(limit);
     
@@ -332,11 +331,11 @@ std::vector<IntrusionLogEntry> IntrusionStore::getLogsForIP(const std::string& i
     return logs;
 }
 
-bool IntrusionStore::blockIP(const std::string& ip, std::chrono::minutes duration) {
+bool IntrusionStore::blockIP([[maybe_unused]] const std::string& ip, std::chrono::minutes duration) {
     auto now = std::chrono::system_clock::now();
     auto expires = now + duration;
-    auto nowT = std::chrono::system_clock::to_time_t(now);
-    auto expiresT = std::chrono::system_clock::to_time_t(expires);
+    [[maybe_unused]] auto nowT = std::chrono::system_clock::to_time_t(now);
+    [[maybe_unused]] auto expiresT = std::chrono::system_clock::to_time_t(expires);
     
     std::string sql = "INSERT OR REPLACE INTO blocked_ips (ip, expires, blocked_at) VALUES (?, ?, ?)";
     // Note: Using simple execute since we don't have bind params in this implementation
@@ -345,7 +344,7 @@ bool IntrusionStore::blockIP(const std::string& ip, std::chrono::minutes duratio
     return false;  // Simplified - would need proper binding
 }
 
-bool IntrusionStore::unblockIP(const std::string& ip) {
+bool IntrusionStore::unblockIP([[maybe_unused]] const std::string& ip) {
     std::string sql = "DELETE FROM blocked_ips WHERE ip = ?";
     return m_db.execute(sql);
 }

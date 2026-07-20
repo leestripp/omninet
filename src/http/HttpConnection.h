@@ -109,7 +109,6 @@ private:
     
     // Buffer for reading
     std::vector<uint8_t> m_buffer;
-    size_t m_bufferPos = 0;
     
     // Current request being parsed
     Request m_currentRequest;
@@ -122,7 +121,6 @@ private:
     
     // State
     bool m_keepAlive = false;
-    bool m_closeConnection = false;
 };
 
 // ============================================================================

@@ -179,7 +179,7 @@ std::string Table::toString() {
 // ============================================================================
 
 KeyValueList& KeyValueList::add(const std::string& key, const std::string& value) {
-    m_entries.push_back({key, value, "", false});
+    m_entries.push_back({key, value, "", false, ""});
     return *this;
 }
 
@@ -192,7 +192,7 @@ KeyValueList& KeyValueList::add(const std::string& key, bool value) {
 }
 
 KeyValueList& KeyValueList::add(const std::string& key, const std::string& value, const std::string& unit) {
-    m_entries.push_back({key, value, unit, false});
+    m_entries.push_back({key, value, unit, false, ""});
     return *this;
 }
 

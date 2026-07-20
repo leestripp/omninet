@@ -367,28 +367,4 @@ void ScopedLogger::log(const std::string& message) {
 // Template Implementations
 // ============================================================================
 
-namespace {
-
-template<typename T>
-void formatValue(std::string& output, T value) {
-    output += std::to_string(value);
-}
-
-template<>
-void formatValue(std::string& output, const char* value) {
-    output += value;
-}
-
-template<>
-void formatValue(std::string& output, const std::string& value) {
-    output += value;
-}
-
-template<>
-void formatValue(std::string& output, std::string_view value) {
-    output += std::string(value);
-}
-
-} // anonymous namespace
-
 } // namespace OmniNet

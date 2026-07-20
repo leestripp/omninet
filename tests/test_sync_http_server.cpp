@@ -99,53 +99,6 @@ static int tcp_connect(uint16_t port) {
     return fd;
 }
 
-// Read until '\n' or timeout (returns "" on timeout/error)
-static std::string read_line(int fd, int timeout_ms = 3000) {
-    std::string result;
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(fd, &fds);
-    struct timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
-    char ch;
-    while (result.size() < 4096) {
-        fd_set r = fds;
-        int sel = ::select(fd + 1, &r, nullptr, nullptr, &tv);
-        if (sel <= 0) break;
-        ssize_t n = ::recv(fd, &ch, 1, 0);
-        if (n <= 0) break;
-        if (ch == '\n') {
-            if (!result.empty() && result.back() == '\r') result.pop_back();
-            result.push_back('\n');
-            break;
-        }
-        result.push_back(ch);
-    }
-    return result;
-}
-
-// Read exactly n bytes or until timeout
-static std::string read_n(int fd, size_t n, int timeout_ms = 3000) {
-    std::string result;
-    result.reserve(n);
-    size_t received = 0;
-    while (received < n) {
-        fd_set fds;
-        FD_ZERO(&fds);
-        FD_SET(fd, &fds);
-        struct timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
-        fd_set r = fds;
-        int sel = ::select(fd + 1, &r, nullptr, nullptr, &tv);
-        if (sel <= 0) break;
-        char buf[4096];
-        ssize_t needed = static_cast<ssize_t>(std::min(n - received, sizeof(buf)));
-        ssize_t nread = ::recv(fd, buf, needed, 0);
-        if (nread <= 0) break;
-        result.append(buf, static_cast<size_t>(nread));
-        received += static_cast<size_t>(nread);
-    }
-    return result;
-}
-
 // Send raw HTTP request and return full response bytes
 static std::string send_raw(int fd, const std::string& request) {
     size_t sent = 0;

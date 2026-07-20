@@ -147,7 +147,7 @@ class ClientResponseStream {
 public:
     ClientResponseStream(StatusCode status, std::string reason,
                         std::map<std::string, std::string> headers,
-                        std::unique_ptr<class ResponseStreamState> state);
+                        std::unique_ptr<struct ResponseStreamState> state);
 
     ~ClientResponseStream();
 
@@ -173,7 +173,7 @@ private:
     StatusCode m_status;
     std::string m_reason;
     std::map<std::string, std::string> m_headers;
-    std::unique_ptr<class ResponseStreamState> m_state;
+    std::unique_ptr<struct ResponseStreamState> m_state;
     bool m_error = false;
 };
 

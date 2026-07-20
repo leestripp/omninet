@@ -91,7 +91,6 @@ int main(int argc, char* argv[]) {
         
         for (const auto& b : blocked) {
             auto blockedAt = std::chrono::system_clock::to_time_t(b.blockedAt);
-            auto expires = std::chrono::system_clock::to_time_t(b.expires);
             auto now = std::chrono::system_clock::now();
             
             std::string expiresIn;

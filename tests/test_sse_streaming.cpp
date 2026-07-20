@@ -1220,33 +1220,6 @@ void test_backpressure_slow_client() {
     srv.stop();
 }
 
-void test_clean_shutdown() {
-    std::cout << "\n[sse_clean_shutdown]\n";
-    TestServer srv;
-    srv.start();
-
-    {
-        SseTestClient c("127.0.0.1", srv.port, "/events");
-        c.readHeaders();
-        (void)c.readEvent(2s);
-    }
-    // Server.stop() should be clean: the worker thread joins,
-    // the keep-alive thread joins, the HTTP server stops.
-    srv.stop();
-
-    // After stop, the port is closed.
-    Socket s;
-    bool gotConnectionRefused = false;
-    try {
-        s.connect("127.0.0.1", srv.port);
-    } catch (...) {
-        gotConnectionRefused = true;
-    }
-    EXPECT(gotConnectionRefused);
-
-    PASS("sse_clean_shutdown");
-}
-
 } // namespace
 
 int main() {

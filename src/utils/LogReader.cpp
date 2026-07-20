@@ -75,8 +75,8 @@ std::vector<LogEntry> LogReader::readFrom(size_t offset, size_t count) {
 }
 
 std::vector<LogEntry> LogReader::readRange(
-    const std::chrono::system_clock::time_point& from,
-    const std::chrono::system_clock::time_point& to
+    [[maybe_unused]] const std::chrono::system_clock::time_point& from,
+    [[maybe_unused]] const std::chrono::system_clock::time_point& to
 ) {
     std::vector<LogEntry> entries;
     

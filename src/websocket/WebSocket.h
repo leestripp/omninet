@@ -41,7 +41,7 @@ public:
     );
     
     // Destructor
-    ~Connection();
+    virtual ~Connection();
     
     // Non-copyable
     Connection(const Connection&) = delete;

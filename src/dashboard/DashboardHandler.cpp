@@ -431,19 +431,19 @@ void Handler::handleGetLogs(const HTTP::Request& req, HTTP::Response& resp) {
     resp.setBody(json.str());
 }
 
-void Handler::handleRecordStat(const HTTP::Request& req, HTTP::Response& resp) {
+void Handler::handleRecordStat([[maybe_unused]] const HTTP::Request& req, HTTP::Response& resp) {
     resp.setStatus(HTTP::StatusCode::OK);
     resp.setContentType("application/json");
     resp.setBody(R"({"success": true})");
 }
 
-void Handler::serveDashboardPage(const HTTP::Request& req, HTTP::Response& resp) {
+void Handler::serveDashboardPage([[maybe_unused]] const HTTP::Request& req, HTTP::Response& resp) {
     resp.setStatus(HTTP::StatusCode::OK);
     resp.setContentType("text/html");
     resp.setBody(renderDashboardPage(DB::UserStore::User{}));
 }
 
-void Handler::serveLoginPage(const HTTP::Request& req, HTTP::Response& resp) {
+void Handler::serveLoginPage([[maybe_unused]] const HTTP::Request& req, HTTP::Response& resp) {
     resp.setStatus(HTTP::StatusCode::OK);
     resp.setContentType("text/html");
     resp.setBody(renderLoginPage());

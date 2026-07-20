@@ -73,18 +73,18 @@ OMNINET_TEST(utils_trim) {
 }
 OMNINET_TEST(utils_split) {
     auto parts = OmniNet::Utils::split("a,b,c", ',');
-    ASSERT_EQ(parts.size(), 3);
+    ASSERT_EQ(parts.size(), 3u);
     ASSERT_EQ(parts[0], "a");
     ASSERT_EQ(parts[1], "b");
     ASSERT_EQ(parts[2], "c");
 }
 OMNINET_TEST(utils_split_empty) {
     auto parts = OmniNet::Utils::split("", ',');
-    ASSERT_EQ(parts.size(), 0);
+    ASSERT_EQ(parts.size(), 0u);
 }
 OMNINET_TEST(utils_split_single) {
     auto parts = OmniNet::Utils::split("a", ',');
-    ASSERT_EQ(parts.size(), 1);
+    ASSERT_EQ(parts.size(), 1u);
     ASSERT_EQ(parts[0], "a");
 }
 OMNINET_TEST(utils_join) {
@@ -305,7 +305,7 @@ OMNINET_TEST(utils_escapeHtml_xss) {
 OMNINET_TEST(utils_hmacSha256) {
     auto hmac = OmniNet::Utils::hmacSha256("key", "message");
     ASSERT_FALSE(hmac.empty());
-    ASSERT_EQ(hmac.size(), 64);  // 32 bytes = 64 hex chars
+    ASSERT_EQ(hmac.size(), 64u);  // 32 bytes = 64 hex chars
 }
 OMNINET_TEST(utils_hmacSha256_consistency) {
     auto hmac1 = OmniNet::Utils::hmacSha256("key", "message");
@@ -356,7 +356,7 @@ OMNINET_TEST(database_execute_query) {
         return true;
     });
 
-    ASSERT_EQ(names.size(), 2);
+    ASSERT_EQ(names.size(), 2u);
     ASSERT_EQ(names[0], "Alice");
     ASSERT_EQ(names[1], "Bob");
 
@@ -389,7 +389,7 @@ OMNINET_TEST(database_sql_injection_prevention) {
     });
 
     // Verify all 3 users inserted
-    ASSERT_EQ(names.size(), 3);
+    ASSERT_EQ(names.size(), 3u);
     ASSERT_EQ(names[0], "Alice");
     ASSERT_EQ(names[1], "Bob");
     ASSERT_EQ(names[2], "Charlie");
@@ -931,7 +931,7 @@ OMNINET_TEST(http_request_header_case_insensitive) {
     auto ct = req.header("content-type");
     auto ct2 = req.header("CONTENT-TYPE");
     auto custom = req.header("X-Custom");
-    auto host = req.header("host");
+    [[maybe_unused]] auto host = req.header("host");
     
     // At least one should have a value
     ASSERT_TRUE(ct.has_value() || ct2.has_value() || custom.has_value());
@@ -1004,7 +1004,7 @@ OMNINET_TEST(http_header_exactly_one_value) {
     auto val = req.header("X-Test");
     // Should be exactly "value" - testing no extra spaces
     ASSERT_TRUE(val.has_value());
-    ASSERT_EQ(val->size(), 5);
+    ASSERT_EQ(val->size(), 5u);
 }
 OMNINET_TEST(http_header_with_spaces) {
     std::string raw = 
@@ -1111,7 +1111,7 @@ OMNINET_TEST(http_content_length_exact) {
     OmniNet::HTTP::Request req;
     req.parse(raw);
     
-    ASSERT_EQ(req.contentLength(), 13);
+    ASSERT_EQ(req.contentLength(), 13u);
     ASSERT_TRUE(req.hasBody());
 }
 OMNINET_TEST(http_content_length_mismatch) {
@@ -1348,18 +1348,18 @@ OMNINET_TEST(rate_limiter_success_clears) {
     limiter.recordSuccess(ip);
     
     // Now should have full quota again
-    ASSERT_EQ(limiter.remainingAttempts(ip), 3);
+    ASSERT_EQ(limiter.remainingAttempts(ip), 3u);
 }
 OMNINET_TEST(rate_limiter_remaining) {
     OmniNet::RateLimiter limiter(5, std::chrono::seconds(60));
     
     std::string ip = "192.168.1.1";
     
-    ASSERT_EQ(limiter.remainingAttempts(ip), 5);
+    ASSERT_EQ(limiter.remainingAttempts(ip), 5u);
     limiter.allow(ip);
-    ASSERT_EQ(limiter.remainingAttempts(ip), 4);
+    ASSERT_EQ(limiter.remainingAttempts(ip), 4u);
     limiter.allow(ip);
-    ASSERT_EQ(limiter.remainingAttempts(ip), 3);
+    ASSERT_EQ(limiter.remainingAttempts(ip), 3u);
 }
 
 // ============================================================================
@@ -1377,7 +1377,7 @@ OMNINET_TEST(crypto_randomUrlSafe) {
 }
 OMNINET_TEST(crypto_randomHex) {
     auto hex = OmniNet::Utils::secureRandomHex(32);
-    ASSERT_EQ(hex.size(), 64);  // 32 bytes = 64 hex chars
+    ASSERT_EQ(hex.size(), 64u);  // 32 bytes = 64 hex chars
     ASSERT_NE(hex, OmniNet::Utils::secureRandomHex(32));  // Should be different
 }
 OMNINET_TEST(crypto_random_unique) {

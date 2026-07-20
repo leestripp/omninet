@@ -363,6 +363,7 @@ void Router::handle(const Request& req, Response& resp) {
     // List all registered routes
     ROUTER_DEBUG("Registered routes: " << m_routes.size());
     for (const auto& r : m_routes) {
+        (void)r;
         ROUTER_DEBUG("  " << toString(r.method) << " " << r.pattern);
     }
     

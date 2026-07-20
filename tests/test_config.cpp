@@ -203,7 +203,7 @@ TEST(config_env_override) {
     setenv("OMNINET_PORT", "7777", 1);
     
     // Reload config (which reads environment)
-    auto& cfg = OmniNet::Config::instance();
+    [[maybe_unused]] auto& cfg = OmniNet::Config::instance();
     
     // The singleton was already initialized, so we need to reload
     // For this test, just verify the env var is readable

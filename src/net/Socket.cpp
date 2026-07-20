@@ -715,7 +715,7 @@ int getAddressFamily(const std::string& address) {
     return AF_UNSPEC;
 }
 
-std::string addressToString(const struct sockaddr* addr, socklen_t addrlen) {
+std::string addressToString(const struct sockaddr* addr, [[maybe_unused]] socklen_t addrlen) {
     char buffer[INET6_ADDRSTRLEN];
     
     if (addr->sa_family == AF_INET) {

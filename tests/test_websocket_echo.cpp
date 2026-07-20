@@ -46,6 +46,12 @@ using namespace std::chrono_literals;
 static int g_passed = 0;
 static int g_failed = 0;
 
+struct SigPipeIgnorer {
+    SigPipeIgnorer() {
+        signal(SIGPIPE, SIG_IGN);
+    }
+} g_sigpipeIgnorer;
+
 static void run_test(const char* name, void (*func)()) {
     std::cout << "  " << name << "... ";
     try {
@@ -264,7 +270,7 @@ TEST(handshake_returns_101_no_content_length) {
 
     // Use the HTTP server directly to validate the 101 path
     // (we don't need a full WebSocket::Server for this test).
-    server.router().any("/ws", [](const OmniNet::HTTP::Request& req,
+    server.router().any("/ws", []([[maybe_unused]] const OmniNet::HTTP::Request& req,
                                   OmniNet::HTTP::Response& resp) {
         resp.setStatus(static_cast<OmniNet::HTTP::StatusCode>(101));
         resp.setHeader("Upgrade", std::string("websocket"));

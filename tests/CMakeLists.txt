@@ -276,3 +276,26 @@ target_include_directories(test_xdg_paths PRIVATE
 
 # Note: zlib is handled by the main OmniNet library
 # If compression is enabled, the library will link it
+
+# Register all test executables with CTest
+add_test(NAME omnet_test COMMAND omnet_test)
+add_test(NAME test_buffer_protection COMMAND test_buffer_protection)
+add_test(NAME test_config COMMAND test_config)
+add_test(NAME test_token COMMAND test_token)
+add_test(NAME test_thread_pool COMMAND test_thread_pool)
+add_test(NAME test_async_task COMMAND test_async_task)
+add_test(NAME test_io_context COMMAND test_io_context)
+add_test(NAME test_async_server COMMAND test_async_server)
+add_test(NAME test_async_database COMMAND test_async_database)
+add_test(NAME test_async_logger COMMAND test_async_logger)
+add_test(NAME test_async_tls COMMAND test_async_tls)
+add_test(NAME test_expected COMMAND test_expected)
+add_test(NAME test_async_file COMMAND test_async_file)
+add_test(NAME test_http_connection COMMAND test_http_connection)
+add_test(NAME test_sync_http_server COMMAND test_sync_http_server)
+add_test(NAME test_http_response COMMAND test_http_response)
+add_test(NAME test_websocket_broadcast COMMAND test_websocket_broadcast)
+add_test(NAME test_websocket_echo COMMAND test_websocket_echo)
+add_test(NAME test_sse_streaming COMMAND test_sse_streaming)
+add_test(NAME test_http_client COMMAND test_http_client)
+add_test(NAME test_xdg_paths COMMAND test_xdg_paths)

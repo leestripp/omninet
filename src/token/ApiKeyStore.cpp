@@ -74,7 +74,7 @@ ApiKeyStore::CreateResult ApiKeyStore::create(
     std::vector<std::string> scopes,
     std::chrono::seconds ttl,
     std::string_view ip,
-    std::string_view userAgent,
+    [[maybe_unused]] std::string_view userAgent,
     std::optional<uint64_t> useLimit,
     std::string_view metadata
 ) {

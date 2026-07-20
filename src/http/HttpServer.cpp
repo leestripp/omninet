@@ -504,7 +504,7 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
                 }
             });
 
-            conn.setErrorHandler([this](const Request& req, Response& resp, std::exception_ptr e) {
+            conn.setErrorHandler([this](const Request& req, Response& resp, [[maybe_unused]] std::exception_ptr e) {
                 SERVER_DEBUG("Error handler called");
                 if (m_errorHandler) {
                     m_errorHandler(req, resp);

@@ -66,7 +66,7 @@ void VectorStore::loadExtension(const std::string& path) {
         // or the app will call sqlite3_load_extension directly
         
         // Mark as loaded after verification
-        m_db.query("SELECT vec_version()", [](const std::vector<std::string>& row) {
+        m_db.query("SELECT vec_version()", [](const std::vector<std::string>&) {
             return true;
         });
         m_extensionLoaded = true;

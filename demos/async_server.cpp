@@ -125,6 +125,7 @@ Async::Task<HTTP::Response> handle_root(const HTTP::Request& req, Async::Executo
 // GET /api/users - List all users from database
 Async::Task<HTTP::Response> handle_users_list(const HTTP::Request& req, Async::Executor& exec) {
     (void)req;
+    (void)exec;
     if (!g_app) {
         HTTP::Response resp = HTTP::Response::internalError("No app context");
         co_return resp;
@@ -212,6 +213,7 @@ Async::Task<HTTP::Response> handle_user_get(const HTTP::Request& req, Async::Exe
 
 // GET /api/stats - Server statistics
 Async::Task<HTTP::Response> handle_stats(const HTTP::Request& req, Async::Executor& exec) {
+    (void)req;
     (void)exec;
     if (!g_app) {
         HTTP::Response resp = HTTP::Response::internalError();
@@ -237,6 +239,7 @@ Async::Task<HTTP::Response> handle_stats(const HTTP::Request& req, Async::Execut
 
 // GET /api/logtest - Test logger with 1000 messages
 Async::Task<HTTP::Response> handle_logtest(const HTTP::Request& req, Async::Executor& exec) {
+    (void)req;
     (void)exec;
     if (!g_app) {
         HTTP::Response resp = HTTP::Response::internalError();

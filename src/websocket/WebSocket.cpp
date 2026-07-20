@@ -1,7 +1,6 @@
 // OmniNet - WebSocket Implementation
 #include "utils/Utils.h"
 #include "WebSocket.h"
-#include "WebSocket.h"
 #include "http/HttpServer.h"
 #include "net/TLSSocket.h"
 
@@ -25,7 +24,7 @@ Connection::Connection(std::unique_ptr<Socket> socket, std::string_view resource
     m_open = true;
 }
 
-Connection::Connection(const std::string& url, std::string_view protocol)
+Connection::Connection(const std::string& url, [[maybe_unused]] std::string_view protocol)
     : m_resource("/")
     , m_isServer(false) {
     // Parse URL and connect
@@ -105,20 +104,25 @@ void Connection::close(CloseCode code, std::string_view reason) {
     // v0.7.0 fix: don't try to send a close frame if there's no
     // socket. This happens for test mocks (MockConnection uses
     // a null socket) and for clients that were never connected.
-    if (!m_socket) {
+    if (!m_socket || !m_socket->isOpen()) {
         m_open = false;
         return;
     }
-    Frame frame;
-    frame.opcode = Opcode::CLOSE;
-    auto closeData = buildCloseFrame({code, std::string(reason)});
-    frame.payload.assign(closeData.begin(), closeData.end());
-    sendFrame(frame);
 
     m_open = false;
-    sendFrame(frame);
-    
-    m_open = false;
+
+    // Send a single close frame. Swallow send errors: the peer may
+    // already have closed the TCP connection, and we must not throw
+    // from the destructor path.
+    try {
+        Frame frame;
+        frame.opcode = Opcode::CLOSE;
+        auto closeData = buildCloseFrame({code, std::string(reason)});
+        frame.payload.assign(closeData.begin(), closeData.end());
+        sendFrame(frame);
+    } catch (...) {
+        // Peer already closed; nothing to do.
+    }
     
     if (m_closeHandler) {
         m_closeHandler(code, std::string(reason));
