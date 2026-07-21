@@ -231,10 +231,27 @@ private:
     
     // Worker threads
     std::vector<std::thread> m_workers;
-    
+    std::mutex m_workersMutex;
+
+    // Connection handler threads (was detached, now tracked so stop()
+    // can join them before the Server is destroyed).
+    std::vector<std::thread> m_connectionThreads;
+    std::mutex m_connectionThreadsMutex;
+
     // State
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_stopping{false};
+
+    // Accept-loop lifecycle synchronization. stop() waits for runAcceptLoop()
+    // to exit so no new connection threads are spawned while we join them.
+    std::atomic<bool> m_acceptLoopRunning{false};
+    std::mutex m_acceptLoopMutex;
+    std::condition_variable m_acceptLoopCv;
+
+    // startAsync() thread handle, joined in stop()/destructor so the
+    // Server is not destroyed while the detached thread is still running.
+    std::thread m_asyncThread;
+    std::mutex m_asyncThreadMutex;
 
     // v0.7.0: self-pipe trick for instant accept-loop shutdown.
     // m_wakeupPipe[0] = read end (added to poll() in accept loop)
@@ -290,6 +307,14 @@ private:
     
     // Connection factory
     std::unique_ptr<ConnectionFactory> m_connectionFactory;
+
+    // v0.9.0 (prompt.txt A2A streaming): registry of live per-request
+    // streaming responses so stop() can force-close them and unblock
+    // writer threads.
+    std::mutex m_activeStreamsMutex;
+    std::vector<std::weak_ptr<HTTP::StreamingResponse>> m_activeStreams;
+    void registerStreamingResponse(
+        const std::shared_ptr<HTTP::StreamingResponse>& stream);
 };
 
 // ============================================================================
@@ -298,7 +323,7 @@ private:
 
 class HTTPSServer : public Server {
 public:
-    explicit HTTPSServer(Config config) : Server(config) {}
+    explicit HTTPSServer(const Config& config) : Server(config) {}
 };
 
 // ============================================================================

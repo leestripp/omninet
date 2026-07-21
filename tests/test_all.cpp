@@ -1472,7 +1472,8 @@ OMNINET_TEST(buffer_clear) {
 
 OMNINET_TEST(buffer_find) {
     OmniNet::ByteBuffer buf;
-    buf.write("GET /api/test HTTP/1.1\r\nHost: localhost\r\n\r\n", 45);
+    const char* request = "GET /api/test HTTP/1.1\r\nHost: localhost\r\n\r\n";
+    buf.write(request, std::strlen(request));
     
     // Find CRLF
     auto crlfPos = buf.findCrlf();

@@ -288,7 +288,7 @@ std::optional<VectorStore::IndexInfo> VectorStore::getIndexInfo(const std::strin
         return std::nullopt;
     }
     
-    IndexInfo info;
+    IndexInfo info{};
     info.name = name;
     info.count = count(name);
     

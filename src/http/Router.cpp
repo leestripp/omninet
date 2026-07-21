@@ -199,14 +199,6 @@ void Router::use(std::string pathPrefix, Middleware middleware) {
     m_pathMiddleware[std::move(pathPrefix)].push_back(std::move(middleware));
 }
 
-void Router::markHandlerInvoked() {
-    m_handlerInvoked = true;
-}
-
-bool Router::wasHandlerInvoked() const {
-    return m_handlerInvoked;
-}
-
 std::optional<Router::Match> Router::match(Method method, std::string_view path) {
     std::string pathStr(path);
     
@@ -340,9 +332,8 @@ Handler Router::errorHandler() {
 
 void Router::handle(const Request& req, Response& resp) {
     ROUTER_DEBUG("handle() called - Method: " << toString(req.method()) << ", Path: " << req.path());
-    
-    // Reset handler invocation flag
-    m_handlerInvoked = false;
+
+
     
     // Handle trailing slash redirect if enabled
     std::string pathStr(req.path());
@@ -387,7 +378,6 @@ void Router::handle(const Request& req, Response& resp) {
         
         // Call handler
         matchResult->handler(req, resp);
-        m_handlerInvoked = true;
         ROUTER_DEBUG("Handler returned, response status=" << static_cast<int>(resp.status()));
     } else {
         ROUTER_DEBUG("Route NOT MATCHED");
@@ -402,8 +392,13 @@ void Router::handle(const Request& req, Response& resp) {
     
     // Ensure response has a valid status code for unmatched routes
     // If a route was matched but the handler didn't set a proper response (status still OK, no body),
-    // treat it as 404 Not Found to prevent ambiguous empty 200 responses
-    if (resp.status() == StatusCode::OK) {
+    // treat it as 404 Not Found to prevent ambiguous empty 200 responses.
+    // v0.9.0 (prompt.txt A2A streaming): don't clobber a streaming or
+    // protocol-switch response — the handler intentionally left the body
+    // empty because the socket will be handed off after the headers.
+    if (resp.status() == StatusCode::OK &&
+        !resp.isStreaming() &&
+        !resp.isProtocolSwitch()) {
         if (matchResult && resp.bodySize() == 0) {
             // Route matched but no body was set - treat as 404
             resp.setStatus(StatusCode::NOT_FOUND);

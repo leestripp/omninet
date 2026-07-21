@@ -181,12 +181,6 @@ private:
     // Perform TLS handshake
     void doHandshake();
     
-    // Internal receive with SSL
-    size_t sslRecv(std::span<uint8_t> buffer);
-    
-    // Internal send with SSL
-    size_t sslSend(std::span<const uint8_t> data);
-    
     // v0.7.2 (codemax Bug 1): shared TLSContext. Set when the
     // socket is constructed from a TLSContext (via createSocket()
     // or the TLSSocket(shared_ptr<TLSContext>) constructor).

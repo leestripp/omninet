@@ -177,11 +177,7 @@ std::vector<std::string> ConfigReader::validationErrors() const {
     if (m_config.server.port == 0) {
         errors.push_back("Server port cannot be 0");
     }
-    
-    if (m_config.server.port > 65535) {
-        errors.push_back("Server port must be <= 65535");
-    }
-    
+
     return errors;
 }
 

@@ -31,9 +31,11 @@ AsyncLogger::AsyncLogger(Thread::ThreadPool& pool, Config config) : m_config(con
     m_running.store(true);
     m_shutdownRequested.store(false);
 
-    // Use external thread pool - submit a long-running task
+    // Use external thread pool - submit a long-running task and keep
+    // the future so shutdown() can wait for the writer to exit before
+    // the AsyncLogger is destroyed.
     m_pool = &pool;
-    pool.submit([this]() {
+    m_poolTask = pool.submit([this]() {
         writer_loop();
     });
 }
@@ -124,6 +126,11 @@ void AsyncLogger::shutdown() {
     // If using internal jthread, join it
     if (m_writerThread && m_writerThread->joinable()) {
         m_writerThread->join();
+    }
+
+    // If using an external thread pool, wait for the submitted task to finish.
+    if (m_poolTask.valid()) {
+        m_poolTask.wait();
     }
 }
 

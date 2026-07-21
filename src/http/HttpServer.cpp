@@ -86,13 +86,16 @@ void Server::start() {
         workers = std::thread::hardware_concurrency();
         if (workers == 0) workers = 4;
     }
-    
+
     SERVER_DEBUG("Starting " << workers << " worker threads");
-    
-    for (size_t i = 0; i < workers; ++i) {
-        m_workers.emplace_back([this] { workerLoop(); });
+
+    {
+        std::lock_guard<std::mutex> lock(m_workersMutex);
+        for (size_t i = 0; i < workers; ++i) {
+            m_workers.emplace_back([this] { workerLoop(); });
+        }
     }
-    
+
     SERVER_DEBUG("Worker threads started, entering accept loop");
     
     // Note: Admin endpoints should be mounted by the application BEFORE start()
@@ -103,7 +106,11 @@ void Server::start() {
 }
 
 void Server::startAsync() {
-    std::thread([this] { start(); }).detach();
+    std::lock_guard<std::mutex> lock(m_asyncThreadMutex);
+    if (m_asyncThread.joinable()) {
+        m_asyncThread.join();
+    }
+    m_asyncThread = std::thread([this] { start(); });
 }
 
 void Server::stop() {
@@ -134,20 +141,84 @@ void Server::stop() {
         m_serverSocket->shutdown(SHUT_RDWR);
     }
 
+    // Wait for the accept loop to exit so no new connection threads are
+    // spawned while we join the existing ones.
+    {
+        std::unique_lock<std::mutex> lock(m_acceptLoopMutex);
+        m_acceptLoopCv.wait(lock, [this] { return !m_acceptLoopRunning.load(); });
+    }
+
     // Join workers
-    for (auto& worker : m_workers) {
-        if (worker.joinable()) {
-            worker.join();
+    {
+        std::lock_guard<std::mutex> lock(m_workersMutex);
+        for (auto& worker : m_workers) {
+            if (worker.joinable()) {
+                worker.join();
+            }
+        }
+        m_workers.clear();
+    }
+
+    // Join any active connection handler threads. They were previously
+    // detached, which left them racing with the Server destructor.
+    {
+        std::lock_guard<std::mutex> lock(m_connectionThreadsMutex);
+        for (auto& t : m_connectionThreads) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+        m_connectionThreads.clear();
+    }
+
+    // v0.9.0 (prompt.txt A2A streaming): force-close any live per-request
+    // streaming responses so worker threads blocked in write()/waitForRead()
+    // are unblocked before stop() returns.
+    {
+        std::lock_guard<std::mutex> lock(m_activeStreamsMutex);
+        for (auto& weak : m_activeStreams) {
+            if (auto stream = weak.lock()) {
+                try {
+                    stream->close();
+                } catch (...) {
+                    // Ignore shutdown errors.
+                }
+            }
+        }
+        m_activeStreams.clear();
+    }
+
+    // If startAsync() was used, join the background thread so the Server
+    // object is not destroyed while it is still running.
+    {
+        std::lock_guard<std::mutex> lock(m_asyncThreadMutex);
+        if (m_asyncThread.joinable()) {
+            m_asyncThread.join();
         }
     }
-    m_workers.clear();
 }
 
 bool Server::isRunning() const {
     return m_running.load();
 }
 
+// v0.9.0 (prompt.txt A2A streaming): track live per-request streaming
+// responses so stop() can close them. Weak pointers avoid keeping the
+// stream (and its socket) alive beyond the application's shared_ptr.
+void Server::registerStreamingResponse(
+    const std::shared_ptr<HTTP::StreamingResponse>& stream) {
+    std::lock_guard<std::mutex> lock(m_activeStreamsMutex);
+    m_activeStreams.erase(
+        std::remove_if(m_activeStreams.begin(), m_activeStreams.end(),
+                       [](const std::weak_ptr<HTTP::StreamingResponse>& w) {
+                           return w.expired();
+                       }),
+        m_activeStreams.end());
+    m_activeStreams.emplace_back(stream);
+}
+
 void Server::wait() {
+    std::lock_guard<std::mutex> lock(m_workersMutex);
     for (auto& worker : m_workers) {
         if (worker.joinable()) {
             worker.join();
@@ -200,12 +271,12 @@ void Server::use(Router::Middleware middleware) {
 }
 
 void Server::setNotFoundHandler(Handler handler) {
-    m_router.setNotFoundHandler(std::move(handler));
+    m_router.setNotFoundHandler(handler);
     m_notFoundHandler = std::move(handler);
 }
 
 void Server::setErrorHandler(Handler handler) {
-    m_router.setErrorHandler(std::move(handler));
+    m_router.setErrorHandler(handler);
     m_errorHandler = std::move(handler);
 }
 
@@ -341,6 +412,10 @@ std::string Server::address() const {
 
 void Server::runAcceptLoop() {
     SERVER_DEBUG("Accept loop started");
+    {
+        std::lock_guard<std::mutex> lock(m_acceptLoopMutex);
+        m_acceptLoopRunning = true;
+    }
     // v0.7.0: self-pipe trick. The accept loop polls BOTH the
     // listening socket AND m_wakeupPipe[0]. When stop() writes to
     // m_wakeupPipe[1], poll() returns immediately and we exit —
@@ -390,6 +465,11 @@ void Server::runAcceptLoop() {
         ++m_stats.connectionsTotal;
         handleConnection(std::move(client));
     }
+    {
+        std::lock_guard<std::mutex> lock(m_acceptLoopMutex);
+        m_acceptLoopRunning = false;
+    }
+    m_acceptLoopCv.notify_all();
     SERVER_DEBUG("Accept loop ended");
 }
 
@@ -411,9 +491,9 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
         socket = std::move(tlsSocket);
     }
     
-    // Spawn a new thread to handle this connection
-    // This allows the accept loop to immediately continue accepting new connections
-    std::thread([this, socket = std::move(socket)]() mutable {
+    // Spawn a new thread to handle this connection. Track it so stop()
+    // can join it and avoid a use-after-free race with the Server destructor.
+    std::thread connThread([this, socket = std::move(socket)]() mutable {
         try {
             SERVER_DEBUG("Connection thread started, socket fd=" << socket->fd());
 
@@ -489,22 +569,38 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
                 // v0.8.3 (MonkeyByte Bug 1): same wiring for
                 // isStreaming() — the post-upgrade callback will own
                 // the socket and write SSE chunks.
+                // v0.9.0 (prompt.txt A2A streaming): per-request
+                // StreamingResponse takes precedence over the protocol-
+                // switch map.
                 if (resp.isProtocolSwitch() || resp.isStreaming()) {
-                    std::lock_guard<std::mutex> lock(m_protocolSwitchesMutex);
-                    auto it = m_protocolSwitches.find(std::string(req.path()));
-                    if (it != m_protocolSwitches.end() &&
-                        it->second.on_post_upgrade) {
-                        SERVER_DEBUG((resp.isStreaming() ? "Streaming: " : "Protocol switch: ")
-                                     << "registering post-upgrade for " << req.path());
-                        conn.setPostUpgradeCallback(it->second.on_post_upgrade);
-                        // NOT erased — multi-client support (Bug #5 fix).
+                    if (auto stream = resp.streamingResponse(); stream) {
+                        SERVER_DEBUG("Streaming response: registering per-request writer for "
+                                     << req.path());
+                        registerStreamingResponse(stream);
+                        conn.setPostUpgradeCallback(
+                            [stream](std::unique_ptr<Socket> socket,
+                                     const Request& /*req*/) {
+                                stream->attach(std::move(socket));
+                            });
                     } else {
-                        SERVER_DEBUG("Protocol switch/streaming requested but no post-upgrade handler for " << req.path());
+                        std::lock_guard<std::mutex> lock(m_protocolSwitchesMutex);
+                        auto it = m_protocolSwitches.find(std::string(req.path()));
+                        if (it != m_protocolSwitches.end() &&
+                            it->second.on_post_upgrade) {
+                            SERVER_DEBUG((resp.isStreaming() ? "Streaming: " : "Protocol switch: ")
+                                         << "registering post-upgrade for " << req.path());
+                            conn.setPostUpgradeCallback(it->second.on_post_upgrade);
+                            // NOT erased — multi-client support (Bug #5 fix).
+                        } else {
+                            SERVER_DEBUG("Protocol switch/streaming requested but no post-upgrade handler for " << req.path());
+                        }
                     }
                 }
             });
 
-            conn.setErrorHandler([this](const Request& req, Response& resp, [[maybe_unused]] std::exception_ptr e) {
+            conn.setErrorHandler([this](const Request& req, Response& resp,
+                                        [[maybe_unused]] const std::exception_ptr& e) {
+                (void)e;
                 SERVER_DEBUG("Error handler called");
                 if (m_errorHandler) {
                     m_errorHandler(req, resp);
@@ -528,7 +624,12 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
         } catch (...) {
             SERVER_DEBUG("Connection thread unknown exception");
         }
-    }).detach();
+    });
+
+    {
+        std::lock_guard<std::mutex> lock(m_connectionThreadsMutex);
+        m_connectionThreads.push_back(std::move(connThread));
+    }
 }
 
 void Server::workerLoop() {

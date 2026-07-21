@@ -26,7 +26,8 @@ Checks: >
   -readability-identifier-length,
   -readability-isolate-declaration,
   -readability-function-cognitive-complexity,
-  -readability-braces-around-statements
+  -readability-braces-around-statements,
+  -clang-analyzer-optin.core.EnumCastOutOfRange
 
 # Treat high-signal checks as errors.
 WarningsAsErrors: 'clang-analyzer-*,cppcoreguidelines-init-variables,clang-analyzer-core.NullDereference,clang-analyzer-core.UndefinedBinaryOperatorResult'

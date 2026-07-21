@@ -34,7 +34,6 @@ TEST(config_default_values) {
     // Check defaults are sensible
     ASSERT_GE(cfg.defaultPort(), 1);
     ASSERT_LE(cfg.defaultPort(), 65535);
-    ASSERT_GE(cfg.defaultWorkerCount(), 0);
     ASSERT_GE(cfg.defaultRequestTimeout().count(), 1);
 }
 

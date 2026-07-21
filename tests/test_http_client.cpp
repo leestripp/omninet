@@ -56,7 +56,7 @@ struct LocalServer {
         if (!client) return;
         try {
             std::string raw;
-            uint8_t buf[4096];
+            uint8_t buf[4096]{};
             std::span<uint8_t> buf_span(buf, sizeof(buf));
             while (true) {
                 size_t n = client->recv(buf_span);

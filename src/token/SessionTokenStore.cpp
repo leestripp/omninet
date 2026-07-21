@@ -295,7 +295,6 @@ std::vector<SessionToken> SessionTokenStore::listForUser(
 ) {
     std::vector<SessionToken> tokens;
     
-    std::string sql;
     if (activeOnly) {
         auto now = Utils::formatIso8601(std::chrono::system_clock::now());
         auto stmt = m_db.prepare(

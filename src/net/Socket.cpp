@@ -33,7 +33,9 @@ Socket::Socket(SOCKET fd) : m_fd(fd), m_ownsFd(true) {}
 
 Socket::~Socket() {
     if (m_fd != INVALID_SOCKET && m_ownsFd) {
-        close();
+        // Explicit base-class call: virtual dispatch is disabled in
+        // destructors anyway, and this is the Socket implementation we want.
+        Socket::close();
     }
 }
 
@@ -314,7 +316,7 @@ std::optional<std::string> Socket::readLine(size_t maxLength) {
     line.reserve(256);
     
     while (line.size() < maxLength) {
-        char c;
+        char c = 0;
         ssize_t result = ::recv(m_fd, &c, 1, 0);
         
         if (result <= 0) {

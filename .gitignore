@@ -1,5 +1,7 @@
 # Build outputs
 build/
+build-asan/
+build-tsan/
 out/
 dist/
 

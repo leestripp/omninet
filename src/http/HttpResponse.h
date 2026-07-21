@@ -3,12 +3,15 @@
 #define OMNINET_HTTP_RESPONSE_H
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+
+#include "http/StreamingResponse.h"
 
 namespace OmniNet::HTTP {
 
@@ -189,6 +192,15 @@ public:
     void markStreaming();
     bool isStreaming() const;
 
+    // v0.9.0 (prompt.txt A2A streaming): start a chunked streaming
+    // response and return a writer that outlives the handler. The
+    // caller can write chunks from any thread; the HTTP server will
+    // keep the socket open until close() is called or the client
+    // disconnects.
+    std::shared_ptr<StreamingResponse> startStreaming(
+        std::string_view contentType = "text/event-stream");
+    std::shared_ptr<StreamingResponse> streamingResponse() const;
+
     // --- Static Helpers ---
     
     // Common response factories
@@ -228,6 +240,9 @@ private:
 
     // v0.8.3: see markStreaming() above.
     bool m_streaming = false;
+
+    // v0.9.0: request-scoped streaming writer created by startStreaming().
+    std::shared_ptr<StreamingResponse> m_streamingResponse;
 
     // Build status line
     std::string buildStatusLine() const;

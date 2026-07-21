@@ -4,22 +4,20 @@ cmake_minimum_required(VERSION 3.16)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # ============================================================================
-# Compiler Selection (v0.9.0)
+# Compiler Selection
 # ============================================================================
-# Prefer clang/clang++ when no compiler was forced by the user. The user
-# can still force gcc with `CC=gcc CXX=g++ cmake -S . -B build`. This
-# matches the project-wide migration from gcc -> clang (see CodeMax.md
-# v0.9.0 task).
+# Prefer gcc/g++ when no compiler was forced by the user. The user can still
+# override with CC/CXX or -DCMAKE_C_COMPILER/-DCMAKE_CXX_COMPILER.
 if(NOT DEFINED CMAKE_C_COMPILER AND NOT DEFINED CMAKE_CXX_COMPILER)
-    find_program(_OMNINET_CLANG clang)
-    find_program(_OMNINET_CLANGXX clang++)
-    if(_OMNINET_CLANG AND _OMNINET_CLANGXX)
-        message(STATUS "OmniNet: defaulting to clang/clang++ (set CC/CXX to override)")
-        set(CMAKE_C_COMPILER   "${_OMNINET_CLANG}"   CACHE STRING "C compiler")
-        set(CMAKE_CXX_COMPILER "${_OMNINET_CLANGXX}" CACHE STRING "C++ compiler")
+    find_program(_OMNINET_GCC gcc)
+    find_program(_OMNINET_GXX g++)
+    if(_OMNINET_GCC AND _OMNINET_GXX)
+        message(STATUS "OmniNet: defaulting to gcc/g++ (set CC/CXX to override)")
+        set(CMAKE_C_COMPILER   "${_OMNINET_GCC}" CACHE STRING "C compiler")
+        set(CMAKE_CXX_COMPILER "${_OMNINET_GXX}" CACHE STRING "C++ compiler")
     endif()
-    unset(_OMNINET_CLANG)
-    unset(_OMNINET_CLANGXX)
+    unset(_OMNINET_GCC)
+    unset(_OMNINET_GXX)
 endif()
 
 # ============================================================================
@@ -87,9 +85,9 @@ message(STATUS "OmniNet Version: ${PROJECT_VERSION} (from git tag: ${GIT_TAG})")
 project(OmniNet VERSION ${PROJECT_VERSION} LANGUAGES C CXX)
 
 # C++23 required (Phase 1 of async refactor)
-# Compiler requirements: Clang 17+ (default, v0.9.0), GCC 13+ still supported.
-# MSVC 19.36+ also supported. Default is set above to clang/clang++ when
-# available; users can override with CC=gcc CXX=g++ cmake -S . -B build.
+# Compiler requirements: GCC 13+ (default), Clang 17+, or MSVC 19.36+.
+# Default is set above to gcc/g++ when available; users can override with
+# CC=clang CXX=clang++ cmake -S . -B build.
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -151,6 +149,7 @@ target_sources(OmniNet PRIVATE
     # HTTP
     src/http/HttpRequest.cpp
     src/http/HttpResponse.cpp
+    src/http/StreamingResponse.cpp
     src/http/HttpConnection.cpp
     src/http/HttpClient.cpp
     src/http/Router.cpp
@@ -324,6 +323,12 @@ if(OMNINET_ENABLE_VEC)
             -Wno-c23-extensions
             -Wno-unterminated-string-initialization
         )
+    elseif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(vec0_extension PRIVATE
+            -Wno-unterminated-string-initialization
+            -Wno-sign-compare
+            -Wno-type-limits
+        )
     endif()
     set_target_properties(vec0_extension PROPERTIES
         OUTPUT_NAME "vec0"  # Results in libvec0.so on Linux
@@ -380,5 +385,40 @@ add_subdirectory(benchmarks)
 
 # Build CLI tools
 add_subdirectory(tools)
+
+# ============================================================================
+# cppcheck static analysis target
+# ============================================================================
+# Runs cppcheck only on project source (src/) and tests (tests/). Third-party
+# dependencies under build/_deps/ are never scanned.
+# The target reports all findings but only fails the build if cppcheck reports
+# an error-level finding (warnings do not fail the build).
+find_program(CPPCHECK_EXECUTABLE cppcheck)
+if(CPPCHECK_EXECUTABLE)
+    set(CPPCHECK_LOG "${CMAKE_BINARY_DIR}/cppcheck.log")
+    add_custom_target(cppcheck
+        COMMAND ${CPPCHECK_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+            -I "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            --enable=all
+            --std=c++23
+            --suppress=ctuOneDefinitionRuleViolation:*tests/*
+            --suppress=missingIncludeSystem
+            --suppress=unusedFunction
+            --suppress=normalCheckLevelMaxBranches
+            --suppress=checkersReport
+            --template=gcc
+            > "${CPPCHECK_LOG}" 2>&1 || true
+        COMMAND ${CMAKE_COMMAND} -E cat "${CPPCHECK_LOG}"
+        COMMAND grep -q ": error:" "${CPPCHECK_LOG}" && exit 1 || exit 0
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        COMMENT "Running cppcheck on src/ and tests/"
+        VERBATIM
+    )
+    message(STATUS "cppcheck found: ${CPPCHECK_EXECUTABLE}")
+else()
+    message(STATUS "cppcheck not found - 'cppcheck' target unavailable")
+endif()
 
 

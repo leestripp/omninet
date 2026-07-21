@@ -146,7 +146,7 @@ uint64_t EpollIoContext::watch(Socket& socket, EventType events, EventCallback c
     if (static_cast<bool>(events & EventType::Error))   epollEvents |= EPOLLERR;
     if (static_cast<bool>(events & EventType::Hangup))  epollEvents |= EPOLLHUP;
 
-    uint64_t watchId;
+    uint64_t watchId = 0;
     {
         std::lock_guard<std::mutex> lock(m_watchesMutex);
         watchId = m_nextWatchId++;

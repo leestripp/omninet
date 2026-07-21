@@ -10,6 +10,7 @@
 #include <deque>
 #include <functional>
 #include <fstream>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -138,6 +139,9 @@ private:
 
     // External thread pool (optional)
     Thread::ThreadPool* m_pool = nullptr;
+
+    // Future for the writer task submitted to the external pool.
+    std::future<void> m_poolTask;
 
     // Writer thread (when no external pool)
     std::unique_ptr<std::jthread> m_writerThread;

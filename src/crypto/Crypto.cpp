@@ -310,7 +310,7 @@ std::optional<std::vector<uint8_t>> Crypto::hexDecode(std::string_view hex) {
     result.reserve(hex.size() / 2);
     
     for (size_t i = 0; i < hex.size(); i += 2) {
-        unsigned int byte;
+        unsigned int byte = 0;
         if (std::sscanf(hex.data() + i, "%02x", &byte) != 1) {
             return std::nullopt;
         }

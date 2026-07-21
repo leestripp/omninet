@@ -262,7 +262,7 @@ std::string buildRequest(const ClientRequest& req, const std::string& path) {
 std::string readAll(OmniNet::Socket& socket, const ClientConfig& cfg,
                     const std::stop_token& stop) {
     std::string out;
-    uint8_t buf[64 * 1024];
+    uint8_t buf[64 * 1024]{};
     std::span<uint8_t> span(buf, sizeof(buf));
     auto deadline = std::chrono::steady_clock::now() + cfg.request_timeout;
     bool use_timeout = cfg.request_timeout.count() > 0;

@@ -270,7 +270,7 @@ static std::vector<uint8_t> gzipCompress(const uint8_t* data, size_t size) {
     strm.avail_in = static_cast<uInt>(size);
 
     uint8_t outBuffer[8192];
-    int ret;
+    int ret = 0;
     do {
         strm.next_out  = outBuffer;
         strm.avail_out = sizeof(outBuffer);
@@ -429,6 +429,27 @@ bool Response::isProtocolSwitch() const { return m_protocolSwitch; }
 // v0.8.3 (MonkeyByte Bug 1, SSE streaming).
 void Response::markStreaming() { m_streaming = true; }
 bool Response::isStreaming() const { return m_streaming; }
+
+// v0.9.0 (prompt.txt A2A streaming): start a chunked streaming response.
+std::shared_ptr<StreamingResponse> Response::startStreaming(
+    std::string_view contentType) {
+    setStatus(StatusCode::OK);
+    if (!contentType.empty()) {
+        setContentType(contentType);
+    }
+    setHeader("Cache-Control", "no-cache");
+    setHeader("Connection", "keep-alive");
+    setHeader("X-Accel-Buffering", "no");
+    setTransferEncoding("chunked");
+    markStreaming();
+
+    m_streamingResponse = std::make_shared<StreamingResponse>();
+    return m_streamingResponse;
+}
+
+std::shared_ptr<StreamingResponse> Response::streamingResponse() const {
+    return m_streamingResponse;
+}
 
 // ============================================================================
 // Static Factory Methods

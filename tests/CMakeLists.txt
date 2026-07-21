@@ -98,6 +98,11 @@ add_executable(test_sse_streaming
     test_sse_streaming.cpp
 )
 
+# StreamingResponse tests (v0.9.0 prompt.txt A2A streaming)
+add_executable(test_streaming_response
+    test_streaming_response.cpp
+)
+
 # HTTP Client tests (v0.8.0 Phase 1)
 add_executable(test_http_client
     test_http_client.cpp
@@ -192,6 +197,11 @@ target_link_libraries(test_sse_streaming PRIVATE
     pthread
 )
 
+target_link_libraries(test_streaming_response PRIVATE
+    OmniNet
+    pthread
+)
+
 target_link_libraries(test_websocket_echo PRIVATE
     OmniNet
     pthread
@@ -224,6 +234,9 @@ target_compile_features(test_async_file PRIVATE cxx_std_23)
 target_compile_features(test_http_connection PRIVATE cxx_std_23)
 target_compile_features(test_sync_http_server PRIVATE cxx_std_23)
 target_compile_features(test_http_response PRIVATE cxx_std_23)
+
+target_compile_features(test_sse_streaming PRIVATE cxx_std_23)
+target_compile_features(test_streaming_response PRIVATE cxx_std_23)
 
 target_compile_features(test_websocket_broadcast PRIVATE cxx_std_23)
 target_compile_features(test_websocket_echo PRIVATE cxx_std_23)
@@ -273,6 +286,9 @@ target_include_directories(test_http_client PRIVATE
 target_include_directories(test_xdg_paths PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
+target_include_directories(test_streaming_response PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
 
 # Note: zlib is handled by the main OmniNet library
 # If compression is enabled, the library will link it
@@ -297,5 +313,6 @@ add_test(NAME test_http_response COMMAND test_http_response)
 add_test(NAME test_websocket_broadcast COMMAND test_websocket_broadcast)
 add_test(NAME test_websocket_echo COMMAND test_websocket_echo)
 add_test(NAME test_sse_streaming COMMAND test_sse_streaming)
+add_test(NAME test_streaming_response COMMAND test_streaming_response)
 add_test(NAME test_http_client COMMAND test_http_client)
 add_test(NAME test_xdg_paths COMMAND test_xdg_paths)

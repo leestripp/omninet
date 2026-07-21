@@ -543,17 +543,17 @@ TEST(on_ready_fires) {
     });
 
     std::atomic<int> callCount{0};
-    uint16_t receivedPort = 0;
+    std::atomic<uint16_t> receivedPort{0};
     server.setOnReady([&](uint16_t port) {
         ++callCount;
-        receivedPort = port;
+        receivedPort.store(port);
     });
 
     JoinableThread t([&]() { server.start(); });
     std::this_thread::sleep_for(200ms);
 
     ASSERT_EQ(callCount.load(), 1);
-    ASSERT_EQ(receivedPort, 18200);
+    ASSERT_EQ(receivedPort.load(), 18200);
 
     server.stop();
 }
@@ -568,14 +568,14 @@ TEST(on_ready_receives_bound_port) {
         resp.setStatus(StatusCode::OK);
     });
 
-    uint16_t cbPort = 0;
-    server.setOnReady([&](uint16_t port) { cbPort = port; });
+    std::atomic<uint16_t> cbPort{0};
+    server.setOnReady([&](uint16_t port) { cbPort.store(port); });
 
     JoinableThread t([&]() { server.start(); });
     std::this_thread::sleep_for(200ms);
 
-    ASSERT_TRUE(cbPort != 0);
-    ASSERT_EQ(cbPort, server.boundPort());
+    ASSERT_TRUE(cbPort.load() != 0);
+    ASSERT_EQ(cbPort.load(), server.boundPort());
 
     server.stop();
 }

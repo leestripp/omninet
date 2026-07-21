@@ -99,13 +99,6 @@ public:
     
     std::optional<Match> match(Method method, std::string_view path);
     
-    // Check if a handler was invoked for a route match
-    // Called by route handlers to mark that they handled the request
-    void markHandlerInvoked();
-    
-    // Returns true if any route handler was called
-    bool wasHandlerInvoked() const;
-    
     // --- Static Files ---
     
     // Serve static files from a directory
@@ -153,8 +146,7 @@ private:
     
     bool m_caseInsensitive = false;
     bool m_redirectTrailingSlash = true;
-    bool m_handlerInvoked = false;
-    
+
     static std::string patternToRegex(
         std::string pattern,
         std::vector<std::string>& paramNames

@@ -60,7 +60,9 @@ Connection::Connection(const std::string& url, [[maybe_unused]] std::string_view
 }
 
 Connection::~Connection() {
-    close(CloseCode::GOING_AWAY);
+    // Explicit base-class call: virtual dispatch is disabled in
+    // destructors anyway, and this is the Connection implementation we want.
+    Connection::close(CloseCode::GOING_AWAY);
     if (m_pingThread.joinable()) {
         m_pingRunning = false;
         m_pingCv.notify_all();

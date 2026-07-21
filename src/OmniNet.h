@@ -62,6 +62,7 @@
 
 #include "http/HttpRequest.h"
 #include "http/HttpResponse.h"
+#include "http/StreamingResponse.h"
 #include "http/HttpClient.h"
 #include "http/HttpConnection.h"
 #include "http/Router.h"

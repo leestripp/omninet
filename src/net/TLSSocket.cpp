@@ -411,8 +411,8 @@ std::optional<std::string> TLSSocket::getPeerCertificateFingerprint() {
 std::optional<std::string> TLSSocket::getALPNProtocol() {
     if (!m_ssl) return std::nullopt;
     
-    const unsigned char* proto;
-    unsigned int protoLen;
+    const unsigned char* proto = nullptr;
+    unsigned int protoLen = 0;
     SSL_get0_alpn_selected(m_ssl, &proto, &protoLen);
     
     if (!proto) return std::nullopt;
@@ -496,7 +496,7 @@ void TLSSocket::doHandshake() {
         }
     }
 
-    int ret;
+    int ret = 0;
     if (m_serverMode) {
         ret = SSL_accept(m_ssl);
     } else {
@@ -510,7 +510,7 @@ void TLSSocket::doHandshake() {
         }
         // Log all pending OpenSSL errors
         std::cerr << "[TLSSocket] OpenSSL error queue:" << std::endl;
-        unsigned long e;
+        unsigned long e = 0;
         while ((e = ERR_get_error()) != 0) {
             char buf[256];
             ERR_error_string_n(e, buf, sizeof(buf));
@@ -562,7 +562,7 @@ TLSSocket::HandshakeState TLSSocket::stepHandshake() {
 
     // Real error - log OpenSSL error queue
     std::cerr << "[TLSSocket] OpenSSL error queue:" << std::endl;
-    unsigned long e;
+    unsigned long e = 0;
     while ((e = ERR_get_error()) != 0) {
         char buf[256];
         ERR_error_string_n(e, buf, sizeof(buf));
@@ -570,14 +570,6 @@ TLSSocket::HandshakeState TLSSocket::stepHandshake() {
                   << ", reason=" << ERR_reason_error_string(e) << ")" << std::endl;
     }
     return HandshakeState::Error;
-}
-
-size_t TLSSocket::sslRecv(std::span<uint8_t> buffer) {
-    return recv(buffer);
-}
-
-size_t TLSSocket::sslSend(std::span<const uint8_t> data) {
-    return send(data);
 }
 
 // ============================================================================
