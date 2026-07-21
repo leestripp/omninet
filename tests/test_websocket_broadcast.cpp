@@ -25,7 +25,7 @@ class MockConnection : public Connection {
 public:
     MockConnection()
         : Connection(std::unique_ptr<Socket>(nullptr), std::string_view("/mock")),
-          m_sendCount(0), m_failOnSend(false), m_open(true) {}
+          m_sendCount(0), m_failOnSend(false), m_mockOpen(true) {}
 
     void sendText(const std::string& message) override {
         if (m_failOnSend) {
@@ -35,9 +35,9 @@ public:
         m_receivedMessages.push_back(message);
     }
 
-    bool isOpen() const override { return m_open; }
+    bool isOpen() const override { return m_mockOpen; }
 
-    void setOpen(bool open) { m_open = open; }
+    void setOpen(bool open) { m_mockOpen = open; }
     void setFailOnSend(bool fail) { m_failOnSend = fail; }
     int sendCount() const { return m_sendCount.load(); }
     const std::vector<std::string>& receivedMessages() const { return m_receivedMessages; }
@@ -45,7 +45,7 @@ public:
 private:
     std::atomic<int> m_sendCount;
     bool m_failOnSend;
-    bool m_open;
+    bool m_mockOpen;
     std::vector<std::string> m_receivedMessages;
 };
 

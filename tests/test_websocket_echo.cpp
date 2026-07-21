@@ -323,7 +323,7 @@ TEST(echo_round_trip) {
 
     ws.on("/echo", [&](Connection& conn) {
         handlerCalls++;
-        conn.onText([&](std::string msg) {
+        conn.onText([&](const std::string& msg) {
             echoCount++;
             conn.sendText("echo: " + msg);
         });

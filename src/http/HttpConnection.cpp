@@ -354,18 +354,18 @@ bool Connection::readRequest() {
 
                 // Try to parse chunk size
                 std::string sizeStr(buffer.begin(), buffer.begin() + crlfPos);
-                size_t chunkSize = 0;
+                size_t parsedChunkSize = 0;
                 try {
-                    chunkSize = std::stoull(sizeStr, nullptr, 16);
+                    parsedChunkSize = std::stoull(sizeStr, nullptr, 16);
                 } catch (...) {
                     // Invalid chunk size
                     CONN_DEBUG("  Invalid chunk size, returning false");
                     return false;
                 }
 
-                CONN_DEBUG("  Chunk size: " << chunkSize);
+                CONN_DEBUG("  Chunk size: " << parsedChunkSize);
 
-                if (chunkSize == 0) {
+                if (parsedChunkSize == 0) {
                     // Final chunk - set accumulated body and finish.
                     m_currentRequest.setBody(std::move(chunkedBody));
                     ++m_stats.requestsReceived;
@@ -373,7 +373,7 @@ bool Connection::readRequest() {
                 }
 
                 // Need at least: size line + CRLF + chunk data + CRLF
-                size_t neededSize = crlfPos + 2 + chunkSize + 2;
+                size_t neededSize = crlfPos + 2 + parsedChunkSize + 2;
                 if (buffer.size() < neededSize) {
                     // Not enough data for this chunk's payload yet
                     break;
@@ -384,11 +384,11 @@ bool Connection::readRequest() {
                 chunkedBody.insert(
                     chunkedBody.end(),
                     buffer.begin() + crlfPos + 2,
-                    buffer.begin() + crlfPos + 2 + chunkSize
+                    buffer.begin() + crlfPos + 2 + parsedChunkSize
                 );
                 buffer.erase(buffer.begin(), buffer.begin() + neededSize);
 
-                CONN_DEBUG("  Processed chunk of " << chunkSize
+                CONN_DEBUG("  Processed chunk of " << parsedChunkSize
                           << " bytes (total=" << chunkedBody.size() << ")");
             }
         }

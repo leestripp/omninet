@@ -22,7 +22,7 @@ using namespace std::chrono_literals;
 
 ThreadPool::ThreadPool() : ThreadPool(Config{}) {}
 
-ThreadPool::ThreadPool(Config config) : m_config(config) {
+ThreadPool::ThreadPool(const Config& config) : m_config(config) {
     // Determine worker count
     if (m_config.workerCount == 0) {
         m_config.workerCount = std::thread::hardware_concurrency();

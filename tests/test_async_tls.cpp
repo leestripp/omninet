@@ -154,7 +154,7 @@ TEST(native_access) {
     auto sock = std::make_unique<TLSSocket>(sv[0], false);
     AsyncTlsSocket asyncTls(*env.ctx, std::move(sock));
 
-    TLSSocket& native = asyncTls.native();
+    const TLSSocket& native = asyncTls.native();
     ASSERT_TRUE(native.isOpen());
 
     ::close(sv[1]);
@@ -287,7 +287,7 @@ TEST(init_handshake_idempotent) {
     auto sock = std::make_unique<TLSSocket>(sv[0], true);
     sock->setNonBlocking(true);
     sock->initHandshake();
-    SSL* first = sock->getSSL();
+    const SSL* first = sock->getSSL();
     ASSERT_TRUE(first != nullptr);
 
     // Second call should be a no-op (same SSL*)

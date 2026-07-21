@@ -45,7 +45,7 @@ public:
     CreateResult create(
         std::string_view userId,
         std::string_view name,
-        std::vector<std::string> scopes,
+        const std::vector<std::string>& scopes,
         std::chrono::seconds ttl = std::chrono::seconds::zero()  // 0 = never expires
     );
     
@@ -53,7 +53,7 @@ public:
     CreateResult create(
         std::string_view userId,
         std::string_view name,
-        std::vector<std::string> scopes,
+        const std::vector<std::string>& scopes,
         std::chrono::seconds ttl,
         std::string_view ip,
         std::string_view userAgent,
@@ -128,7 +128,7 @@ public:
     // Set default prefix for new API keys
     void setDefaultPrefix(std::string_view prefix);
     
-    std::string defaultPrefix() const { return m_defaultPrefix; }
+    const std::string& defaultPrefix() const { return m_defaultPrefix; }
 
 private:
     // Parse API key from database statement

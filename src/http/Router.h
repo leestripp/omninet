@@ -51,7 +51,7 @@ public:
     // --- Route Registration ---
     
     // Register route for specific method
-    void addRoute(Method method, std::string pattern, Handler handler);
+    void addRoute(Method method, const std::string& pattern, Handler handler);
     
     // Convenience methods
     void get(std::string pattern, Handler handler);
@@ -63,7 +63,7 @@ public:
     void options(std::string pattern, Handler handler);
     
     // Any method
-    void any(std::string pattern, Handler handler);
+    void any(const std::string& pattern, Handler handler);
 
     // v0.7.0 (Phase 11e): JSON handler overloads. Body is auto-parsed;
     // 400 Bad Request is returned on parse failure before the user's
@@ -78,7 +78,7 @@ public:
     void any(std::string pattern, JsonHandler handler);
     
     // Group routes with shared prefix
-    void group(std::string prefix, std::function<void(Router&)> configure);
+    void group(const std::string& prefix, std::function<void(Router&)> configure);
     
     // --- Middleware ---
     
@@ -102,10 +102,10 @@ public:
     // --- Static Files ---
     
     // Serve static files from a directory
-    void serveStatic(std::string urlPrefix, std::string directory);
+    void serveStatic(std::string urlPrefix, const std::string& directory);
     
     // Set default file for directory requests
-    void setDefaultFile(std::string filename);
+    void setDefaultFile(const std::string& filename);
     
     // Allow directory listing
     void allowDirectoryListing(bool allow);
@@ -126,7 +126,7 @@ public:
     // --- Debugging ---
     
     // List all registered routes
-    std::vector<Route> routes() const;
+    const std::vector<Route>& routes() const;
     
     // --- Configuration ---
     
@@ -148,7 +148,7 @@ private:
     bool m_redirectTrailingSlash = true;
 
     static std::string patternToRegex(
-        std::string pattern,
+        const std::string& pattern,
         std::vector<std::string>& paramNames
     );
 };

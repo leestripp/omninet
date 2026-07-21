@@ -198,7 +198,7 @@ size_t Request::parse(std::span<const uint8_t> data) {
                     auto queryPos = m_path.find('?');
                     if (queryPos != std::string::npos) {
                         m_queryString = m_path.substr(queryPos + 1);
-                        m_path = m_path.substr(0, queryPos);
+                        m_path.resize(queryPos);
                         m_queryParsed = false;
                     }
                     m_state = State::VERSION;
@@ -366,7 +366,7 @@ std::string_view Request::pathParam(std::string_view name) const {
     return "";
 }
 
-void Request::setPathParams(std::vector<std::string> params) {
+void Request::setPathParams(const std::vector<std::string>& params) {
     m_pathParams.clear();
     for (size_t i = 0; i < params.size(); ++i) {
         m_pathParams[std::to_string(i)] = params[i];

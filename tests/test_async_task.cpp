@@ -77,7 +77,8 @@ static Task<int> chain_task() {
 // Coroutine that throws
 static Task<int> throwing_task() {
     throw std::runtime_error("oops");
-    co_return 0;  // Unreachable
+    // cppcheck-suppress unreachableCode
+    co_return 0;  // Unreachable, but required to make this a coroutine
 }
 
 // Coroutine that yields and resumes

@@ -139,7 +139,7 @@ AsyncServer::findAsyncRoute(HTTP::Method method, std::string_view path) {
 }
 
 std::string AsyncServer::patternToRegex(
-    std::string pattern,
+    const std::string& pattern,
     std::vector<std::string>& paramNames
 ) {
     // Mirror the Router's patternToRegex logic

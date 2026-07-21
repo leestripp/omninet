@@ -205,12 +205,12 @@ Async::Task<> AsyncFile::close() {
         co_return;
     }
 
-    int fd = m_fd;
+    int fileFd = m_fd;
     m_fd = -1;
     m_path.clear();
 
-    auto fut = m_exec.submit([fd]() {
-        return ::close(fd) == 0;
+    auto fut = m_exec.submit([fileFd]() {
+        return ::close(fileFd) == 0;
     });
     fut.wait();
     co_return;
@@ -231,7 +231,7 @@ size_t AsyncFile::size() const {
     return static_cast<size_t>(st.st_size);
 }
 
-std::string AsyncFile::lastError() const {
+const std::string& AsyncFile::lastError() const {
     return m_lastError;
 }
 

@@ -11,8 +11,8 @@ namespace OmniNet::Admin {
 // Shared version string - should match tools_common version
 constexpr const char* SHARED_VERSION = "0.1.0";
 
-Handler::Handler() {
-    m_startTime = std::chrono::steady_clock::now();
+Handler::Handler()
+    : m_startTime(std::chrono::steady_clock::now()) {
 }
 
 void Handler::mount(HTTP::Server& server) {

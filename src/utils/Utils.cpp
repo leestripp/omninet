@@ -488,7 +488,8 @@ std::optional<std::chrono::system_clock::time_point> parseIso8601(std::string_vi
                 std::string msStr = s.substr(msStart, msEnd - msStart);
                 milliseconds = std::stoi(msStr);
                 // Temporarily replace with format we can parse
-                s = s.substr(0, dotPos) + "Z";
+                s.erase(dotPos);
+                s += 'Z';
             }
         }
         

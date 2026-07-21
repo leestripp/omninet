@@ -379,12 +379,12 @@ size_t SessionTokenStore::countActive() const {
     );
     stmt.bind(1, now);
     
-    size_t count = 0;
+    size_t total = 0;
     if (stmt.step()) {
-        count = static_cast<size_t>(stmt.columnInt64(0));
+        total = static_cast<size_t>(stmt.columnInt64(0));
     }
     
-    return count;
+    return total;
 }
 
 size_t SessionTokenStore::countForUser(std::string_view userId) const {
@@ -393,12 +393,12 @@ size_t SessionTokenStore::countForUser(std::string_view userId) const {
     );
     stmt.bind(1, std::string(userId));
     
-    size_t count = 0;
+    size_t total = 0;
     if (stmt.step()) {
-        count = static_cast<size_t>(stmt.columnInt64(0));
+        total = static_cast<size_t>(stmt.columnInt64(0));
     }
     
-    return count;
+    return total;
 }
 
 std::string SessionTokenStore::generateUniqueId() {

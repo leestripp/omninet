@@ -415,8 +415,8 @@ std::vector<uint8_t> Response::buildFull() const {
     } else {
         // v0.6.0 fix: when compressed, use m_compressedBody (not m_body)
         // so the wire bytes match the Content-Encoding: gzip header.
-        const auto& body = m_compressed ? m_compressedBody : m_body;
-        response.insert(response.end(), body.begin(), body.end());
+        const auto& responseBody = m_compressed ? m_compressedBody : m_body;
+        response.insert(response.end(), responseBody.begin(), responseBody.end());
     }
 
     return response;

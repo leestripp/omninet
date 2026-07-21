@@ -437,7 +437,7 @@ bool Socket::isNonBlocking() const {
 void Socket::setRecvTimeout(std::chrono::milliseconds timeout) {
 #ifdef _WIN32
     DWORD ms = static_cast<DWORD>(timeout.count());
-    setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&ms, sizeof(ms));
+    setsockopt(m_fd, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&ms), sizeof(ms));
 #else
     struct timeval tv;
     tv.tv_sec = timeout.count() / 1000;
@@ -449,7 +449,7 @@ void Socket::setRecvTimeout(std::chrono::milliseconds timeout) {
 void Socket::setSendTimeout(std::chrono::milliseconds timeout) {
 #ifdef _WIN32
     DWORD ms = static_cast<DWORD>(timeout.count());
-    setsockopt(m_fd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&ms, sizeof(ms));
+    setsockopt(m_fd, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&ms), sizeof(ms));
 #else
     struct timeval tv;
     tv.tv_sec = timeout.count() / 1000;

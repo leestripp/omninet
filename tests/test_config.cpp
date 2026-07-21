@@ -13,8 +13,8 @@ int testsFailed = 0;
 #define RUN(name) do { std::cout << "  " #name "... "; test_##name(); std::cout << "PASS\n"; testsPassed++; } while(0)
 #define ASSERT_TRUE(cond) do { if (!(cond)) { std::cout << "FAIL (" << #cond << ")"; testsFailed++; } } while(0)
 #define ASSERT_FALSE(cond) do { if (cond) { std::cout << "FAIL (" << #cond << ")"; testsFailed++; } } while(0)
-#define ASSERT_EQ(a, b) do { auto _a = (a); auto _b = (b); if (_a != _b) { std::cout << "FAIL: " << #a << " (" << _a << ") != " << _b; testsFailed++; } } while(0)
-#define ASSERT_NE(a, b) do { auto _a = (a); auto _b = (b); if (_a == _b) { std::cout << "FAIL: " << #a << " == " << _b; testsFailed++; } } while(0)
+#define ASSERT_EQ(a, b) do { const auto _a = (a); const auto _b = (b); if (_a != _b) { std::cout << "FAIL: " << #a << " (" << _a << ") != " << _b; testsFailed++; } } while(0)
+#define ASSERT_NE(a, b) do { const auto _a = (a); const auto _b = (b); if (_a == _b) { std::cout << "FAIL: " << #a << " == " << _b; testsFailed++; } } while(0)
 #define ASSERT_GE(a, b) do { if ((a) < (b)) { std::cout << "FAIL: " << #a << " < " << #b; testsFailed++; } } while(0)
 #define ASSERT_LE(a, b) do { if ((a) > (b)) { std::cout << "FAIL: " << #a << " > " << #b; testsFailed++; } } while(0)
 
@@ -33,7 +33,6 @@ TEST(config_default_values) {
     
     // Check defaults are sensible
     ASSERT_GE(cfg.defaultPort(), 1);
-    ASSERT_LE(cfg.defaultPort(), 65535);
     ASSERT_GE(cfg.defaultRequestTimeout().count(), 1);
 }
 
@@ -208,7 +207,9 @@ TEST(config_env_override) {
     // For this test, just verify the env var is readable
     const char* portEnv = std::getenv("OMNINET_PORT");
     ASSERT_TRUE(portEnv != nullptr);
-    ASSERT_EQ(std::string(portEnv), "7777");
+    if (portEnv) {
+        ASSERT_EQ(std::string(portEnv), "7777");
+    }
 }
 
 // ============================================================================

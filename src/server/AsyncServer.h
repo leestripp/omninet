@@ -151,7 +151,7 @@ private:
 
     // Convert a pattern like "/users/:id" to a regex (delegates to Router's logic)
     static std::string patternToRegex(
-        std::string pattern,
+        const std::string& pattern,
         std::vector<std::string>& paramNames
     );
 

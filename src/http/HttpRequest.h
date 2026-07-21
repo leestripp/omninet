@@ -139,7 +139,7 @@ public:
     // Path parameters (for parameterized routes like /users/:id)
     std::string_view pathParam(size_t index) const;
     std::string_view pathParam(std::string_view name) const;
-    void setPathParams(std::vector<std::string> params);
+    void setPathParams(const std::vector<std::string>& params);
     void setPathParam(std::string_view name, std::string_view value);
     
     // --- Headers ---

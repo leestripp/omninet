@@ -207,8 +207,6 @@ Result<ClientResponse, ClientError> parseResponse(const std::string& raw) {
             }
             pos = chunk_eol + 2;
             if (chunk_size == 0) {
-                if (pos < raw.size() && raw[pos] == '\r') ++pos;
-                if (pos < raw.size() && raw[pos] == '\n') ++pos;
                 break;
             }
             if (pos + chunk_size > raw.size()) break;

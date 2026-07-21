@@ -153,8 +153,8 @@ public:
     void onOpen(OpenHandler handler);
     void onClose(CloseHandler handler);
 
-    std::string lastEventId() const;
-    std::string url() const;
+    const std::string& lastEventId() const;
+    const std::string& url() const;
 
 private:
     void runReceiveLoop();

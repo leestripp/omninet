@@ -100,9 +100,6 @@ void SessionStore::removeAllForUser(std::string_view userId) {
 }
 
 size_t SessionStore::cleanup() {
-    auto now = std::chrono::system_clock::now();
-    auto nowStr = Utils::formatRfc2822(now);
-    
     // Count before delete
     auto before = m_db.queryOne("SELECT COUNT(*) FROM sessions");
     size_t beforeCount = before ? std::stoul((*before)[0]) : 0;

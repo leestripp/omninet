@@ -256,9 +256,9 @@ bool test_response_decompress_roundtrip() {
     if (inflateInit2(&strm, 15 + 32) != Z_OK) return false;
 
     char decoded[4096];
-    strm.next_in = (Bytef*)compressedBody.data();
+    strm.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(compressedBody.data()));
     strm.avail_in = compressedBody.size();
-    strm.next_out = (Bytef*)decoded;
+    strm.next_out = reinterpret_cast<Bytef*>(decoded);
     strm.avail_out = sizeof(decoded);
 
     int ret = inflate(&strm, Z_FINISH);

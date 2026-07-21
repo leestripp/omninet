@@ -235,7 +235,7 @@ void EpollIoContext::process_timers() {
     }
 
     // Run callbacks outside the lock
-    for (auto& cb : toRun) {
+    for (const auto& cb : toRun) {
         cb();
     }
 }
@@ -282,13 +282,13 @@ void EpollIoContext::dispatch_events(struct epoll_event* events, int count) {
         std::vector<EventCallback> callbacks;
         {
             std::lock_guard<std::mutex> lock(m_watchesMutex);
-            for (auto& [id, watch] : m_watches) {
-                if (watch.fd == fd) {
-                    callbacks.push_back(watch.callback);
+            for (auto& [id, w] : m_watches) {
+                if (w.fd == fd) {
+                    callbacks.push_back(w.callback);
                 }
             }
         }
-        for (auto& cb : callbacks) {
+        for (const auto& cb : callbacks) {
             try {
                 cb(ev);
             } catch (const std::exception& e) {

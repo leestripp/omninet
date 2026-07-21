@@ -296,12 +296,14 @@ void StaticServer::handleRequest(const Request& req, Response& resp) {
         return;
     }
     
-    // Strip prefix
+    // Strip prefix and serve from the remainder.
     if (!m_urlPrefix.empty()) {
         path = path.substr(m_urlPrefix.size());
     }
     
-    handle(req, resp);
+    Request strippedReq = req;
+    strippedReq.setPath(std::string(path));
+    handle(strippedReq, resp);
 }
 
 } // namespace OmniNet::HTTP

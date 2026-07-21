@@ -182,14 +182,15 @@ void Handler::runClientStream(std::unique_ptr<Socket> socket,
     // without interfering with shutdown. Shutdown via close() from
     // another thread still works: select() sees EBADF, recv() throws
     // SocketException, the catch-all exits the loop.
-    while (socket->isOpen()) {
+    while (true) {
+        if (!socket->isOpen()) break;
+
         // Block for up to 1 hour. SSE is "essentially forever" for
         // any practical deployment; the only thing that should wake
         // us up is the peer closing the socket.
         if (!socket->waitForRead(std::chrono::hours(1))) {
             continue;  // spurious wakeup, loop
         }
-        if (!socket->isOpen()) break;  // closed by another thread
 
         try {
             auto data = socket->recvAll(1);
@@ -266,7 +267,6 @@ void Handler::broadcast(const std::string& eventType, const std::string& data) {
 }
 
 void Handler::sendToClient(const std::string& clientId, const Event& event) {
-    auto formatted = event.format();
     std::shared_ptr<Client> client;
     {
         std::lock_guard<std::mutex> lock(m_clientsMutex);
@@ -276,6 +276,7 @@ void Handler::sendToClient(const std::string& clientId, const Event& event) {
     }
     if (!client->connected) return;
     try {
+        auto formatted = event.format();
         client->sender(formatted);
     } catch (...) {
         // ignore — worker will clean up
@@ -371,8 +372,8 @@ void Client::onError(ErrorHandler handler)    { m_errorHandler    = std::move(ha
 void Client::onOpen(OpenHandler handler)      { m_openHandler      = std::move(handler); }
 void Client::onClose(CloseHandler handler)    { m_closeHandler     = std::move(handler); }
 
-std::string Client::lastEventId() const { return m_lastEventId; }
-std::string Client::url() const { return m_url; }
+const std::string& Client::lastEventId() const { return m_lastEventId; }
+const std::string& Client::url() const { return m_url; }
 
 void Client::runReceiveLoop() {
     while (m_connected && m_socket) {

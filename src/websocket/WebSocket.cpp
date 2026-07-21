@@ -14,14 +14,11 @@ namespace OmniNet::WebSocket {
 Connection::Connection(std::unique_ptr<Socket> socket, std::string_view resource)
     : m_socket(std::move(socket))
     , m_resource(resource)
+    , m_open(true)
     , m_isServer(true) {
     // v0.7.0 fix (prompt.txt Bug #3): the server-side constructor
-    // was leaving m_open = false (the default), which made
-    // addClient() reject the connection with "id=0" because it
-    // checks isOpen() first. The fix is to mark the connection
-    // open as soon as the socket is wired up — the underlying
-    // socket is already connected (it came from accept()).
-    m_open = true;
+    // marks the connection open immediately — the underlying socket
+    // is already connected (it came from accept()).
 }
 
 Connection::Connection(const std::string& url, [[maybe_unused]] std::string_view protocol)
@@ -451,14 +448,13 @@ void Connection::pingWorker() {
 // Server
 // ============================================================================
 
-Server::Server() {
-    OmniNet::HTTP::Server::Config config;
-    m_httpServer = std::make_unique<OmniNet::HTTP::Server>(config);
+Server::Server()
+    : m_httpServer(std::make_unique<OmniNet::HTTP::Server>(OmniNet::HTTP::Server::Config{})) {
 }
 
-Server::Server(const OmniNet::HTTP::Server::Config& config) {
-    m_httpServer = std::make_unique<OmniNet::HTTP::Server>(config);
-    m_router = std::make_unique<OmniNet::HTTP::Router>();
+Server::Server(const OmniNet::HTTP::Server::Config& config)
+    : m_httpServer(std::make_unique<OmniNet::HTTP::Server>(config)),
+      m_router(std::make_unique<OmniNet::HTTP::Router>()) {
 }
 
 void Server::on(std::string path, std::function<void(Connection&)> handler) {

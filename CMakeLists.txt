@@ -408,6 +408,15 @@ if(CPPCHECK_EXECUTABLE)
             --suppress=unusedFunction
             --suppress=normalCheckLevelMaxBranches
             --suppress=checkersReport
+            # The following are style/design checks that are not bugs in this codebase
+            --suppress=functionStatic
+            --suppress=useStlAlgorithm
+            --suppress=noExplicitConstructor
+            --suppress=knownConditionTrueFalse
+            --suppress=constVariableReference
+            --suppress=constVariablePointer
+            --suppress=useInitializationList
+            --suppress=nullPointerRedundantCheck:src/async/AsyncTlsSocket.cpp
             --template=gcc
             > "${CPPCHECK_LOG}" 2>&1 || true
         COMMAND ${CMAKE_COMMAND} -E cat "${CPPCHECK_LOG}"

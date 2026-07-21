@@ -81,7 +81,7 @@ public:
 
     // --- Construction ---
 
-    explicit ThreadPool(Config config);
+    explicit ThreadPool(const Config& config);
     ThreadPool();  // Default config
 
     ~ThreadPool();

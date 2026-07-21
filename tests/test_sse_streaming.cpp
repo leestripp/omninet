@@ -528,11 +528,11 @@ void test_handler_on_disconnect_callback() {
     std::cout << "\n[sse_handler_on_disconnect_callback]\n";
     SSE::Handler h("/events");
     std::vector<std::string> disconnected;
-    h.onDisconnect([&disconnected](const std::string id) {
+    h.onDisconnect([&disconnected](const std::string& id) {
         disconnected.push_back(id);
     });
 
-    auto sender = [](const std::string) -> bool { return true; };
+    auto sender = [](const std::string&) -> bool { return true; };
     h.addClient("alice", sender);
     h.addClient("bob", sender);
     h.addClient("carol", sender);
@@ -570,11 +570,11 @@ void test_handler_broadcast_records_events() {
     std::vector<std::string> aliceEvents;
     std::vector<std::string> bobEvents;
 
-    auto aliceSender = [&aliceEvents](const std::string ev) -> bool {
+    auto aliceSender = [&aliceEvents](const std::string& ev) -> bool {
         aliceEvents.push_back(ev);
         return true;
     };
-    auto bobSender = [&bobEvents](const std::string ev) -> bool {
+    auto bobSender = [&bobEvents](const std::string& ev) -> bool {
         bobEvents.push_back(ev);
         return true;
     };
@@ -606,11 +606,11 @@ void test_handler_send_to_client_only_target() {
     std::vector<std::string> aliceEvents;
     std::vector<std::string> bobEvents;
 
-    auto aliceSender = [&aliceEvents](const std::string ev) -> bool {
+    auto aliceSender = [&aliceEvents](const std::string& ev) -> bool {
         aliceEvents.push_back(ev);
         return true;
     };
-    auto bobSender = [&bobEvents](const std::string ev) -> bool {
+    auto bobSender = [&bobEvents](const std::string& ev) -> bool {
         bobEvents.push_back(ev);
         return true;
     };
@@ -670,7 +670,7 @@ void test_handler_multiple_broadcasts_same_event() {
     std::cout << "\n[sse_handler_multiple_broadcasts_same_event]\n";
     SSE::Handler h("/events");
     std::vector<std::string> events;
-    auto sender = [&events](const std::string ev) -> bool {
+    auto sender = [&events](const std::string& ev) -> bool {
         events.push_back(ev);
         return true;
     };

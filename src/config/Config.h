@@ -184,7 +184,7 @@ public:
     // Examples: "server.port", "tls.enabled", "cors.origins"
     // Returns defaultValue if path doesn't exist
     template<typename T>
-    T get(const std::string& path, T defaultValue) const;
+    T get(const std::string& path, const T& defaultValue) const;
     
     // Get a string value from config
     std::string getString(const std::string& path, const std::string& defaultValue = "") const;
@@ -252,7 +252,7 @@ private:
 // ============================================================================
 
 template<typename T>
-T Config::get(const std::string& path, T defaultValue) const {
+T Config::get(const std::string& path, const T& defaultValue) const {
     try {
         const json* current = &m_jsonConfig;
         std::stringstream ss(path);

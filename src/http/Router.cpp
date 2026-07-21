@@ -23,7 +23,7 @@ namespace OmniNet::HTTP {
 
 Router::Router() = default;
 
-void Router::addRoute(Method method, std::string pattern, Handler handler) {
+void Router::addRoute(Method method, const std::string& pattern, Handler handler) {
     Route route;
     route.method = method;
     route.pattern = pattern;
@@ -128,14 +128,14 @@ void Router::options(std::string pattern, JsonHandler handler) {
     addRoute(Method::OPTIONS, std::move(pattern), wrapJsonHandler(std::move(handler)));
 }
 
-void Router::any(std::string pattern, Handler handler) {
+void Router::any(const std::string& pattern, Handler handler) {
     auto h = std::move(handler);
     for (int m = static_cast<int>(Method::GET); m <= static_cast<int>(Method::TRACE); ++m) {
         addRoute(static_cast<Method>(m), pattern, h);
     }
 }
 
-void Router::group(std::string prefix, std::function<void(Router&)> configure) {
+void Router::group(const std::string& prefix, std::function<void(Router&)> configure) {
     // Create a sub-router for the group
     Router subRouter;
     
@@ -212,8 +212,8 @@ std::optional<Router::Match> Router::match(Method method, std::string_view path)
         bool hasExplicitHead = false;
         for (const auto& route : m_routes) {
             if (route.method == Method::HEAD) {
-                std::smatch match;
-                if (std::regex_match(pathStr, match, route.regex)) {
+                std::smatch routeMatch;
+                if (std::regex_match(pathStr, routeMatch, route.regex)) {
                     hasExplicitHead = true;
                     break;
                 }
@@ -237,8 +237,8 @@ std::optional<Router::Match> Router::match(Method method, std::string_view path)
         }
         
         ROUTER_DEBUG("    Method matches, testing regex...");
-        std::smatch match;
-        bool matched = std::regex_match(pathStr, match, route.regex);
+        std::smatch routeMatch;
+        bool matched = std::regex_match(pathStr, routeMatch, route.regex);
         ROUTER_DEBUG("    regex_match result: " << (matched ? "MATCH" : "NO MATCH"));
         
         if (matched) {
@@ -246,8 +246,8 @@ std::optional<Router::Match> Router::match(Method method, std::string_view path)
             result.handler = route.handler;
             
             // Extract captured groups
-            for (size_t i = 1; i < match.size(); ++i) {
-                result.captures.push_back(match[i].str());
+            for (size_t i = 1; i < routeMatch.size(); ++i) {
+                result.captures.push_back(routeMatch[i].str());
             }
             
             ROUTER_DEBUG("    MATCHED! captures=" << result.captures.size());
@@ -259,7 +259,7 @@ std::optional<Router::Match> Router::match(Method method, std::string_view path)
     return std::nullopt;
 }
 
-void Router::serveStatic(std::string urlPrefix, std::string directory) {
+void Router::serveStatic(std::string urlPrefix, const std::string& directory) {
     // Store directory before it's moved
     std::string dirCopy = directory;
     
@@ -305,8 +305,7 @@ void Router::serveStatic(std::string urlPrefix, std::string directory) {
     });
 }
 
-void Router::setDefaultFile(std::string filename) {
-    (void)filename;
+void Router::setDefaultFile(const std::string& /*filename*/) {
 }
 
 void Router::allowDirectoryListing(bool allow) {
@@ -413,7 +412,7 @@ void Router::handle(const Request& req, Response& resp) {
     }
 }
 
-std::vector<Route> Router::routes() const {
+const std::vector<Route>& Router::routes() const {
     return m_routes;
 }
 
@@ -425,7 +424,7 @@ void Router::setRedirectTrailingSlash(bool value) {
     m_redirectTrailingSlash = value;
 }
 
-std::string Router::patternToRegex(std::string pattern, std::vector<std::string>& paramNames) {
+std::string Router::patternToRegex(const std::string& pattern, std::vector<std::string>& paramNames) {
     std::string regex;
     
     size_t i = 0;

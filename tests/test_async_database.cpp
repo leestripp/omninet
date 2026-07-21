@@ -233,7 +233,7 @@ TEST(database_pool_concurrent) {
     ASSERT_TRUE(dbs[2] != nullptr);
 
     // Release them
-    for (auto& db : dbs) {
+    for (const auto& db : dbs) {
         pool.release(db);
     }
 

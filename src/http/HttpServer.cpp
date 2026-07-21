@@ -28,10 +28,9 @@ namespace OmniNet::HTTP {
 // ============================================================================
 
 Server::Server(Config config)
-    : m_config(std::move(config)) {
-
-    m_serverSocket = std::make_unique<ServerSocket>();
-    m_adminHandler = std::make_unique<Admin::Handler>();
+    : m_config(std::move(config)),
+      m_serverSocket(std::make_unique<ServerSocket>()),
+      m_adminHandler(std::make_unique<Admin::Handler>()) {
 
     // v0.7.0: create the self-pipe for instant accept-loop wakeup.
     // Both ends are set non-blocking so stop() can write without
@@ -351,9 +350,9 @@ void Server::enableCORS(
     std::string_view sv = allowedOrigins;
     while (!sv.empty()) {
         // Trim leading whitespace
-        size_t start = 0;
-        while (start < sv.size() && (sv[start] == ' ' || sv[start] == '\t')) ++start;
-        sv.remove_prefix(start);
+        size_t offset = 0;
+        while (offset < sv.size() && (sv[offset] == ' ' || sv[offset] == '\t')) ++offset;
+        sv.remove_prefix(offset);
         // Find end of this origin
         size_t end = 0;
         while (end < sv.size() && sv[end] != ',') ++end;
@@ -406,7 +405,7 @@ uint16_t Server::boundPort() const {
     return m_serverSocket->localPort();
 }
 
-std::string Server::address() const {
+const std::string& Server::address() const {
     return m_config.address;
 }
 

@@ -30,7 +30,12 @@ Config& Config::instance() {
     return instance;
 }
 
-Config::Config() {
+Config::Config()
+    : m_configDir(Utils::configDir()),
+      m_dataDir(Utils::dataDir()),
+      m_stateDir(Utils::stateDir()),
+      m_cacheDir(Utils::cacheDir()),
+      m_runtimeDir(Utils::runtimeDirSubdir()) {
     // Set default directories using the XDG Base Directory Specification.
     // Priority:
     //   1) OMNINET_DATA_DIR env var (legacy explicit override)
@@ -42,6 +47,7 @@ Config::Config() {
     // When running as root, XDG directories under $HOME may be unwritable.
     // We detect this by attempting a write; if it fails we fall back to
     // /workspace/data/omninet as a single legacy-style tree.
+    // cppcheck-suppress useInitializationList
     auto initFromXdg = [this]() {
         m_configDir = Utils::configDir();
         m_dataDir = Utils::dataDir();
@@ -369,12 +375,12 @@ void Config::loadFromEnvironment() {
         m_defaultRequestTimeout = std::chrono::seconds(std::atoi(timeout));
     }
     
-    if (const char* logLevel = std::getenv("OMNINET_LOG_LEVEL")) {
-        if (strcmp(logLevel, "DEBUG") == 0) m_logLevel = LogLevel::DEBUG;
-        else if (strcmp(logLevel, "INFO") == 0) m_logLevel = LogLevel::INFO;
-        else if (strcmp(logLevel, "WARN") == 0) m_logLevel = LogLevel::WARN;
-        else if (strcmp(logLevel, "ERROR") == 0) m_logLevel = LogLevel::ERROR;
-        else if (strcmp(logLevel, "CRITICAL") == 0) m_logLevel = LogLevel::CRITICAL;
+    if (const char* logLevelEnv = std::getenv("OMNINET_LOG_LEVEL")) {
+        if (strcmp(logLevelEnv, "DEBUG") == 0) m_logLevel = LogLevel::DEBUG;
+        else if (strcmp(logLevelEnv, "INFO") == 0) m_logLevel = LogLevel::INFO;
+        else if (strcmp(logLevelEnv, "WARN") == 0) m_logLevel = LogLevel::WARN;
+        else if (strcmp(logLevelEnv, "ERROR") == 0) m_logLevel = LogLevel::ERROR;
+        else if (strcmp(logLevelEnv, "CRITICAL") == 0) m_logLevel = LogLevel::CRITICAL;
     }
     
     if (const char* tlsCert = std::getenv("OMNINET_TLS_CERT")) {
@@ -389,12 +395,12 @@ void Config::loadFromEnvironment() {
         m_databasePath = dbPath;
     }
     
-    if (const char* dataDir = std::getenv("OMNINET_DATA_DIR")) {
-        m_configDir = dataDir;
-        m_dataDir = dataDir;
-        m_stateDir = dataDir;
-        m_cacheDir = dataDir;
-        m_runtimeDir = dataDir;
+    if (const char* dataDirEnv = std::getenv("OMNINET_DATA_DIR")) {
+        m_configDir = dataDirEnv;
+        m_dataDir = dataDirEnv;
+        m_stateDir = dataDirEnv;
+        m_cacheDir = dataDirEnv;
+        m_runtimeDir = dataDirEnv;
         std::filesystem::create_directories(m_dataDir);
     }
     

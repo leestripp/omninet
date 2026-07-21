@@ -47,7 +47,7 @@ void test_split() {
     
     // Empty string may return 0 parts (implementation detail)
     parts = OmniNet::Utils::split("", ',');
-    // Don't test empty string - implementation may vary
+    ASSERT_TRUE(parts.empty() || parts.size() == 1);
 }
 
 void test_splitAny() {

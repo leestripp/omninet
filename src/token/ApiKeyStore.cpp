@@ -62,7 +62,7 @@ void ApiKeyStore::initialize() {
 ApiKeyStore::CreateResult ApiKeyStore::create(
     std::string_view userId,
     std::string_view name,
-    std::vector<std::string> scopes,
+    const std::vector<std::string>& scopes,
     std::chrono::seconds ttl
 ) {
     return create(userId, name, scopes, ttl, {}, {}, std::nullopt, {});
@@ -71,7 +71,7 @@ ApiKeyStore::CreateResult ApiKeyStore::create(
 ApiKeyStore::CreateResult ApiKeyStore::create(
     std::string_view userId,
     std::string_view name,
-    std::vector<std::string> scopes,
+    const std::vector<std::string>& scopes,
     std::chrono::seconds ttl,
     std::string_view ip,
     [[maybe_unused]] std::string_view userAgent,
@@ -435,24 +435,24 @@ size_t ApiKeyStore::countActive() const {
     );
     stmt.bind(1, now);
     
-    size_t count = 0;
+    size_t total = 0;
     if (stmt.step()) {
-        count = static_cast<size_t>(stmt.columnInt64(0));
+        total = static_cast<size_t>(stmt.columnInt64(0));
     }
     
-    return count;
+    return total;
 }
 
 size_t ApiKeyStore::countForUser(std::string_view userId) const {
     auto stmt = m_db.prepare("SELECT COUNT(*) FROM api_keys WHERE user_id = ?");
     stmt.bind(1, std::string(userId));
     
-    size_t count = 0;
+    size_t total = 0;
     if (stmt.step()) {
-        count = static_cast<size_t>(stmt.columnInt64(0));
+        total = static_cast<size_t>(stmt.columnInt64(0));
     }
     
-    return count;
+    return total;
 }
 
 void ApiKeyStore::setDefaultPrefix(std::string_view prefix) {

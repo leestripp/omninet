@@ -214,7 +214,7 @@ public:
     // Returns 0 before start(). The existing port() returns the
     // *configured* port (unchanged for backward compatibility).
     uint16_t boundPort() const;
-    std::string address() const;
+    const std::string& address() const;
     
 private:
     void runAcceptLoop();

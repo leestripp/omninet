@@ -208,14 +208,14 @@ void Handler::handleGetUsers(const HTTP::Request& req, HTTP::Response& resp) {
         return;
     }
     
-    auto users = m_users->list();
+    auto userList = m_users->list();
     
     std::string json = "[";
-    for (size_t i = 0; i < users.size(); ++i) {
+    for (size_t i = 0; i < userList.size(); ++i) {
         if (i > 0) json += ",";
-        json += R"({"id":)" + std::to_string(users[i].id);
-        json += R"(,"username":")" + users[i].username + R"(")";
-        json += R"(,"role":")" + users[i].role + R"("})";
+        json += R"({"id":)" + std::to_string(userList[i].id);
+        json += R"(,"username":")" + userList[i].username + R"(")";
+        json += R"(,"role":")" + userList[i].role + R"("})";
     }
     json += "]";
     

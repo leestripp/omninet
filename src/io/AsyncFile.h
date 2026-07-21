@@ -88,7 +88,7 @@ public:
     // ----- Error handling -----
 
     // Get the last error message (empty if no error)
-    std::string lastError() const;
+    const std::string& lastError() const;
 
 private:
     Async::Executor& m_exec;

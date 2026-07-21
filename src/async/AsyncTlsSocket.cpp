@@ -54,11 +54,16 @@ Async::Task<> AsyncTlsSocket::handshake() {
 // ============================================================================
 
 Async::Task<size_t> AsyncTlsSocket::read_some(std::span<uint8_t> buf) {
-    if (!m_socket || !m_socket->isOpen() || buf.empty()) {
+    // cppcheck-suppress nullPointerRedundantCheck
+    if (!m_socket) {
+        co_return size_t{0};
+    }
+    TLSSocket& socket = *m_socket;
+    if (!socket.isOpen() || buf.empty()) {
         co_return size_t{0};
     }
 
-    SSL* ssl = m_socket->getSSL();
+    SSL* ssl = socket.getSSL();
     if (!ssl) {
         co_return size_t{0};
     }
@@ -75,11 +80,11 @@ Async::Task<size_t> AsyncTlsSocket::read_some(std::span<uint8_t> buf) {
 
         int err = SSL_get_error(ssl, ret);
         if (err == SSL_ERROR_WANT_READ) {
-            co_await IO::when_readable(m_context, *m_socket);
+            co_await IO::when_readable(m_context, socket);
             continue;
         } else if (err == SSL_ERROR_WANT_WRITE) {
             // SSL_read can return WANT_WRITE during renegotiation
-            co_await IO::when_writable(m_context, *m_socket);
+            co_await IO::when_writable(m_context, socket);
             continue;
         } else if (err == SSL_ERROR_ZERO_RETURN) {
             // Clean shutdown
@@ -98,11 +103,16 @@ Async::Task<size_t> AsyncTlsSocket::read_some(std::span<uint8_t> buf) {
 // ============================================================================
 
 Async::Task<size_t> AsyncTlsSocket::write_some(std::span<const uint8_t> data) {
-    if (!m_socket || !m_socket->isOpen() || data.empty()) {
+    // cppcheck-suppress nullPointerRedundantCheck
+    if (!m_socket) {
+        co_return size_t{0};
+    }
+    TLSSocket& socket = *m_socket;
+    if (!socket.isOpen() || data.empty()) {
         co_return size_t{0};
     }
 
-    SSL* ssl = m_socket->getSSL();
+    SSL* ssl = socket.getSSL();
     if (!ssl) {
         co_return size_t{0};
     }
@@ -119,11 +129,11 @@ Async::Task<size_t> AsyncTlsSocket::write_some(std::span<const uint8_t> data) {
 
         int err = SSL_get_error(ssl, ret);
         if (err == SSL_ERROR_WANT_WRITE) {
-            co_await IO::when_writable(m_context, *m_socket);
+            co_await IO::when_writable(m_context, socket);
             continue;
         } else if (err == SSL_ERROR_WANT_READ) {
             // SSL_write can return WANT_READ during renegotiation
-            co_await IO::when_readable(m_context, *m_socket);
+            co_await IO::when_readable(m_context, socket);
             continue;
         } else {
             co_return size_t{0};

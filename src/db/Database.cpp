@@ -281,7 +281,6 @@ OmniNet::Result<void, OmniNet::DbError> Database::tryExecute(const std::string& 
     int result = sqlite3_exec(m_db, sql.c_str(), nullptr, nullptr, &errorMsg);
 
     if (result != SQLITE_OK) {
-        std::string error = errorMsg ? errorMsg : "Unknown error";
         if (errorMsg) sqlite3_free(errorMsg);
 
         // Map common SQLite error codes to DbError

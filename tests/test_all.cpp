@@ -856,7 +856,7 @@ OMNINET_TEST(http_request_post_body) {
     
     // Body should be available
     auto body = req.body();
-    ASSERT_GT(body.size(), 0);
+    ASSERT_NE(body.size(), 0u);
 }
 OMNINET_TEST(http_request_keep_alive) {
     std::string raw = 
@@ -901,7 +901,7 @@ OMNINET_TEST(http_request_utf8_path) {
     req.parse(raw);
     
     // Path should be URL encoded, raw bytes preserved
-    ASSERT_GT(req.path().size(), 0);
+    ASSERT_NE(req.path().size(), 0u);
 }
 OMNINET_TEST(http_request_emoji_query) {
     // Test emoji in query string
@@ -1243,7 +1243,7 @@ OMNINET_TEST(http_response_build) {
     resp.setBody("Hello");
     
     auto bytes = resp.build();
-    ASSERT_GT(bytes.size(), 0);
+    ASSERT_NE(bytes.size(), 0u);
     
     // Should contain status line
     std::string response(reinterpret_cast<const char*>(bytes.data()), bytes.size());
@@ -1426,7 +1426,7 @@ OMNINET_TEST(crypto_passwordDifferentHashes) {
 OMNINET_TEST(buffer_basic) {
     OmniNet::ByteBuffer buf;
     ASSERT_EQ(buf.size(), size_t(0));
-    ASSERT_GT(buf.capacity(), size_t(0));  // Should have some capacity
+    ASSERT_NE(buf.capacity(), 0u);  // Should have some capacity
     ASSERT_TRUE(buf.empty());
 }
 
@@ -1467,7 +1467,7 @@ OMNINET_TEST(buffer_clear) {
     ASSERT_EQ(buf.size(), size_t(0));
     ASSERT_TRUE(buf.empty());
     // Capacity should remain
-    ASSERT_GT(buf.capacity(), size_t(0));
+    ASSERT_NE(buf.capacity(), 0u);
 }
 
 OMNINET_TEST(buffer_find) {
@@ -1527,7 +1527,7 @@ OMNINET_TEST(buffer_stats) {
     
     auto stats = buf.stats();
     ASSERT_EQ(stats.size, size_t(4));
-    ASSERT_GT(stats.capacity, size_t(0));  // Should have capacity
+    ASSERT_NE(stats.capacity, 0u);  // Should have capacity
     ASSERT_TRUE(stats.utilizationPercent < 100);  // Less than 100%
 }
 
