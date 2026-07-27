@@ -32,6 +32,7 @@ struct LocalServer {
     bool use_chunked = false;
     int chunk_count = 3;
     int chunk_size = 4;
+    int header_delay_ms = 0;
 
     void start(int p) {
         port = p;
@@ -131,6 +132,11 @@ struct LocalServer {
                 if (hdr_end != std::string::npos) {
                     last_body = raw.substr(hdr_end + 4);
                 }
+            }
+
+            if (header_delay_ms > 0) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(header_delay_ms));
             }
 
             int status = response_status;
@@ -428,6 +434,47 @@ void test_streaming_read_some_partial() {
     srv.stop();
 }
 
+void test_streaming_header_timeout() {
+    std::cout << "test_streaming_header_timeout\n";
+    // Regression: send_streaming() must honor cfg.request_timeout for the
+    // time-to-first-byte of the response headers, not a hard-coded 2s wait.
+    {
+        LocalServer srv;
+        srv.header_delay_ms = 3000;
+        srv.start(18094);
+        ClientConfig cfg;
+        cfg.request_timeout = std::chrono::seconds(10);
+        ClientRequest req;
+        req.url("http://127.0.0.1:18094/slow");
+        auto result = Client::get_instance().send_streaming(std::move(req), cfg);
+        EXPECT(result.has_value());
+        if (result.has_value()) {
+            EXPECT((*result)->statusCode() == 200);
+        }
+        srv.stop();
+    }
+    {
+        LocalServer srv;
+        srv.header_delay_ms = 3000;
+        srv.start(18095);
+        ClientConfig cfg;
+        cfg.request_timeout = std::chrono::seconds(1);
+        ClientRequest req;
+        req.url("http://127.0.0.1:18095/slow");
+        auto start = std::chrono::steady_clock::now();
+        auto result = Client::get_instance().send_streaming(std::move(req), cfg);
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start).count();
+        EXPECT(!result.has_value());
+        if (!result.has_value()) {
+            EXPECT(result.error() == ClientError::Timeout);
+        }
+        // Tolerant lower bound: millisecond truncation can shave ~1ms.
+        EXPECT(elapsed >= 900 && elapsed < 2500);
+        srv.stop();
+    }
+}
+
 int main() {
     signal(SIGPIPE, SIG_IGN);
     test_url_parse();
@@ -444,6 +491,7 @@ int main() {
     test_streaming_response_contentlength();
     test_streaming_request_chunked();
     test_streaming_read_some_partial();
+    test_streaming_header_timeout();
 
     std::cout << "\nResults: " << passed << " passed, "
               << failed << " failed\n";

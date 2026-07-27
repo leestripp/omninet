@@ -802,11 +802,20 @@ Client::send_streaming(ClientRequest req, const ClientConfig& cfg) {
         }
     }
 
-    // Read response status + headers.
+    // Read response status + headers. Honor cfg.request_timeout as the
+    // cumulative time-to-first-byte deadline; fall back to the historical
+    // 2-second wait only when no timeout is configured.
     std::string head;
     try {
+        const auto deadline = std::chrono::steady_clock::now()
+            + (cfg.request_timeout.count() > 0
+                   ? cfg.request_timeout
+                   : std::chrono::seconds(2));
         while (head.find("\r\n\r\n") == std::string::npos) {
-            if (!socket->waitForRead(std::chrono::milliseconds(2000))) {
+            auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now());
+            if (remaining <= std::chrono::milliseconds(0) ||
+                !socket->waitForRead(remaining)) {
                 return std::unexpected(ClientError::Timeout);
             }
             uint8_t buf[4096];
