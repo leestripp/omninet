@@ -419,8 +419,8 @@ void Server::runAcceptLoop() {
     // listening socket AND m_wakeupPipe[0]. When stop() writes to
     // m_wakeupPipe[1], poll() returns immediately and we exit —
     // instant clean shutdown, no polling delay.
+    SERVER_DEBUG("Waiting for connection...");
     while (m_running) {
-        SERVER_DEBUG("Waiting for connection...");
         std::unique_ptr<Socket> client;
         try {
 #ifndef _WIN32
