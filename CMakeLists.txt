@@ -371,20 +371,43 @@ message(STATUS "  OpenSSL: ${OPENSSL_VERSION}")
 message(STATUS "  SQLite3: ${SQLite3_VERSION}")
 message(STATUS "")
 
+# Optional components — ON for standalone builds, OFF when OmniNet is
+# pulled in as a dependency (FetchContent/add_subdirectory), so consumers
+# only build the static library. Consumers can opt back in explicitly.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(_OMNINET_COMPONENT_DEFAULT ON)
+else()
+    set(_OMNINET_COMPONENT_DEFAULT OFF)
+endif()
+
+option(OMNINET_BUILD_TESTS "Build OmniNet tests" ${_OMNINET_COMPONENT_DEFAULT})
+option(OMNINET_BUILD_DEMOS "Build OmniNet demos" ${_OMNINET_COMPONENT_DEFAULT})
+option(OMNINET_BUILD_BENCHMARKS "Build OmniNet benchmarks" ${_OMNINET_COMPONENT_DEFAULT})
+option(OMNINET_BUILD_TOOLS "Build OmniNet CLI tools" ${_OMNINET_COMPONENT_DEFAULT})
+
 # Enable testing
-include(CTest)
-if(BUILD_TESTING)
-    add_subdirectory(tests)
+if(OMNINET_BUILD_TESTS)
+    include(CTest)
+    enable_testing()
+    if(BUILD_TESTING)
+        add_subdirectory(tests)
+    endif()
 endif()
 
 # Build demos
-add_subdirectory(demos)
+if(OMNINET_BUILD_DEMOS)
+    add_subdirectory(demos)
+endif()
 
 # Build benchmarks
-add_subdirectory(benchmarks)
+if(OMNINET_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
 
 # Build CLI tools
-add_subdirectory(tools)
+if(OMNINET_BUILD_TOOLS)
+    add_subdirectory(tools)
+endif()
 
 # ============================================================================
 # cppcheck static analysis target
