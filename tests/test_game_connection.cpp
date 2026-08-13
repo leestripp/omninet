@@ -2,7 +2,9 @@
 #include "game/GameConnection.h"
 
 #include <cstdio>
+#include <chrono>
 #include <cstring>
+#include <thread>
 #include <string>
 #include <vector>
 
@@ -208,6 +210,35 @@ static void test_retransmit_until_acked() {
     w.feedFromAToB(resends[0]);
     ASSERT_EQ(w.deliveredB.size(), 1u);
     ASSERT_TRUE(w.deliveredB[0] == "important");
+}
+
+static void test_bandwidth_stats() {
+    WirePair w;
+    const std::string msg(500, 'x');
+    w.a.queueMessage(1, std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(msg.data()), msg.size()));
+
+    auto packets = w.flushAToB();
+    ASSERT_EQ(packets.size(), 1u);
+
+    size_t wireBytes = packets[0].size();
+    ASSERT_EQ(w.a.stats().bytesSent, wireBytes);
+    ASSERT_EQ(w.b.stats().bytesReceived, wireBytes);
+    ASSERT_EQ(w.a.stats().packetsSent, 1u);
+    ASSERT_EQ(w.b.stats().packetsReceived, 1u);
+    // No full 1s window yet: rates still zero
+    ASSERT_EQ(w.a.stats().sendRateBps, 0u);
+
+    // Let a full window elapse, then send again: rates rotate in
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    w.b.queueMessage(1, std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t*>(msg.data()), msg.size()));
+    auto reply = w.flushBToA();
+    ASSERT_EQ(reply.size(), 1u);
+    ASSERT_TRUE(w.a.stats().bytesReceived >= reply[0].size());
+    // stats() refreshes windows: a's ~500B send 1.1s ago -> nonzero rate
+    ASSERT_TRUE(w.a.stats().sendRateBps > 0u);
+    ASSERT_TRUE(w.b.stats().recvRateBps > 0u);
 }
 
 static void test_ack_clears_pending() {
@@ -425,6 +456,7 @@ int main() {
     test_reliable_reorders_out_of_order();
     test_reliable_duplicate_dropped();
     test_retransmit_until_acked();
+    test_bandwidth_stats();
     test_ack_clears_pending();
     test_rtt_estimation();
     test_karn_rule_no_sample_on_resend();

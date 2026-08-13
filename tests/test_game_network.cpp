@@ -1,10 +1,12 @@
 // OmniNet - GameServer/GameClient end-to-end tests over loopback UDP
+#include "crypto/Crypto.h"
 #include "game/GameClient.h"
 #include "game/GameServer.h"
 
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <fstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -32,8 +34,8 @@ struct ServerRunner {
     std::atomic<int> connects{0};
     std::atomic<int> disconnects{0};
 
-    bool start(uint16_t port) {
-        auto res = server.bind("127.0.0.1", port);
+    bool start(uint16_t port, const std::string& addr = "127.0.0.1") {
+        auto res = server.bind(addr, port);
         if (!res) return false;
 
         server.onConnect([this](ConnectionId, const UdpEndpoint&) { ++connects; });
@@ -61,6 +63,22 @@ struct ServerRunner {
 };
 
 std::vector<uint8_t> toBytes(const std::string& s) { return {s.begin(), s.end()}; }
+
+// Write a self-signed cert+key pair for DTLS tests; returns paths
+std::pair<std::string, std::string> makeTestCert(const char* tag) {
+    auto [certPem, keyPem] = Crypto::generateSelfSignedCert(tag, 1);
+    std::string certPath = std::string("/tmp/gamenet_") + tag + "_cert.pem";
+    std::string keyPath = std::string("/tmp/gamenet_") + tag + "_key.pem";
+    {
+        std::ofstream f(certPath, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(certPem.data()), certPem.size());
+    }
+    {
+        std::ofstream f(keyPath, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(keyPem.data()), keyPem.size());
+    }
+    return {certPath, keyPath};
+}
 
 // Pump the client until predicate is true or timeout expires
 template <typename Pred>
@@ -228,6 +246,121 @@ static void test_connect_flood_hardening() {
     ASSERT_TRUE(client.isConnected());
 }
 
+static void test_ipv6_end_to_end() {
+    // Skip gracefully when the host has no IPv6 stack
+    {
+        UdpSocket probe;
+        if (!probe.bind("::1", 0).has_value()) {
+            std::printf("SKIP ipv6 e2e (no IPv6 stack)\n");
+            return;
+        }
+    }
+
+    ServerRunner runner;
+    ASSERT_TRUE(runner.start(0, "::1"));
+
+    GameClient client;
+    std::vector<std::string> replies;
+    client.onMessage([&](uint8_t, std::span<const uint8_t> d) {
+        replies.emplace_back(reinterpret_cast<const char*>(d.data()), d.size());
+    });
+    ASSERT_TRUE(client.connect("::1", runner.server.port(), 3000).has_value());
+    ASSERT_TRUE(client.isConnected());
+
+    ASSERT_TRUE(client.send(1, toBytes("ipv6 game traffic")));
+    ASSERT_TRUE(pumpUntil(client, [&] { return !replies.empty(); }));
+    ASSERT_TRUE(replies[0] == "ipv6 game traffic");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_EQ(runner.connects.load(), 1);
+}
+
+static void test_connection_migration() {
+    ServerRunner runner;
+    ASSERT_TRUE(runner.start(0));
+
+    GameClient client;
+    ASSERT_TRUE(client.connect("127.0.0.1", runner.server.port(), 3000).has_value());
+    ConnectionId id = client.connectionId();
+    ASSERT_TRUE(id != 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    auto sendPingFrom = [&](UdpSocket& sock) {
+        std::vector<uint8_t> pkt(PACKET_HEADER_SIZE);
+        PacketHeader ph{};
+        ph.connectionId = id;
+        encodePacketHeader(pkt.data(), ph);
+        uint8_t ping[1] = {SystemMsg::Ping};
+        encodeRecord(pkt, SYSTEM_CHANNEL, 0, 0, 0, 0, ping);
+        return sock.sendTo(pkt, {"127.0.0.1", runner.server.port()}).has_value();
+    };
+
+    const GameConnection* conn = runner.server.client(id);
+    ASSERT_TRUE(conn != nullptr);
+    uint16_t originalPort = conn->remote().port;
+    uint64_t receivedBefore = conn->stats().packetsReceived;
+
+    // NAT rebind: keepalive with the client's connId from a new source port
+    UdpSocket movedB;
+    ASSERT_TRUE(movedB.open().has_value());
+    ASSERT_TRUE(sendPingFrom(movedB));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ASSERT_EQ(conn->remote().port, movedB.localPort());
+    ASSERT_TRUE(conn->remote().port != originalPort);
+
+    // Migration is repeatable: another rebind moves it again
+    UdpSocket movedC;
+    ASSERT_TRUE(movedC.open().has_value());
+    ASSERT_TRUE(sendPingFrom(movedC));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ASSERT_EQ(conn->remote().port, movedC.localPort());
+
+    // The connection survived both migrations: still tracked, no disconnect,
+    // and the migrated packets were processed
+    ASSERT_EQ(runner.server.clientCount(), 1u);
+    ASSERT_EQ(runner.disconnects.load(), 0);
+    ASSERT_TRUE(conn->stats().packetsReceived >= receivedBefore + 2);
+
+    // A packet from a GUESSED connId without a keepalive does not migrate
+    UdpSocket attacker;
+    ASSERT_TRUE(attacker.open().has_value());
+    std::vector<uint8_t> pkt(PACKET_HEADER_SIZE);
+    PacketHeader ph{};
+    ph.connectionId = id;
+    encodePacketHeader(pkt.data(), ph);
+    uint8_t msg[4] = {'n', 'o', 'p', 'e'};
+    encodeRecord(pkt, 1, 0, 0, 0, 0, msg);  // app channel, no Ping
+    ASSERT_TRUE(attacker.sendTo(pkt, {"127.0.0.1", runner.server.port()}).has_value());
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ASSERT_EQ(conn->remote().port, movedC.localPort());  // unchanged
+}
+
+static void run_dtls_echo_case(bool requireCookie) {
+    auto [certPath, keyPath] = makeTestCert(requireCookie ? "dtls_c" : "dtls_p");
+
+    ServerRunner runner;
+    ASSERT_TRUE(runner.start(0));
+    runner.server.enableDtls(certPath, keyPath, requireCookie);
+
+    GameClient client;
+    std::vector<std::string> replies;
+    client.onMessage([&](uint8_t, std::span<const uint8_t> d) {
+        replies.emplace_back(reinterpret_cast<const char*>(d.data()), d.size());
+    });
+    auto res = client.connectDtls("127.0.0.1", runner.server.port(), 5000);
+    ASSERT_TRUE(res.has_value());
+    ASSERT_TRUE(client.isConnected());
+
+    ASSERT_TRUE(client.send(1, toBytes("encrypted ping")));
+    ASSERT_TRUE(pumpUntil(client, [&] { return !replies.empty(); }));
+    ASSERT_TRUE(replies[0] == "encrypted ping");
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_EQ(runner.connects.load(), 1);
+}
+
+static void test_dtls_echo() { run_dtls_echo_case(false); }
+static void test_dtls_cookie_echo() { run_dtls_echo_case(true); }
+
 static void test_connect_timeout() {
     GameClient client;
     // Nothing is listening on this port; connect must time out
@@ -244,6 +377,10 @@ int main() {
     test_server_full_denies();
     test_multiple_clients_broadcast();
     test_connect_flood_hardening();
+    test_ipv6_end_to_end();
+    test_connection_migration();
+    test_dtls_echo();
+    test_dtls_cookie_echo();
     test_connect_timeout();
 
     if (g_failures == 0) {

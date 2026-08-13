@@ -34,7 +34,52 @@ void GameClient::sendSystem(uint8_t systemMsgType,
     std::vector<std::vector<uint8_t>> packets;
     m_connection->buildPackets(packets);
     for (const auto& p : packets)
-        (void)m_socket.sendTo(p, m_serverEndpoint);
+        sendPacket(p);
+}
+
+void GameClient::sendPacket(const std::vector<uint8_t>& packet) {
+    if (m_dtls) {
+        (void)m_dtls->encrypt(packet);
+        flushDtlsOutgoing();
+        return;
+    }
+    (void)m_socket.sendTo(packet, m_serverEndpoint);
+}
+
+void GameClient::flushDtlsOutgoing() {
+    std::vector<std::vector<uint8_t>> out;
+    m_dtls->pollOutgoing(out);
+    for (const auto& d : out)
+        (void)m_socket.sendTo(d, m_serverEndpoint);
+}
+
+// Receive the next PLAINTEXT protocol datagram (decrypting when DTLS is on).
+// Extra decrypted datagrams are queued in m_plainQueue.
+bool GameClient::recvPlainDatagram(UdpDatagram& out, int timeoutMs) {
+    if (!m_plainQueue.empty()) {
+        out.from = m_serverEndpoint;
+        out.data = std::move(m_plainQueue.front());
+        m_plainQueue.erase(m_plainQueue.begin());
+        return true;
+    }
+    if (!m_socket.waitForData(timeoutMs)) return false;
+    auto dg = m_socket.recvFrom(GAME_MTU);
+    if (!dg || dg->from != m_serverEndpoint) return false;
+    if (!m_dtls) {
+        out = std::move(*dg);
+        return true;
+    }
+    m_dtls->inputDatagram(dg->data);
+    m_dtls->drive();
+    flushDtlsOutgoing();
+    std::vector<std::vector<uint8_t>> plains;
+    m_dtls->pollPlaintext(plains);
+    if (plains.empty()) return false;
+    out.from = m_serverEndpoint;
+    out.data = std::move(plains.front());
+    for (size_t i = 1; i < plains.size(); ++i)
+        m_plainQueue.push_back(std::move(plains[i]));
+    return true;
 }
 
 // ============================================================================
@@ -43,19 +88,61 @@ void GameClient::sendSystem(uint8_t systemMsgType,
 
 Result<void, SocketError>
 GameClient::connect(const std::string& host, uint16_t port, int timeoutMs) {
+    return connectImpl(host, port, timeoutMs, false, false);
+}
+
+Result<void, SocketError>
+GameClient::connectDtls(const std::string& host, uint16_t port, int timeoutMs,
+                        bool verifyPeer) {
+    return connectImpl(host, port, timeoutMs, true, verifyPeer);
+}
+
+Result<void, SocketError>
+GameClient::connectImpl(const std::string& host, uint16_t port, int timeoutMs,
+                        bool useDtls, bool verifyPeer) {
     if (m_connected) return std::unexpected(SocketError::AlreadyConnected);
 
     auto ep = UdpSocket::resolve(host, port);
     if (!ep) return std::unexpected(ep.error());
     m_serverEndpoint = *ep;
 
-    auto opened = m_socket.open();
+    // Open the socket in the family of the resolved address (IPv6 aware)
+    int family = ep->address.find(':') != std::string::npos ? AF_INET6 : AF_INET;
+    auto opened = m_socket.open(family);
     if (!opened) return opened;
 
     m_connection = std::make_unique<GameConnection>(m_serverEndpoint, 0, m_channelCount);
     for (uint8_t ch = 0; ch < m_channelCount; ++ch)
         m_connection->setChannelMode(ch, m_channelModes[ch]);
     m_connection->setResendInterval(m_resendInterval);
+
+    if (useDtls) {
+        m_dtls = std::make_unique<DtlsSession>();
+        auto res = m_dtls->initClient(verifyPeer);
+        if (!res) { m_dtls.reset(); m_socket.close(); return res; }
+
+        SteadyTime hsDeadline = SteadyClock::now() + std::chrono::milliseconds(timeoutMs);
+        while (!m_dtls->isEstablished() && SteadyClock::now() < hsDeadline) {
+            m_dtls->drive();
+            flushDtlsOutgoing();
+            int waitMs = 100;
+            int t = m_dtls->nextTimeoutMs();
+            if (t == 0) { m_dtls->handleTimeout(); continue; }
+            if (t > 0 && t < waitMs) waitMs = t;
+            if (m_socket.waitForData(waitMs)) {
+                auto dg = m_socket.recvFrom(GAME_MTU);
+                if (dg && dg->from == m_serverEndpoint)
+                    m_dtls->inputDatagram(dg->data);
+            } else if (t >= 0) {
+                m_dtls->handleTimeout();
+            }
+        }
+        if (!m_dtls->isEstablished()) {
+            m_dtls.reset();
+            m_socket.close();
+            return std::unexpected(SocketError::Timeout);
+        }
+    }
 
     // Handshake: send Connect, retry every 500ms until Accept or timeout
     uint8_t connectExtra[2] = {
@@ -73,14 +160,12 @@ GameClient::connect(const std::string& host, uint16_t port, int timeoutMs) {
         if (remaining < slice) slice = static_cast<int>(remaining);
         if (slice <= 0) break;
 
-        if (!m_socket.waitForData(slice)) continue;
-
-        auto dg = m_socket.recvFrom(GAME_MTU);
-        if (!dg || dg->from != m_serverEndpoint) continue;
+        UdpDatagram plain;
+        if (!recvPlainDatagram(plain, slice)) continue;
 
         PacketHeader header;
         std::span<const uint8_t> records;
-        if (!decodePacketHeader(dg->data, header, records)) continue;
+        if (!decodePacketHeader(plain.data, header, records)) continue;
 
         m_connection->onPacketReceived(header);
 
@@ -134,7 +219,7 @@ bool GameClient::send(uint8_t channel, std::span<const uint8_t> payload) {
     std::vector<std::vector<uint8_t>> packets;
     m_connection->buildPackets(packets);
     for (const auto& p : packets)
-        (void)m_socket.sendTo(p, m_serverEndpoint);
+        sendPacket(p);
     return true;
 }
 
@@ -162,12 +247,11 @@ void GameClient::handleDatagram(const UdpDatagram& datagram) {
 void GameClient::pump(int timeoutMs) {
     if (!m_connected || !m_connection) return;
 
-    m_socket.waitForData(timeoutMs);
-
     for (;;) {
-        auto dg = m_socket.recvFrom(GAME_MTU);
-        if (!dg) break;
-        handleDatagram(*dg);
+        UdpDatagram dg;
+        if (!recvPlainDatagram(dg, timeoutMs)) break;
+        timeoutMs = 0;  // drain queued/plaintext datagrams without re-waiting
+        handleDatagram(dg);
     }
 
     if (!m_connected) return;  // Disconnect may have arrived above

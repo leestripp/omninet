@@ -143,6 +143,11 @@ add_executable(test_dtls_socket
     test_dtls_socket.cpp
 )
 
+# Pump-driven DTLS session tests
+add_executable(test_dtls_session
+    test_dtls_session.cpp
+)
+
 # Link with OmniNet and dependencies
 target_link_libraries(omnet_test PRIVATE OmniNet pthread)
 target_link_libraries(test_buffer_protection PRIVATE OmniNet pthread)
@@ -358,3 +363,5 @@ target_link_libraries(test_delta_snapshot PRIVATE OmniNet pthread)
 add_test(NAME test_delta_snapshot COMMAND test_delta_snapshot)
 target_link_libraries(test_dtls_socket PRIVATE OmniNet pthread)
 add_test(NAME test_dtls_socket COMMAND test_dtls_socket)
+target_link_libraries(test_dtls_session PRIVATE OmniNet pthread)
+add_test(NAME test_dtls_session COMMAND test_dtls_session)

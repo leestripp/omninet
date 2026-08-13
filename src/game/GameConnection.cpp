@@ -146,6 +146,7 @@ void GameConnection::buildPackets(std::vector<std::vector<uint8_t>>& outPackets)
 
         m_lastSendTime = SteadyClock::now();
         ++m_stats.packetsSent;
+        noteBytesSent(packet.size());
         outPackets.push_back(std::move(packet));
     }
 }
@@ -226,6 +227,7 @@ void GameConnection::collectRetransmits(SteadyTime now,
 
         m_lastSendTime = now;
         ++m_stats.packetsSent;
+        noteBytesSent(packet.size());
         outPackets.push_back(std::move(packet));
     }
 }
@@ -254,6 +256,41 @@ void GameConnection::processAcks(uint32_t ack, uint32_t ackBits) {
         if (ackBits & (1u << i))
             dropPending(ack - 1 - i);
     }
+}
+
+const ConnectionStats& GameConnection::stats() const {
+    // Preserve the last computed rates across the copy (windows only rotate
+    // once per second; m_stats' rate fields stay 0 — stats() is the only writer)
+    uint64_t sendRate = m_statsRef.sendRateBps;
+    uint64_t recvRate = m_statsRef.recvRateBps;
+    m_statsRef = m_stats;
+    m_statsRef.sendRateBps = sendRate;
+    m_statsRef.recvRateBps = recvRate;
+    auto now = SteadyClock::now();
+    rotateRateWindow(m_sendWindow, m_statsRef.sendRateBps, now);
+    rotateRateWindow(m_recvWindow, m_statsRef.recvRateBps, now);
+    return m_statsRef;
+}
+
+void GameConnection::rotateRateWindow(RateWindow& w, uint64_t& rateOut, SteadyTime now) {
+    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - w.start).count();
+    if (elapsedMs >= 1000) {
+        // Normalize to bytes/sec; an idle window (>= 2s with no traffic)
+        // reports the decayed rate, next rotation reports 0
+        rateOut = w.bytes * 1000 / static_cast<uint64_t>(elapsedMs);
+        w.bytes = 0;
+        w.start = now;
+    }
+}
+
+void GameConnection::noteBytesSent(size_t n) {
+    m_stats.bytesSent += n;
+    m_sendWindow.bytes += n;  // rates are computed lazily in stats()
+}
+
+void GameConnection::noteBytesReceived(size_t n) {
+    m_stats.bytesReceived += n;
+    m_recvWindow.bytes += n;
 }
 
 void GameConnection::onPacketReceived(const PacketHeader& header) {
@@ -400,6 +437,7 @@ bool GameConnection::processPacket(std::span<const uint8_t> datagram,
         return false;
 
     onPacketReceived(header);
+    noteBytesReceived(datagram.size());
     if (outHeader) *outHeader = header;
 
     while (!records.empty()) {

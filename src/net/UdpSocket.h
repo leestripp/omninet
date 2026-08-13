@@ -78,9 +78,13 @@ public:
 
     // Create the socket without binding (client use; ephemeral port on first send)
     [[nodiscard]] Result<void, SocketError> open();
+    // Create the socket for a specific family (AF_INET / AF_INET6)
+    [[nodiscard]] Result<void, SocketError> open(int family);
 
     // Create the socket and bind to address:port (server use).
-    // address may be "0.0.0.0" for all interfaces.
+    // "0.0.0.0" (or empty) = all IPv4 interfaces; "::" = dual-stack
+    // (IPv6 socket with V6ONLY off, accepts IPv4 clients as v4-mapped);
+    // an IPv6 literal binds that address.
     [[nodiscard]] Result<void, SocketError> bind(const std::string& address, uint16_t port);
 
     void close();
@@ -115,6 +119,7 @@ public:
 private:
     SOCKET m_fd = INVALID_SOCKET;
     uint16_t m_localPort = 0;
+    int m_family = AF_INET;
 };
 
 } // namespace OmniNet

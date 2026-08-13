@@ -55,11 +55,37 @@ uint64_t GameServer::endpointKey(const UdpEndpoint& ep) {
 // Messaging
 // ============================================================================
 
+void GameServer::enableDtls(const std::string& certFile, const std::string& keyFile,
+                            bool requireCookie) {
+    m_dtlsEnabled = true;
+    m_dtlsCookie = requireCookie;
+    m_dtlsCert = certFile;
+    m_dtlsKey = keyFile;
+}
+
+void GameServer::flushDtls(DtlsSession& session, const UdpEndpoint& to) {
+    std::vector<std::vector<uint8_t>> out;
+    session.pollOutgoing(out);
+    for (const auto& d : out)
+        (void)m_socket.sendTo(d, to);
+}
+
+void GameServer::sendPacketsTo(GameConnection& conn,
+                               const std::vector<std::vector<uint8_t>>& packets) {
+    if (conn.dtls) {
+        for (const auto& p : packets)
+            (void)conn.dtls->encrypt(p);
+        flushDtls(*conn.dtls, conn.remote());
+        return;
+    }
+    for (const auto& p : packets)
+        (void)m_socket.sendTo(p, conn.remote());
+}
+
 void GameServer::flushConnection(GameConnection& conn) {
     std::vector<std::vector<uint8_t>> packets;
     conn.buildPackets(packets);
-    for (const auto& p : packets)
-        (void)m_socket.sendTo(p, conn.remote());
+    sendPacketsTo(conn, packets);
 }
 
 void GameServer::sendSystem(GameConnection& conn, uint8_t systemMsgType,
@@ -73,6 +99,43 @@ void GameServer::sendSystem(GameConnection& conn, uint8_t systemMsgType,
     // handshake and keepalive traffic must not wait for the next pump.
     if (conn.queueMessage(SYSTEM_CHANNEL, payload))
         flushConnection(conn);
+}
+
+// Send a system message to an endpoint that has no GameConnection yet
+// (handshake phase). When DTLS is enabled the packet must be encrypted
+// through the endpoint's session — an established client's session, or a
+// completed handshake session still in the pending map.
+void GameServer::sendSystemToEndpoint(const UdpEndpoint& from, uint8_t systemMsgType,
+                                      std::span<const uint8_t> extra) {
+    GameConnection temp(from, 0, m_channelCount);
+    std::vector<uint8_t> payload(1 + extra.size());
+    payload[0] = systemMsgType;
+    if (!extra.empty())
+        std::copy(extra.begin(), extra.end(), payload.begin() + 1);
+    if (!temp.queueMessage(SYSTEM_CHANNEL, payload)) return;
+    std::vector<std::vector<uint8_t>> packets;
+    temp.buildPackets(packets);
+
+    DtlsSession* session = nullptr;
+    if (m_dtlsEnabled) {
+        uint64_t key = endpointKey(from);
+        auto keyIt = m_byEndpoint.find(key);
+        if (keyIt != m_byEndpoint.end()) {
+            auto connIt = m_clients.find(keyIt->second);
+            if (connIt != m_clients.end()) session = connIt->second->dtls.get();
+        }
+        if (!session) {
+            auto hs = m_dtlsHandshaking.find(key);
+            if (hs != m_dtlsHandshaking.end() && hs->second.session->isEstablished())
+                session = hs->second.session.get();
+        }
+        if (!session) return;  // cannot reach a DTLS client in plaintext
+        for (const auto& p : packets) (void)session->encrypt(p);
+        flushDtls(*session, from);
+        return;
+    }
+    for (const auto& p : packets)
+        (void)m_socket.sendTo(p, from);
 }
 
 bool GameServer::send(ConnectionId id, uint8_t channel,
@@ -117,8 +180,7 @@ void GameServer::handleConnect(const UdpEndpoint& from,
     if (payload.size() < 3) return;
     uint16_t version = static_cast<uint16_t>(payload[1] | (payload[2] << 8));
     if (version != GAME_PROTOCOL_VERSION) {
-        GameConnection temp(from, 0, m_channelCount);
-        sendSystem(temp, SystemMsg::Deny);
+        sendSystemToEndpoint(from, SystemMsg::Deny);
         return;
     }
 
@@ -144,14 +206,13 @@ void GameServer::handleConnect(const UdpEndpoint& from,
         ph.deadline = SteadyClock::now() + m_pendingTimeout;
         m_pending[key] = ph;
 
-        GameConnection temp(from, 0, m_channelCount);
         uint8_t extra[4] = {
             static_cast<uint8_t>(ph.token & 0xFF),
             static_cast<uint8_t>((ph.token >> 8) & 0xFF),
             static_cast<uint8_t>((ph.token >> 16) & 0xFF),
             static_cast<uint8_t>((ph.token >> 24) & 0xFF),
         };
-        sendSystem(temp, SystemMsg::Challenge, extra);
+        sendSystemToEndpoint(from, SystemMsg::Challenge, extra);
         return;
     }
 
@@ -159,8 +220,7 @@ void GameServer::handleConnect(const UdpEndpoint& from,
     m_pending.erase(pendingIt);
 
     if (m_clients.size() >= m_maxClients) {
-        GameConnection temp(from, 0, m_channelCount);
-        sendSystem(temp, SystemMsg::Deny);
+        sendSystemToEndpoint(from, SystemMsg::Deny);
         return;
     }
 
@@ -171,6 +231,15 @@ void GameServer::handleConnect(const UdpEndpoint& from,
     for (uint8_t ch = 0; ch < m_channelCount; ++ch)
         conn->setChannelMode(ch, m_channelModes[ch]);
     conn->setResendInterval(m_resendInterval);
+
+    if (m_dtlsEnabled) {
+        // Adopt the established DTLS session for this endpoint
+        auto hs = m_dtlsHandshaking.find(key);
+        if (hs == m_dtlsHandshaking.end() || !hs->second.session->isEstablished())
+            return;  // no encrypted channel yet: ignore
+        conn->dtls = std::move(hs->second.session);
+        m_dtlsHandshaking.erase(hs);
+    }
 
     uint8_t acceptExtra[2] = {
         static_cast<uint8_t>(id & 0xFF),
@@ -186,18 +255,101 @@ void GameServer::handleConnect(const UdpEndpoint& from,
 }
 
 void GameServer::handleDatagram(const UdpDatagram& datagram) {
+    if (!m_dtlsEnabled) {
+        processPlainPacket(datagram.from, datagram.data);
+        return;
+    }
+
+    uint64_t key = endpointKey(datagram.from);
+
+    // Established client: decrypt then process the plaintext packet
+    auto keyIt = m_byEndpoint.find(key);
+    if (keyIt != m_byEndpoint.end()) {
+        auto connIt = m_clients.find(keyIt->second);
+        if (connIt != m_clients.end() && connIt->second->dtls) {
+            auto& session = *connIt->second->dtls;
+            session.inputDatagram(datagram.data);
+            flushDtls(session, datagram.from);
+            std::vector<std::vector<uint8_t>> plains;
+            session.pollPlaintext(plains);
+            for (const auto& p : plains)
+                processPlainPacket(datagram.from, p);
+        }
+        return;
+    }
+
+    // Otherwise: DTLS handshake in progress (or a new client)
+    auto& pending = m_dtlsHandshaking[key];
+    if (!pending.session) {
+        if (m_dtlsHandshaking.size() >= m_maxPending) return;  // anti-flood
+        auto session = std::make_unique<DtlsSession>();
+        if (!session->initServer(m_dtlsCert, m_dtlsKey, m_dtlsCookie)) return;
+        sockaddr_in pa{};
+        pa.sin_family = AF_INET;
+        pa.sin_port = htons(datagram.from.port);
+        ::inet_pton(AF_INET, datagram.from.address.c_str(), &pa.sin_addr);
+        session->setPeerAddress(pa);  // IPv4 cookie binding (v6: zero addr)
+        pending.session = std::move(session);
+        pending.endpoint = datagram.from;
+        pending.deadline = SteadyClock::now() + std::chrono::seconds(10);
+    }
+    pending.session->inputDatagram(datagram.data);
+    pending.session->drive();
+    flushDtls(*pending.session, pending.endpoint);
+
+    if (pending.session->isEstablished()) {
+        std::vector<std::vector<uint8_t>> plains;
+        pending.session->pollPlaintext(plains);
+        for (const auto& p : plains)
+            processPlainPacket(datagram.from, p);
+    }
+}
+
+void GameServer::processPlainPacket(const UdpEndpoint& from, std::span<const uint8_t> data) {
+    UdpDatagram datagram;
+    datagram.from = from;
+    datagram.data.assign(data.begin(), data.end());
     PacketHeader header;
     std::span<const uint8_t> records;
     if (!decodePacketHeader(datagram.data, header, records)) return;
 
     auto keyIt = m_byEndpoint.find(endpointKey(datagram.from));
     if (keyIt == m_byEndpoint.end()) {
-        // Unknown endpoint: only a system Connect record may create a client
-        MessageRecord rec;
-        if (decodeRecord(records, rec) && rec.channel == SYSTEM_CHANNEL &&
-            !rec.payload.empty() && rec.payload[0] == SystemMsg::Connect)
-            handleConnect(datagram.from, rec.payload);
-        return;
+        // Connection migration: a packet from a NEW endpoint carrying a known
+        // connectionId migrates that client (NAT rebind, network switch).
+        // Lightweight proof: the packet must contain a system keepalive Ping.
+        // (DTLS mode: the datagram only decrypts under the old endpoint's
+        // session, so migration cannot trigger here — clients re-handshake.)
+        if (header.connectionId != 0 && !m_dtlsEnabled) {
+            auto migIt = m_clients.find(header.connectionId);
+            if (migIt != m_clients.end()) {
+                bool hasPing = false;
+                auto scan = records;
+                MessageRecord scanRec;
+                while (!scan.empty() && decodeRecord(scan, scanRec)) {
+                    if (scanRec.channel == SYSTEM_CHANNEL && !scanRec.payload.empty() &&
+                        scanRec.payload[0] == SystemMsg::Ping) {
+                        hasPing = true;
+                        break;
+                    }
+                }
+                if (hasPing) {
+                    GameConnection& conn = *migIt->second;
+                    m_byEndpoint.erase(endpointKey(conn.remote()));
+                    m_byEndpoint.emplace(endpointKey(datagram.from), conn.connectionId());
+                    conn.setRemote(datagram.from);
+                    keyIt = m_byEndpoint.find(endpointKey(datagram.from));
+                }
+            }
+        }
+        if (keyIt == m_byEndpoint.end()) {
+            // Unknown endpoint: only a system Connect record may create a client
+            MessageRecord rec;
+            if (decodeRecord(records, rec) && rec.channel == SYSTEM_CHANNEL &&
+                !rec.payload.empty() && rec.payload[0] == SystemMsg::Connect)
+                handleConnect(datagram.from, rec.payload);
+            return;
+        }
     }
 
     auto connIt = m_clients.find(keyIt->second);
@@ -253,14 +405,30 @@ void GameServer::pump(int timeoutMs) {
         else ++it;
     }
 
+    // DTLS handshake maintenance: retransmission timers + stale sweeps
+    if (m_dtlsEnabled) {
+        for (auto it = m_dtlsHandshaking.begin(); it != m_dtlsHandshaking.end();) {
+            auto& pend = it->second;
+            if (!pend.session->isEstablished() && now >= pend.deadline) {
+                it = m_dtlsHandshaking.erase(it);
+                continue;
+            }
+            if (pend.session->nextTimeoutMs() == 0) {
+                pend.session->handleTimeout();
+                pend.session->drive();
+                flushDtls(*pend.session, pend.endpoint);
+            }
+            ++it;
+        }
+    }
+
     // Retransmits + queued messages + keepalives + timeouts
     std::vector<ConnectionId> timedOut;
     for (auto& [id, conn] : m_clients) {
         std::vector<std::vector<uint8_t>> packets;
         conn->collectRetransmits(now, packets);
         conn->buildPackets(packets);  // flush anything queued outside send()
-        for (const auto& p : packets)
-            (void)m_socket.sendTo(p, conn->remote());
+        sendPacketsTo(*conn, packets);
 
         if (conn->needsKeepalive(now))
             sendSystem(*conn, SystemMsg::Ping);

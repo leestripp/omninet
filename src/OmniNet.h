@@ -57,6 +57,7 @@
 #include "net/TLSSocket.h"
 #include "net/UdpSocket.h"
 #include "net/DtlsSocket.h"
+#include "net/DtlsSession.h"
 
 // ============================================================================
 // Game Networking Layer (UDP)

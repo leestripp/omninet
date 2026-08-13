@@ -53,6 +53,13 @@ public:
     [[nodiscard]] Result<void, SocketError>
     connect(const std::string& host, uint16_t port, int timeoutMs = 5000);
 
+    // Connect over DTLS: completes the encrypted handshake first, then the
+    // normal game handshake runs inside the encrypted channel.
+    // verifyPeer=false accepts self-signed server certs (game default).
+    [[nodiscard]] Result<void, SocketError>
+    connectDtls(const std::string& host, uint16_t port, int timeoutMs = 5000,
+                bool verifyPeer = false);
+
     // Graceful disconnect (sends Disconnect, closes socket)
     void disconnect();
 
@@ -73,8 +80,16 @@ public:
     const GameConnection* connection() const { return m_connection.get(); }
 
 private:
+    Result<void, SocketError> connectImpl(const std::string& host, uint16_t port,
+                                          int timeoutMs, bool useDtls, bool verifyPeer);
     void sendSystem(uint8_t systemMsgType, std::span<const uint8_t> extra = {});
     void handleDatagram(const UdpDatagram& datagram);
+    void sendPacket(const std::vector<uint8_t>& packet);   // DTLS-aware
+    bool recvPlainDatagram(UdpDatagram& out, int timeoutMs);  // decrypts when DTLS
+    void flushDtlsOutgoing();
+
+    std::unique_ptr<DtlsSession> m_dtls;
+    std::vector<std::vector<uint8_t>> m_plainQueue;
 
     UdpSocket m_socket;
     std::unique_ptr<GameConnection> m_connection;

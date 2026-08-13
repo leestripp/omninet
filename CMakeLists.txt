@@ -146,6 +146,7 @@ target_sources(OmniNet PRIVATE
     src/net/TLSSocket.cpp
     src/net/UdpSocket.cpp
     src/net/DtlsSocket.cpp
+    src/net/DtlsSession.cpp
     src/net/Buffer.cpp
 
     # Game Networking (UDP)

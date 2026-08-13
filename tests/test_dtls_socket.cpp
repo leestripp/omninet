@@ -28,7 +28,7 @@ std::string writeTemp(const std::vector<uint8_t>& pem, const char* name) {
 
 } // namespace
 
-static void run_echo_case() {
+static void run_echo_case(bool requireCookie) {
     auto [certPem, keyPem] = Crypto::generateSelfSignedCert("dtls-test", 1);
     ASSERT_TRUE(!certPem.empty() && !keyPem.empty());
     std::string certPath = writeTemp(certPem, "cert.pem");
@@ -42,7 +42,7 @@ static void run_echo_case() {
     std::string echoBack;
     bool serverOk = false;
     std::thread serverThread([&] {
-        if (!server.accept(certPath, keyPath, 8000).has_value()) return;
+        if (!server.accept(certPath, keyPath, 8000, requireCookie).has_value()) return;
         serverOk = true;
         auto got = server.recv(4096, 5000);
         if (!got) return;
@@ -74,7 +74,8 @@ static void run_echo_case() {
     ASSERT_TRUE(!client.isEstablished());
 }
 
-static void test_handshake_and_echo() { run_echo_case(); }
+static void test_handshake_and_echo() { run_echo_case(false); }
+static void test_cookie_exchange_echo() { run_echo_case(true); }
 
 static void test_connect_timeout_no_server() {
     DtlsSocket client;
@@ -85,6 +86,7 @@ static void test_connect_timeout_no_server() {
 
 int main() {
     test_handshake_and_echo();
+    test_cookie_exchange_echo();
     test_connect_timeout_no_server();
 
     if (g_failures == 0) {

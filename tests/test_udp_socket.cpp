@@ -86,6 +86,72 @@ static void test_move() {
     ASSERT_EQ(b.localPort(), port);
 }
 
+static bool ipv6Available() {
+    UdpSocket s;
+    if (!s.bind("::1", 0).has_value()) return false;
+    return s.localPort() != 0;
+}
+
+static void test_ipv6_loopback_echo() {
+    if (!ipv6Available()) { std::printf("SKIP ipv6 tests (no IPv6 stack)\n"); return; }
+
+    UdpSocket server;
+    ASSERT_TRUE(server.bind("::1", 0).has_value());
+    ASSERT_TRUE(server.localPort() != 0);
+
+    UdpSocket client;
+    ASSERT_TRUE(client.open(AF_INET6).has_value());
+
+    const char* msg = "ipv6 hello";
+    auto sent = client.sendTo({reinterpret_cast<const uint8_t*>(msg), 10},
+                              {"::1", server.localPort()});
+    ASSERT_TRUE(sent.has_value());
+    ASSERT_TRUE(server.waitForData(2000));
+    auto dg = server.recvFrom();
+    ASSERT_TRUE(dg.has_value());
+    ASSERT_EQ(dg->data.size(), 10u);
+    ASSERT_EQ(dg->from.address, std::string("::1"));
+
+    // Reply path: server -> client
+    auto rsent = server.sendTo(dg->data, dg->from);
+    ASSERT_TRUE(rsent.has_value());
+    ASSERT_TRUE(client.waitForData(2000));
+    auto reply = client.recvFrom();
+    ASSERT_TRUE(reply.has_value());
+    ASSERT_EQ(reply->from.address, std::string("::1"));
+}
+
+static void test_dual_stack_receives_ipv4() {
+    if (!ipv6Available()) { std::printf("SKIP dual-stack (no IPv6 stack)\n"); return; }
+
+    UdpSocket server;
+    ASSERT_TRUE(server.bind("::", 0).has_value());  // dual-stack
+
+    UdpSocket client4;
+    ASSERT_TRUE(client4.open().has_value());  // IPv4
+    const char* msg = "v4 on dual";
+    auto sent = client4.sendTo({reinterpret_cast<const uint8_t*>(msg), 10},
+                               {"127.0.0.1", server.localPort()});
+    ASSERT_TRUE(sent.has_value());
+    ASSERT_TRUE(server.waitForData(2000));
+    auto dg = server.recvFrom();
+    ASSERT_TRUE(dg.has_value());
+    // v4-mapped normalized to plain IPv4
+    ASSERT_EQ(dg->from.address, std::string("127.0.0.1"));
+
+    // Dual-stack server can reply to the v4 client
+    ASSERT_TRUE(server.sendTo(dg->data, dg->from).has_value());
+    ASSERT_TRUE(client4.waitForData(2000));
+    ASSERT_TRUE(client4.recvFrom().has_value());
+}
+
+static void test_resolve_localhost_dual() {
+    auto ep = UdpSocket::resolve("localhost", 7777);
+    ASSERT_TRUE(ep.has_value());
+    ASSERT_TRUE(ep->address == "127.0.0.1" || ep->address == "::1");
+    ASSERT_EQ(ep->port, 7777);
+}
+
 int main() {
     test_bind_and_port();
     test_double_bind_fails();
@@ -96,7 +162,11 @@ int main() {
     test_move();
 
     if (g_failures == 0) {
-        std::printf("All UdpSocket tests passed\n");
+        test_ipv6_loopback_echo();
+    test_dual_stack_receives_ipv4();
+    test_resolve_localhost_dual();
+
+    std::printf("All UdpSocket tests passed\n");
         return 0;
     }
     std::printf("%d test(s) failed\n", g_failures);

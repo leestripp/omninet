@@ -29,9 +29,16 @@ A modern, high-performance C++ HTTP/WebSocket server library with TLS support, s
   quantized floats for compact game-state encoding
 - **Snapshot Delta Compression** - Baseline registry + XOR/RLE diff encoding
   (Quake 3 / Source style) for compact world-state updates
-- **DTLS** - Encrypted UDP via OpenSSL (`DtlsSocket`)
+- **DTLS** - Encrypted UDP via OpenSSL (`DtlsSocket`) with optional
+  stateless cookie exchange (HelloVerifyRequest) for handshake DoS hardening
 - **DoS Hardening** - Challenge-response handshake: spoofed Connect floods commit
   zero server state until the sender proves its address
+- **IPv6** - Dual-stack UDP (`::` binds accept IPv4 as v4-mapped), IPv6-aware
+  client connect, per-connection bandwidth-rate stats
+- **Encrypted Game Transport** - `DtlsSession` pump-driven DTLS integrated into
+  `GameServer`/`GameClient` (`enableDtls`/`connectDtls`), optional cookie exchange
+- **Connection Migration** - clients survive NAT rebinds/network switches;
+  the server re-keys endpoints on keepalive with a known connection ID
 
 ## Requirements
 

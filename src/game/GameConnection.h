@@ -15,6 +15,7 @@
 
 #include "game/GameProtocol.h"
 #include "net/UdpSocket.h"
+#include "net/DtlsSession.h"
 
 namespace OmniNet::Game {
 
@@ -37,6 +38,12 @@ struct ConnectionStats {
     uint64_t fragmentsReceived = 0;
     uint64_t reassembliesCompleted = 0;
     uint64_t reassembliesDropped = 0;   // expired or oversized
+    uint64_t bytesSent = 0;             // UDP payload bytes (headers included)
+    uint64_t bytesReceived = 0;
+    // Bytes/sec measured over the most recent completed ~1s window
+    // (0 until the first full window elapses; idle connections decay to 0)
+    uint64_t sendRateBps = 0;
+    uint64_t recvRateBps = 0;
 };
 
 // ============================================================================
@@ -74,10 +81,17 @@ public:
     void setReassemblyTimeout(std::chrono::milliseconds timeout) { m_reassemblyTimeout = timeout; }
 
     const UdpEndpoint& remote() const { return m_remote; }
+    void setRemote(const UdpEndpoint& ep) { m_remote = ep; }
+
+    // When set (DTLS-enabled server/client), all packets are encrypted
+    // through this session before hitting the wire
+    std::unique_ptr<DtlsSession> dtls;
     ConnectionId connectionId() const { return m_connectionId; }
     void setConnectionId(ConnectionId id) { m_connectionId = id; }
 
-    const ConnectionStats& stats() const { return m_stats; }
+    // Reading stats refreshes the ~1s rate windows, so rates decay to 0
+    // on idle connections even when polled without traffic
+    const ConnectionStats& stats() const;
 
     // --- RTT estimation (Jacobson/Karels) ---
 
@@ -111,6 +125,10 @@ public:
 
     // Update ack state from a received packet header (call for every packet)
     void onPacketReceived(const PacketHeader& header);
+
+    // Byte counters + rate windows (hooked from buildPackets/processPacket)
+    void noteBytesSent(size_t n);
+    void noteBytesReceived(size_t n);
 
     // Process one message record; routes through reassembly/ordering/dedup
     // and invokes deliver for messages ready for the application.
@@ -212,6 +230,15 @@ private:
     SteadyTime m_lastSendTime = SteadyTime::min();
 
     ConnectionStats m_stats;
+
+    struct RateWindow {
+        SteadyTime start = SteadyClock::now();
+        uint64_t bytes = 0;
+    };
+    mutable RateWindow m_sendWindow;
+    mutable RateWindow m_recvWindow;
+    mutable ConnectionStats m_statsRef;   // refreshed copy returned by stats()
+    static void rotateRateWindow(RateWindow& w, uint64_t& rateOut, SteadyTime now);
 };
 
 } // namespace OmniNet::Game

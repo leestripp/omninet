@@ -118,6 +118,20 @@ automatically and reassembled in order. RTT is estimated Jacobson/Karels-style
 - [x] Phase 3 — Snapshot delta-compression helpers (`DeltaEncoder`/`DeltaDecoder`, XOR/RLE diff)
 - [x] Phase 3 — `DtlsSocket` (OpenSSL DTLS over UDP; building-block API, echo-tested)
 - [x] Phase 3 — Benchmarks: `game_network_bench` (pps, Mbps, retransmits/RTT under simulated loss)
+- [x] Phase 4 — DoS hardening: challenge-response handshake (protocol v3)
+- [x] Phase 4 — Bandwidth-rate stats: bytesSent/bytesReceived totals + ~1s
+      window send/recv rates, lazily refreshed in `stats()`
+- [x] Phase 4 — IPv6 support (dual-stack UdpSocket/GameServer/GameClient; v4-mapped normalization)
+- [x] Phase 5 — DTLS cookie exchange (`requireCookie` on `DtlsSocket::accept`):
+      nonblocking fd + DTLS-timer-aware handshake loops; DTLSv1_listen phase
+      runs blocking with SO_RCVTIMEO slices (OpenSSL maps dgram EAGAIN to
+      SSL_ERROR_SYSCALL, not WANT_READ); HMAC cookie over packed addr||port
+- [x] Phase 5 — Per-client DTLS: `DtlsSession` (mem-BIO, pump-driven) wired into
+      `GameServer::enableDtls` / `GameClient::connectDtls`; game handshake runs
+      inside the encrypted channel; cookie exchange supported; e2e tested
+- [x] Phase 5 — Connection migration: server re-keys a client's endpoint when a
+      keepalive with a known connId arrives from a new endpoint (repeatable,
+      spoof-resistant; DTLS clients re-handshake instead)
 
 ## 4. Public API sketch (Phase 1, as implemented)
 

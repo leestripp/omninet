@@ -42,6 +42,15 @@ public:
     // --- Lifecycle ---
 
     [[nodiscard]] Result<void, SocketError> bind(const std::string& address, uint16_t port);
+
+    // Enable DTLS encryption for all client traffic. New clients first
+    // complete a DTLS handshake (optionally with the stateless cookie
+    // exchange), then the normal game handshake runs inside the encrypted
+    // channel. Must be called before bind/while running; existing
+    // unencrypted clients are unaffected until they reconnect.
+    void enableDtls(const std::string& certFile, const std::string& keyFile,
+                    bool requireCookie = false);
+    bool isDtlsEnabled() const { return m_dtlsEnabled; }
     void close();
     bool isRunning() const { return m_socket.isOpen(); }
     uint16_t port() const { return m_socket.localPort(); }
@@ -80,10 +89,14 @@ public:
 
 private:
     void flushConnection(GameConnection& conn);
+    void sendPacketsTo(GameConnection& conn, const std::vector<std::vector<uint8_t>>& packets);
     void handleDatagram(const UdpDatagram& datagram);
+    void processPlainPacket(const UdpEndpoint& from, std::span<const uint8_t> data);
     void handleConnect(const UdpEndpoint& from, std::span<const uint8_t> payload);
     void sendSystem(GameConnection& conn, uint8_t systemMsgType,
                     std::span<const uint8_t> extra = {});
+    void sendSystemToEndpoint(const UdpEndpoint& from, uint8_t systemMsgType,
+                              std::span<const uint8_t> extra = {});
     void removeClient(ConnectionId id, bool notify);
 
     static uint64_t endpointKey(const UdpEndpoint& ep);
@@ -101,6 +114,19 @@ private:
         std::chrono::steady_clock::time_point deadline;
     };
     std::unordered_map<uint64_t, PendingHandshake> m_pending;
+
+    // --- DTLS (optional; see enableDtls) ---
+    bool m_dtlsEnabled = false;
+    bool m_dtlsCookie = false;
+    std::string m_dtlsCert;
+    std::string m_dtlsKey;
+    struct DtlsPending {
+        std::unique_ptr<DtlsSession> session;
+        UdpEndpoint endpoint;
+        std::chrono::steady_clock::time_point deadline;
+    };
+    std::unordered_map<uint64_t, DtlsPending> m_dtlsHandshaking;
+    void flushDtls(DtlsSession& session, const UdpEndpoint& to);
     std::chrono::milliseconds m_pendingTimeout{3000};
     size_t m_maxClients = 64;
     size_t m_maxPending = 64;  // unverified handshakes (anti-flood cap)
