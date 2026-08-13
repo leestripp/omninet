@@ -113,6 +113,36 @@ add_executable(test_xdg_paths
     test_xdg_paths.cpp
 )
 
+# UDP socket tests (game networking)
+add_executable(test_udp_socket
+    test_udp_socket.cpp
+)
+
+# BitStream serialization tests (game networking)
+add_executable(test_bitstream
+    test_bitstream.cpp
+)
+
+# GameConnection protocol tests (game networking)
+add_executable(test_game_connection
+    test_game_connection.cpp
+)
+
+# GameServer/GameClient end-to-end tests (game networking)
+add_executable(test_game_network
+    test_game_network.cpp
+)
+
+# Delta snapshot compression tests (game networking)
+add_executable(test_delta_snapshot
+    test_delta_snapshot.cpp
+)
+
+# DTLS datagram socket tests
+add_executable(test_dtls_socket
+    test_dtls_socket.cpp
+)
+
 # Link with OmniNet and dependencies
 target_link_libraries(omnet_test PRIVATE OmniNet pthread)
 target_link_libraries(test_buffer_protection PRIVATE OmniNet pthread)
@@ -316,3 +346,15 @@ add_test(NAME test_sse_streaming COMMAND test_sse_streaming)
 add_test(NAME test_streaming_response COMMAND test_streaming_response)
 add_test(NAME test_http_client COMMAND test_http_client)
 add_test(NAME test_xdg_paths COMMAND test_xdg_paths)
+target_link_libraries(test_udp_socket PRIVATE OmniNet pthread)
+target_link_libraries(test_bitstream PRIVATE OmniNet pthread)
+target_link_libraries(test_game_connection PRIVATE OmniNet pthread)
+target_link_libraries(test_game_network PRIVATE OmniNet pthread)
+add_test(NAME test_udp_socket COMMAND test_udp_socket)
+add_test(NAME test_bitstream COMMAND test_bitstream)
+add_test(NAME test_game_connection COMMAND test_game_connection)
+add_test(NAME test_game_network COMMAND test_game_network)
+target_link_libraries(test_delta_snapshot PRIVATE OmniNet pthread)
+add_test(NAME test_delta_snapshot COMMAND test_delta_snapshot)
+target_link_libraries(test_dtls_socket PRIVATE OmniNet pthread)
+add_test(NAME test_dtls_socket COMMAND test_dtls_socket)

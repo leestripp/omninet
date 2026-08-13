@@ -60,7 +60,8 @@ C++23 is mandatory. The build will fail if the compiler does not support `-std=c
 │   ├── http/               # Request, response, router, server, client, static handler
 │   ├── intrusion/          # Intrusion detector
 │   ├── io/                 # epoll-based IoContext, AsyncSocket, AsyncFile
-│   ├── net/                # Socket, TLSSocket, Buffer
+│   ├── net/                # Socket, TLSSocket, UdpSocket, Buffer
+│   ├── game/               # Game networking: BitStream, GameProtocol, GameConnection, GameServer/GameClient (UDP)
 │   ├── server/             # AsyncServer (coroutine-based HTTP server)
 │   ├── sse/                # Server-Sent Events handler
 │   ├── thread/             # Work-stealing thread pool
@@ -158,6 +159,7 @@ clang-tidy -p build src/utils/XdgPaths.cpp
   - `OmniNet::Thread` — thread pool
   - `OmniNet::IO` — event loop and async sockets/files
   - `OmniNet::Server` — `AsyncServer`
+  - `OmniNet::Game` — UDP game networking: `GameServer`, `GameClient`, `GameConnection`, `BitWriter`/`BitReader`
   - `OmniNet::Token` — session tokens and API keys
   - `OmniNet::Dashboard` / `OmniNet::Admin` — dashboard and admin endpoints
   - `OmniNet::SSE` — Server-Sent Events

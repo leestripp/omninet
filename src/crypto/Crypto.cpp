@@ -12,6 +12,7 @@
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
 #include <algorithm>
+#include <ctime>
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -427,4 +428,69 @@ std::string SecureToken::generateUrlSafe(size_t length) {
     return encoded;
 }
 
+
+// ============================================================================
+// Self-Signed Certificate Generation
+// ============================================================================
+
+std::pair<std::vector<uint8_t>, std::vector<uint8_t>>
+Crypto::generateSelfSignedCert(const std::string& commonName, size_t validityDays) {
+    std::pair<std::vector<uint8_t>, std::vector<uint8_t>> empty;
+
+    EVP_PKEY_CTX* keyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+    if (!keyCtx) return empty;
+    EVP_PKEY* pkey = nullptr;
+    if (EVP_PKEY_keygen_init(keyCtx) <= 0 ||
+        EVP_PKEY_CTX_set_rsa_keygen_bits(keyCtx, 2048) <= 0 ||
+        EVP_PKEY_keygen(keyCtx, &pkey) <= 0) {
+        EVP_PKEY_CTX_free(keyCtx);
+        return empty;
+    }
+    EVP_PKEY_CTX_free(keyCtx);
+
+    X509* x509 = X509_new();
+    if (!x509) { EVP_PKEY_free(pkey); return empty; }
+
+    X509_set_version(x509, 2);
+    ASN1_INTEGER_set(X509_get_serialNumber(x509),
+                     static_cast<long>(std::time(nullptr)));
+    X509_gmtime_adj(X509_getm_notBefore(x509), 0);
+    X509_gmtime_adj(X509_getm_notAfter(x509),
+                    static_cast<long>(validityDays) * 24 * 3600);
+    X509_set_pubkey(x509, pkey);
+
+    X509_NAME* name = X509_get_subject_name(x509);
+    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+                               reinterpret_cast<const unsigned char*>(commonName.c_str()),
+                               -1, -1, 0);
+    X509_set_issuer_name(x509, name);
+
+    bool ok = X509_sign(x509, pkey, EVP_sha256()) > 0;
+
+    std::vector<uint8_t> certPem, keyPem;
+    if (ok) {
+        BIO* bio = BIO_new(BIO_s_mem());
+        if (PEM_write_bio_X509(bio, x509) == 1) {
+            BUF_MEM* mem = nullptr;
+            BIO_get_mem_ptr(bio, &mem);
+            certPem.assign(mem->data, mem->data + mem->length);
+        }
+        BIO_free(bio);
+
+        bio = BIO_new(BIO_s_mem());
+        if (PEM_write_bio_PrivateKey(bio, pkey, nullptr, nullptr, 0, nullptr, nullptr) == 1) {
+            BUF_MEM* mem = nullptr;
+            BIO_get_mem_ptr(bio, &mem);
+            keyPem.assign(mem->data, mem->data + mem->length);
+        }
+        BIO_free(bio);
+    }
+
+    X509_free(x509);
+    EVP_PKEY_free(pkey);
+    if (certPem.empty() || keyPem.empty()) return empty;
+    return {std::move(certPem), std::move(keyPem)};
+}
+
 } // namespace OmniNet
+

@@ -144,7 +144,17 @@ target_sources(OmniNet PRIVATE
     # Networking
     src/net/Socket.cpp
     src/net/TLSSocket.cpp
+    src/net/UdpSocket.cpp
+    src/net/DtlsSocket.cpp
     src/net/Buffer.cpp
+
+    # Game Networking (UDP)
+    src/game/BitStream.cpp
+    src/game/GameProtocol.cpp
+    src/game/GameConnection.cpp
+    src/game/GameServer.cpp
+    src/game/GameClient.cpp
+    src/game/DeltaSnapshot.cpp
     
     # HTTP
     src/http/HttpRequest.cpp

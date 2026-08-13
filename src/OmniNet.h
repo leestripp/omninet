@@ -55,6 +55,19 @@
 
 #include "net/Socket.h"
 #include "net/TLSSocket.h"
+#include "net/UdpSocket.h"
+#include "net/DtlsSocket.h"
+
+// ============================================================================
+// Game Networking Layer (UDP)
+// ============================================================================
+
+#include "game/BitStream.h"
+#include "game/GameProtocol.h"
+#include "game/GameConnection.h"
+#include "game/GameServer.h"
+#include "game/GameClient.h"
+#include "game/DeltaSnapshot.h"
 
 // ============================================================================
 // HTTP Layer

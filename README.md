@@ -21,6 +21,17 @@ A modern, high-performance C++ HTTP/WebSocket server library with TLS support, s
 - **Log Rotation** - Automatic rotation based on file size
 - **CLI Tools** - Admin tools for users, certs, logs, etc.
 - **Public Test Framework** - Header-only test utilities for users
+- **Game Networking (UDP)** - Channel-based UDP server/client with reliable-ordered,
+  unreliable-sequenced, and fire-and-forget delivery; piggyback ACKs, adaptive
+  retransmission (Jacobson/Karels RTT), packet aggregation, transparent
+  fragmentation, keepalive, and connection timeouts (see `Plan.md`)
+- **Bit-Stream Serialization** - High-speed bit-level writer/reader with varints and
+  quantized floats for compact game-state encoding
+- **Snapshot Delta Compression** - Baseline registry + XOR/RLE diff encoding
+  (Quake 3 / Source style) for compact world-state updates
+- **DTLS** - Encrypted UDP via OpenSSL (`DtlsSocket`)
+- **DoS Hardening** - Challenge-response handshake: spoofed Connect floods commit
+  zero server state until the sender proves its address
 
 ## Requirements
 
@@ -129,7 +140,8 @@ OmniNet/
 │   ├── config/        # Configuration system
 │   ├── utils/         # Utilities (Logger, LogReader, Utils, Exception)
 │   ├── crypto/        # Cryptography (Crypto, Password)
-│   ├── net/           # Networking (Socket, TLSSocket, Buffer)
+│   ├── net/           # Networking (Socket, TLSSocket, UdpSocket, Buffer)
+│   ├── game/          # Game networking (BitStream, GameConnection, GameServer, GameClient)
 │   ├── http/          # HTTP server components
 │   ├── websocket/     # WebSocket implementation
 │   ├── db/            # Database (SQLite wrapper)

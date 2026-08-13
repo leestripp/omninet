@@ -46,3 +46,9 @@ add_executable(async_server_demo
 )
 target_link_libraries(async_server_demo PRIVATE OmniNet Threads::Threads)
 target_include_directories(async_server_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# Game networking UDP echo demo
+add_executable(game_echo_demo
+    game_echo.cpp
+)
+target_link_libraries(game_echo_demo PRIVATE OmniNet Threads::Threads)
+target_include_directories(game_echo_demo PRIVATE ${CMAKE_SOURCE_DIR}/src)

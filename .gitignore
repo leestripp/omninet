@@ -41,3 +41,4 @@ server.key
 # Exception: keep third_party/ if you have local non-fetched dependencies
 third_party/
 *.db
+.daedalus/

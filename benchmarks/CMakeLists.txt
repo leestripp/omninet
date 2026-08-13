@@ -30,3 +30,10 @@ add_executable(coroutine_overhead_bench
 )
 target_link_libraries(coroutine_overhead_bench PRIVATE OmniNet)
 target_include_directories(coroutine_overhead_bench PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# Game networking throughput/loss benchmark
+add_executable(game_network_bench
+    game_network_bench.cpp
+)
+target_link_libraries(game_network_bench PRIVATE OmniNet Threads::Threads)
+target_include_directories(game_network_bench PRIVATE ${CMAKE_SOURCE_DIR}/src)
