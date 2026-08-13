@@ -27,6 +27,9 @@ secrets/
 .codemax/
 prompt.txt
 
+# daedalus
+.daedalus/
+
 # Temp files
 *.tmp
 *.swp
@@ -41,4 +44,3 @@ server.key
 # Exception: keep third_party/ if you have local non-fetched dependencies
 third_party/
 *.db
-.daedalus/
