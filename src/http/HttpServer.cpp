@@ -103,6 +103,12 @@ void Server::start() {
     
     // Accept loop
     runAcceptLoop();
+
+    // Loop exited — either stop() was called externally (this is then a
+    // no-op via the m_running guard) or a shutdown signal was received
+    // (g_shutdownRequested): run the full cleanup so worker and connection
+    // threads are joined before start() returns.
+    stop();
 }
 
 void Server::startAsync() {
@@ -482,11 +488,12 @@ void Server::runAcceptLoop() {
         if (!m_running) break;
 #endif
         // Signal-based shutdown (installSignalHandlers). Checked every poll
-        // cycle; worst-case latency is one accept timeout (~1s).
+        // cycle; worst-case latency is one accept timeout (~1s). Just break:
+        // start() calls stop() after the loop, which performs the full join
+        // cleanup. Setting m_running=false here would make stop()'s guard
+        // skip the joins and leak joinable threads (std::terminate).
         if (g_shutdownRequested) {
             SERVER_DEBUG("Shutdown requested by signal");
-            m_stopping = true;
-            m_running = false;
             break;
         }
         if (!client) {
