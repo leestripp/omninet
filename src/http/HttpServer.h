@@ -92,6 +92,13 @@ public:
     
     // Stop the server gracefully
     void stop();
+
+    /// Install process-level SIGTERM/SIGINT handlers that request a clean
+    /// shutdown of the accept loop (async-signal-safe: the handler only sets
+    /// a flag; the loop observes it within one poll cycle, <= 1s).
+    /// Call once before start(). Without this, SIGTERM/SIGINT kill the
+    /// process abruptly (e.g. `systemctl stop` hangs until SIGKILL).
+    static void installSignalHandlers();
     
     // Check if server is running
     bool isRunning() const;

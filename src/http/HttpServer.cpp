@@ -4,6 +4,7 @@
 #include "net/TLSSocket.h"
 
 #include <chrono>
+#include <csignal>
 #include <iostream>
 
 #ifndef _WIN32
@@ -110,6 +111,31 @@ void Server::startAsync() {
         m_asyncThread.join();
     }
     m_asyncThread = std::thread([this] { start(); });
+}
+
+// Signal-requested shutdown flag. Written by the signal handler (must stay
+// async-signal-safe: a plain sig_atomic_t store only), read by the accept
+// loop once per poll cycle.
+namespace {
+volatile std::sig_atomic_t g_shutdownRequested = 0;
+
+void handleShutdownSignal(int) {
+    g_shutdownRequested = 1;
+}
+} // namespace
+
+void Server::installSignalHandlers() {
+#ifndef _WIN32
+    struct sigaction sa{};
+    sa.sa_handler = &handleShutdownSignal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;  // no SA_RESTART: poll() returns promptly on signal
+    sigaction(SIGTERM, &sa, nullptr);
+    sigaction(SIGINT, &sa, nullptr);
+#else
+    std::signal(SIGTERM, &handleShutdownSignal);
+    std::signal(SIGINT, &handleShutdownSignal);
+#endif
 }
 
 void Server::stop() {
@@ -455,6 +481,14 @@ void Server::runAcceptLoop() {
         // accept any more connections.
         if (!m_running) break;
 #endif
+        // Signal-based shutdown (installSignalHandlers). Checked every poll
+        // cycle; worst-case latency is one accept timeout (~1s).
+        if (g_shutdownRequested) {
+            SERVER_DEBUG("Shutdown requested by signal");
+            m_stopping = true;
+            m_running = false;
+            break;
+        }
         if (!client) {
             // Timeout or wakeup — just loop and re-check m_running.
             continue;
