@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <netinet/in.h>
@@ -639,6 +640,147 @@ TEST(on_ready_async_fires) {
     ASSERT_TRUE(called.load());
 
     server.stop();
+}
+
+
+// ============================================================================
+// Regression tests — connection-thread leak (omninet_bugs.md, fixed v0.9.8)
+// A joinable thread that has finished but is never joined keeps its ~8 MB
+// stack mapped (zombie thread). Pre-fix, every fresh TCP connection leaked
+// ~8 MB of VmSize. These tests bound per-connection address-space growth.
+// ============================================================================
+
+static long readVmSizeKB() {
+    std::ifstream status("/proc/self/status");
+    std::string line;
+    while (std::getline(status, line)) {
+        if (line.rfind("VmSize:", 0) == 0) {
+            return std::stol(line.substr(7));
+        }
+    }
+    return -1;
+}
+
+static void fresh_connection_get(uint16_t port, const std::string& path) {
+    int fd = tcp_connect(port);
+    if (fd < 0) throw std::runtime_error("tcp_connect failed");
+    std::string req = "GET " + path +
+        " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    std::string resp = send_raw(fd, req);
+    ::close(fd);
+    if (parse_status(resp) != 200) {
+        throw std::runtime_error("fresh_connection_get: expected 200");
+    }
+}
+
+TEST(server_no_address_space_growth_per_connection) {
+    // T1: 500 fresh connections must not grow VmSize by ~4 GB (500 x 8 MB).
+    Server::Config cfg;
+    cfg.port = 18090;
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/ping", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+        resp.setBody("pong");
+    });
+
+    JoinableThread t([&]() { server.start(); });
+    std::this_thread::sleep_for(200ms);
+
+    // Warmup: absorb one-time allocations (lazy TLS, thread pool, etc.)
+    for (int i = 0; i < 20; ++i) fresh_connection_get(18090, "/ping");
+
+    long before = readVmSizeKB();
+    ASSERT_TRUE(before > 0);
+    for (int i = 0; i < 500; ++i) fresh_connection_get(18090, "/ping");
+    long after = readVmSizeKB();
+
+    server.stop();
+
+    long growthKB = after - before;
+    // Pre-fix: ~4,000,000 KB. Post-fix: bounded by heap noise + the
+    // handful of not-yet-reaped threads. 64 MB is generous headroom.
+    if (growthKB >= 64 * 1024) {
+        std::ostringstream oss;
+        oss << "VmSize grew " << growthKB << " KB over 500 connections"
+            << " (connection-thread leak regression)";
+        throw std::runtime_error(oss.str());
+    }
+}
+
+
+// Read exactly one HTTP response from a keep-alive connection: headers,
+// then Content-Length body bytes. Returns immediately — no idle timeout.
+static std::string recv_one_response(int fd) {
+    std::string resp;
+    char buf[4096];
+    auto read_some = [&](void) -> bool {
+        ssize_t n = ::recv(fd, buf, sizeof(buf), 0);
+        if (n <= 0) return false;
+        resp.append(buf, static_cast<size_t>(n));
+        return true;
+    };
+    // Read until end of headers
+    size_t hdrEnd = std::string::npos;
+    while ((hdrEnd = resp.find("\r\n\r\n")) == std::string::npos) {
+        if (!read_some()) return resp;
+    }
+    std::string cl = get_header(resp.substr(0, hdrEnd), "Content-Length");
+    size_t bodyLen = cl.empty() ? 0 : static_cast<size_t>(std::stoul(cl));
+    size_t want = hdrEnd + 4 + bodyLen;
+    while (resp.size() < want) {
+        if (!read_some()) break;
+    }
+    return resp;
+}
+
+TEST(server_keep_alive_no_growth) {
+    // T2 (control): 500 requests over ONE keep-alive connection must show
+    // near-zero growth. Passes before AND after the fix — guards against
+    // a future regression where requests (not connections) leak.
+    Server::Config cfg;
+    cfg.port = 18091;
+    cfg.workerCount = 1;
+    Server server(cfg);
+    server.router().get("/ping", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::OK);
+        resp.setBody("pong");
+    });
+
+    JoinableThread t([&]() { server.start(); });
+    std::this_thread::sleep_for(200ms);
+
+    int fd = tcp_connect(18091);
+    ASSERT_TRUE(fd >= 0);
+
+    const std::string req =
+        "GET /ping HTTP/1.1\r\nHost: localhost\r\n\r\n";
+
+    // Warmup
+    for (int i = 0; i < 20; ++i) {
+        if (::send(fd, req.data(), req.size(), MSG_NOSIGNAL) <= 0) break;
+        recv_one_response(fd);
+    }
+
+    long before = readVmSizeKB();
+    for (int i = 0; i < 500; ++i) {
+        ssize_t sent = ::send(fd, req.data(), req.size(), MSG_NOSIGNAL);
+        ASSERT_TRUE(sent > 0);
+        std::string resp = recv_one_response(fd);
+        ASSERT_EQ(parse_status(resp), 200);
+    }
+    long after = readVmSizeKB();
+
+    ::close(fd);
+    server.stop();
+
+    long growthKB = after - before;
+    if (growthKB >= 32 * 1024) {
+        std::ostringstream oss;
+        oss << "VmSize grew " << growthKB
+            << " KB over 500 keep-alive requests (request-path leak)";
+        throw std::runtime_error(oss.str());
+    }
 }
 
 

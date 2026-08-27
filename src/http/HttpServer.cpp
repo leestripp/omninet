@@ -194,9 +194,9 @@ void Server::stop() {
     // detached, which left them racing with the Server destructor.
     {
         std::lock_guard<std::mutex> lock(m_connectionThreadsMutex);
-        for (auto& t : m_connectionThreads) {
-            if (t.joinable()) {
-                t.join();
+        for (auto& rec : m_connectionThreads) {
+            if (rec.thread.joinable()) {
+                rec.thread.join();
             }
         }
         m_connectionThreads.clear();
@@ -533,7 +533,16 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
     
     // Spawn a new thread to handle this connection. Track it so stop()
     // can join it and avoid a use-after-free race with the Server destructor.
-    std::thread connThread([this, socket = std::move(socket)]() mutable {
+    // v0.9.8 leak fix: the thread flags itself done on exit and
+    // reapFinishedConnectionThreadsLocked() joins/erases finished threads,
+    // otherwise every exited-but-unjoined thread leaks its ~8 MB stack.
+    auto done = std::make_shared<std::atomic<bool>>(false);
+    std::thread connThread([this, socket = std::move(socket), done]() mutable {
+        // Set the completion flag even if an exception escapes the handler.
+        struct FlagGuard {
+            std::shared_ptr<std::atomic<bool>> d;
+            ~FlagGuard() { d->store(true, std::memory_order_release); }
+        } flagGuard{done};
         try {
             SERVER_DEBUG("Connection thread started, socket fd=" << socket->fd());
 
@@ -668,7 +677,22 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
 
     {
         std::lock_guard<std::mutex> lock(m_connectionThreadsMutex);
-        m_connectionThreads.push_back(std::move(connThread));
+        m_connectionThreads.push_back({std::move(connThread), std::move(done)});
+        reapFinishedConnectionThreadsLocked();
+    }
+}
+
+void Server::reapFinishedConnectionThreadsLocked() {
+    // Caller holds m_connectionThreadsMutex. join() on a flagged thread
+    // returns immediately — the thread has already exited.
+    auto it = m_connectionThreads.begin();
+    while (it != m_connectionThreads.end()) {
+        if (it->done->load(std::memory_order_acquire)) {
+            it->thread.join();
+            it = m_connectionThreads.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 

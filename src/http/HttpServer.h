@@ -242,8 +242,19 @@ private:
 
     // Connection handler threads (was detached, now tracked so stop()
     // can join them before the Server is destroyed).
-    std::vector<std::thread> m_connectionThreads;
+    // v0.9.8 leak fix: each thread carries a completion flag so finished
+    // (zombie) threads can be joined and erased during normal operation —
+    // an exited-but-unjoined joinable thread leaks its entire ~8 MB stack.
+    struct ConnectionThread {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> done;
+    };
+    std::vector<ConnectionThread> m_connectionThreads;
     std::mutex m_connectionThreadsMutex;
+
+    // Joins and erases connection threads that have flagged themselves
+    // finished. Caller must hold m_connectionThreadsMutex.
+    void reapFinishedConnectionThreadsLocked();
 
     // State
     std::atomic<bool> m_running{false};
