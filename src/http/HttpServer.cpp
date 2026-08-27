@@ -533,7 +533,7 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
     
     // Spawn a new thread to handle this connection. Track it so stop()
     // can join it and avoid a use-after-free race with the Server destructor.
-    // v0.9.8 leak fix: the thread flags itself done on exit and
+    // v1.0.0 leak fix: the thread flags itself done on exit and
     // reapFinishedConnectionThreadsLocked() joins/erases finished threads,
     // otherwise every exited-but-unjoined thread leaks its ~8 MB stack.
     auto done = std::make_shared<std::atomic<bool>>(false);

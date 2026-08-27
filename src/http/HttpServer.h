@@ -242,7 +242,7 @@ private:
 
     // Connection handler threads (was detached, now tracked so stop()
     // can join them before the Server is destroyed).
-    // v0.9.8 leak fix: each thread carries a completion flag so finished
+    // v1.0.0 leak fix: each thread carries a completion flag so finished
     // (zombie) threads can be joined and erased during normal operation —
     // an exited-but-unjoined joinable thread leaks its entire ~8 MB stack.
     struct ConnectionThread {

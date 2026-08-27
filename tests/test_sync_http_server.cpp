@@ -644,7 +644,7 @@ TEST(on_ready_async_fires) {
 
 
 // ============================================================================
-// Regression tests — connection-thread leak (omninet_bugs.md, fixed v0.9.8)
+// Regression tests — connection-thread leak (omninet_bugs.md, fixed v1.0.0)
 // A joinable thread that has finished but is never joined keeps its ~8 MB
 // stack mapped (zombie thread). Pre-fix, every fresh TCP connection leaked
 // ~8 MB of VmSize. These tests bound per-connection address-space growth.
