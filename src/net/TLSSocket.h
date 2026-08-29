@@ -101,6 +101,7 @@ public:
     size_t recv(std::span<uint8_t> buffer) override;
     
     std::vector<uint8_t> recvAll(size_t maxSize = 65536) override;
+    bool hasPeerClosed() const override;
     
     std::vector<uint8_t> recvExactly(size_t n) override;
 

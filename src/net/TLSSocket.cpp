@@ -225,6 +225,24 @@ void TLSSocket::sendAll(std::span<const uint8_t> data) {
     }
 }
 
+bool TLSSocket::hasPeerClosed() const {
+    if (!isOpen() || !m_ssl) return true;
+    uint8_t b;
+    int ret = SSL_peek(m_ssl, &b, 1);
+    if (ret > 0) return false;                  // decrypted data pending
+    int err = SSL_get_error(m_ssl, ret);
+    if (err == SSL_ERROR_ZERO_RETURN) return true;   // close_notify received
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+        return false;                           // alive, just silent
+    if (err == SSL_ERROR_SYSCALL) {
+        // EOF without close_notify, or a real socket error. errno==0 with
+        // ret==0 is OpenSSL's "unexpected EOF" report.
+        return ret == 0 || (errno != EAGAIN && errno != EWOULDBLOCK
+                            && errno != EINTR);
+    }
+    return false;   // WANT_X509_LOOKUP etc. — transient, still alive
+}
+
 size_t TLSSocket::recv(std::span<uint8_t> buffer) {
     if (!m_ssl) return 0;
     

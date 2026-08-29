@@ -161,9 +161,13 @@ std::optional<Frame> Connection::receive() {
         // Need more bytes. Read what's available.
         std::vector<uint8_t> chunk = m_socket->recvAll(65536);
         if (chunk.empty()) {
-            // Peer closed or error.
-            m_open = false;
-            return std::nullopt;
+            // v1.0.1: TLSSocket::recvAll() returns empty on a ~2s IDLE
+            // timeout — silence, not EOF. Only give up on a real close.
+            if (m_socket->hasPeerClosed()) {
+                m_open = false;
+                return std::nullopt;
+            }
+            continue;
         }
         buffer.insert(buffer.end(), chunk.begin(), chunk.end());
 
@@ -377,7 +381,13 @@ void Connection::readLoop() {
             break;  // socket error
         }
         if (chunk.empty()) {
-            break;  // connection closed
+            // v1.0.1: recvAll() on a TLSSocket returns an EMPTY vector after
+            // its ~2s idle-select cap — that is silence, not EOF. Only break
+            // when the peer has actually closed; otherwise keep reading.
+            // (Every wss:// WebSocket client died ~2s into any quiet period
+            // before this — e.g. HiveMind's worker channel flapping.)
+            if (!m_socket || m_socket->hasPeerClosed()) break;
+            continue;
         }
 
         // Append new data to any leftover from previous iteration.

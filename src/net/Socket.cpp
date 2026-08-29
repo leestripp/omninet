@@ -346,6 +346,28 @@ std::optional<std::string> Socket::readLine(size_t maxLength) {
     return line;
 }
 
+bool Socket::hasPeerClosed() const {
+    if (!isOpen()) return true;
+#ifdef _WIN32
+    char b;
+    int r = ::recv(m_fd, &b, 1, MSG_PEEK);
+    if (r == 0) return true;                    // EOF
+    if (r < 0) {
+        int e = WSAGetLastError();
+        return e != WSAEWOULDBLOCK;             // would-block = alive
+    }
+    return false;
+#else
+    uint8_t b;
+    ssize_t r = ::recv(m_fd, &b, 1, MSG_PEEK | MSG_DONTWAIT);
+    if (r == 0) return true;                    // EOF: peer sent FIN
+    if (r < 0) {
+        return errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR;
+    }
+    return false;                               // data pending = alive
+#endif
+}
+
 bool Socket::isOpen() const {
     return m_fd != INVALID_SOCKET;
 }

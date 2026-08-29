@@ -117,6 +117,14 @@ public:
     
     // Check if socket is open
     virtual bool isOpen() const;
+
+    /// True when the peer has definitively closed the connection (EOF or
+    /// TLS close_notify), as opposed to merely being silent. Used by
+    /// WebSocket readLoop() to tell "no data yet" apart from "closed" —
+    /// TLSSocket::recvAll() returns an empty vector after a ~2s idle
+    /// timeout, which readLoop() must NOT treat as a disconnect.
+    /// Non-blocking probe; safe to call from the read loop.
+    virtual bool hasPeerClosed() const;
     
     // Close the socket
     virtual void close();
