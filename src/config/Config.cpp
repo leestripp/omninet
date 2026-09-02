@@ -31,8 +31,8 @@ Config& Config::instance() {
 }
 
 Config::Config()
-    : m_configDir(Utils::configDir()),
-      m_dataDir(Utils::dataDir()),
+    : m_dataDir(Utils::dataDir()),
+      m_configDir(Utils::configDir()),
       m_stateDir(Utils::stateDir()),
       m_cacheDir(Utils::cacheDir()),
       m_runtimeDir(Utils::runtimeDirSubdir()) {
