@@ -341,10 +341,18 @@ void Router::handle(const Request& req, Response& resp) {
         std::string pathWithSlash = pathStr + "/";
         for (const auto& route : m_routes) {
             if (route.pattern == pathWithSlash) {
-                // Redirect to trailing slash version
-                ROUTER_DEBUG("Redirecting " << pathStr << " to " << pathWithSlash);
+                // Redirect to trailing slash version, preserving the query
+                // string (dropping it silently breaks filtered API requests
+                // like /api/v1/contents?type=blog).
+                std::string location = pathWithSlash;
+                std::string_view qs = req.queryString();
+                if (!qs.empty()) {
+                    location += '?';
+                    location += qs;
+                }
+                ROUTER_DEBUG("Redirecting " << pathStr << " to " << location);
                 resp.setStatus(StatusCode::MOVED_PERMANENTLY);
-                resp.setHeader("Location", pathWithSlash);
+                resp.setHeader("Location", location);
                 return;
             }
         }
