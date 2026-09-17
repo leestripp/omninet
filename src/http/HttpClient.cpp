@@ -241,7 +241,10 @@ std::string buildRequest(const ClientRequest& req, const std::string& path) {
     if (req.has_body_writer()) {
         os << "Transfer-Encoding: chunked\r\n";
     } else if (!req.bodyBytes().empty()) {
-        os << "Content-Length: " << req.bodyBytes().size() << "\r\n";
+        // std::to_string, not stream insertion: a process-global locale with
+        // thousands separators (any GTK app) must never leak onto the wire —
+        // nginx rejects "Content-Length: 1,261,963" as invalid (400).
+        os << "Content-Length: " << std::to_string(req.bodyBytes().size()) << "\r\n";
     }
     os << "\r\n";
     std::string out = os.str();
@@ -740,7 +743,10 @@ Client::send_streaming(ClientRequest req, const ClientConfig& cfg) {
     if (req.has_body_writer()) {
         os << "Transfer-Encoding: chunked\r\n";
     } else if (!req.bodyBytes().empty()) {
-        os << "Content-Length: " << req.bodyBytes().size() << "\r\n";
+        // std::to_string, not stream insertion: a process-global locale with
+        // thousands separators (any GTK app) must never leak onto the wire —
+        // nginx rejects "Content-Length: 1,261,963" as invalid (400).
+        os << "Content-Length: " << std::to_string(req.bodyBytes().size()) << "\r\n";
     } else {
         os << "Connection: close\r\n";
     }
