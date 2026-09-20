@@ -207,6 +207,10 @@ Notes:
   receive **308 Permanent Redirect** so the method and body survive
   (clients historically rewrite 301/302 POSTs to GET).
 - The root path `/` is never redirected.
+- Redirect decisions consider **concrete routes only** — a wildcard catch-all
+  (`/*`) never triggers a redirect and never blocks one, and a request whose
+  own path matches a concrete route is always served, never redirected.
+  (This prevents the 301 ping-pong of v1.0.2, bug #6.)
 - Redirects fire before any middleware runs.
 - Disable with `router.setRedirectTrailingSlash(false)`; unmatched slashed
   paths then return 404.

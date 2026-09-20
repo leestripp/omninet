@@ -200,6 +200,15 @@ void Router::use(std::string pathPrefix, Middleware middleware) {
 }
 
 std::optional<Router::Match> Router::match(Method method, std::string_view path) {
+    return matchImpl(method, path, false);
+}
+
+bool Router::hasConcreteRoute(Method method, std::string_view path) {
+    return matchImpl(method, path, true).has_value();
+}
+
+std::optional<Router::Match> Router::matchImpl(Method method, std::string_view path,
+                                               bool concreteOnly) {
     std::string pathStr(path);
     
     ROUTER_DEBUG("match() - Trying to match " << pathStr << " with method " << toString(method));
@@ -211,6 +220,9 @@ std::optional<Router::Match> Router::match(Method method, std::string_view path)
         // Check if there's any explicit HEAD route for this path first
         bool hasExplicitHead = false;
         for (const auto& route : m_routes) {
+            if (concreteOnly && route.pattern.find('*') != std::string::npos) {
+                continue;
+            }
             if (route.method == Method::HEAD) {
                 std::smatch routeMatch;
                 if (std::regex_match(pathStr, routeMatch, route.regex)) {
@@ -228,6 +240,15 @@ std::optional<Router::Match> Router::match(Method method, std::string_view path)
     }
     
     for (const auto& route : m_routes) {
+        // v1.0.3 fix (bug #6): wildcard catch-all routes (e.g. /*, which
+        // compiles to /.*/ and matches EVERYTHING) must not count when the
+        // trailing-slash redirect logic probes whether a path "has a route"
+        // — otherwise both redirect directions always succeed and undo each
+        // other in an infinite 301 ping-pong.
+        if (concreteOnly && route.pattern.find('*') != std::string::npos) {
+            continue;
+        }
+
         ROUTER_DEBUG("  Checking route: " << toString(route.method) << " " << route.pattern);
         
         // Match the effective method (HEAD falls back to GET, or exact match)
@@ -353,8 +374,16 @@ void Router::handle(const Request& req, Response& resp) {
     // method and body survive (browsers/fetch historically rewrite 301/302
     // POSTs to GET, silently dropping the body).  Redirects fire before
     // middleware by design.
+    //
+    // v1.0.3 fix (bug #6): all redirect decisions use hasConcreteRoute()
+    // (wildcard catch-alls like /* excluded), and the whole block is skipped
+    // when the request's OWN path already matches a concrete route.  v1.0.2
+    // probed with match(), which counts the catch-all: GET /blog redirected
+    // to /blog/ (catch-all "matched" the probe) and /blog/ redirected back
+    // to /blog — an infinite 301 ping-pong (ERR_TOO_MANY_REDIRECTS).
     std::string pathStr(req.path());
-    if (m_redirectTrailingSlash && pathStr.size() > 1) {
+    if (m_redirectTrailingSlash && pathStr.size() > 1 &&
+        !hasConcreteRoute(req.method(), pathStr)) {
         auto sendRedirect = [&](std::string location) {
             std::string_view qs = req.queryString();
             if (!qs.empty()) {
@@ -370,16 +399,16 @@ void Router::handle(const Request& req, Response& resp) {
 
         if (pathStr.back() == '/') {
             // Direction (a): strip the trailing slash and redirect if a
-            // route matches the stripped path for this method.
+            // concrete route matches the stripped path for this method.
             std::string stripped = pathStr.substr(0, pathStr.size() - 1);
-            if (match(req.method(), stripped)) {
+            if (hasConcreteRoute(req.method(), stripped)) {
                 sendRedirect(std::move(stripped));
                 return;
             }
         } else {
-            // Direction (b): append a slash and redirect if a route
-            // matches the slashed path for this method.
-            if (match(req.method(), pathStr + '/')) {
+            // Direction (b): append a slash and redirect if a concrete
+            // route matches the slashed path for this method.
+            if (hasConcreteRoute(req.method(), pathStr + '/')) {
                 sendRedirect(pathStr + '/');
                 return;
             }

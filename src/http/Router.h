@@ -151,6 +151,15 @@ private:
         const std::string& pattern,
         std::vector<std::string>& paramNames
     );
+
+    // Shared matching implementation. concreteOnly=true skips wildcard
+    // catch-all routes (patterns containing '*'), which otherwise match
+    // every path — used for trailing-slash redirect decisions (bug #6).
+    std::optional<Match> matchImpl(Method method, std::string_view path,
+                                   bool concreteOnly);
+
+    // True if a CONCRETE (non-wildcard) route matches this method+path.
+    bool hasConcreteRoute(Method method, std::string_view path);
 };
 
 // ============================================================================

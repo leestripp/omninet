@@ -142,6 +142,146 @@ bool checkRedirect(const Response& resp, StatusCode expectedStatus,
 
 } // namespace
 
+
+// ============================================================================
+// Bug #6 regression tests — catch-all route must not cause redirect ping-pong
+//
+// These replicate lscppdev.com's real setup: concrete routes PLUS a /*
+// catch-all (logging 404 handler).  v1.0.2 looped forever here because the
+// redirect probes counted the wildcard match.  followRedirects() simulates a
+// real client (curl -L) so a loop CANNOT slip through again.
+// ============================================================================
+
+namespace {
+
+// Simulates a client following redirects. Returns the final status code,
+// or -1 if the redirect limit is exceeded (i.e. a redirect loop).
+int followRedirects(Router& router, const std::string& method, std::string target,
+                    int maxRedirects = 10) {
+    for (int i = 0; i <= maxRedirects; ++i) {
+        Request req;
+        req.parse(method + " " + target + " HTTP/1.1\r\nHost: test\r\n\r\n");
+        Response resp;
+        router.handle(req, resp);
+
+        int status = static_cast<int>(resp.status());
+        if (status != 301 && status != 307 && status != 308) {
+            return status;  // terminal response
+        }
+        auto loc = resp.header("Location");
+        if (!loc) return status;  // redirect without Location: terminal
+        target = std::string(*loc);
+    }
+    return -1;  // redirect loop
+}
+
+// Router shaped like lscppdev.com: concrete routes + logging catch-all.
+Router makeCatchallRouter() {
+    Router router;
+    router.get("/blog",      [](const Request&, Response& resp) { resp.setBody("blog"); });
+    router.get("/blog/:slug",[](const Request&, Response& resp) { resp.setBody("post"); });
+    router.post("/contact",  [](const Request&, Response& resp) { resp.setBody("thanks"); });
+    router.get("/*", [](const Request&, Response& resp) {
+        resp.setStatus(StatusCode::NOT_FOUND);
+        resp.setBody("Not Found");
+    });
+    return router;
+}
+
+} // namespace
+
+// GET /blog with a concrete /blog route: serve 200, never redirect
+// (v1.0.2 answered 301 /blog/ because the catch-all "matched" the probe).
+bool test_catchall_concrete_route_not_redirected() {
+    Router router = makeCatchallRouter();
+    Request req = makeRequest("GET /blog");
+    Response resp;
+    router.handle(req, resp);
+    return resp.status() == StatusCode::OK && !resp.header("Location");
+}
+
+// GET /blog/ still redirects once to /blog with the catch-all present.
+bool test_catchall_slash_redirects_to_concrete() {
+    Router router = makeCatchallRouter();
+    Request req = makeRequest("GET /blog/");
+    Response resp;
+    router.handle(req, resp);
+    return checkRedirect(resp, StatusCode::MOVED_PERMANENTLY, "/blog");
+}
+
+// Full client behaviour: following redirects must terminate at 200/404,
+// never loop.  Covers every row of the Bug #6 table.
+bool test_catchall_no_redirect_loop() {
+    {
+        Router router = makeCatchallRouter();
+        if (followRedirects(router, "GET", "/blog") != 200) return false;
+    }
+    {
+        Router router = makeCatchallRouter();
+        if (followRedirects(router, "GET", "/blog/") != 200) return false;
+    }
+    {
+        Router router = makeCatchallRouter();
+        if (followRedirects(router, "GET", "/blog/my-post") != 200) return false;
+    }
+    {
+        Router router = makeCatchallRouter();
+        if (followRedirects(router, "GET", "/blog/my-post/") != 200) return false;
+    }
+    {
+        Router router = makeCatchallRouter();
+        if (followRedirects(router, "POST", "/contact/") != 200) return false;
+    }
+    return true;
+}
+
+// Unknown paths (catch-all territory) must NOT be redirected at all:
+// the catch-all handler serves them directly.
+bool test_catchall_unknown_path_not_redirected() {
+    Router router = makeCatchallRouter();
+    Request req = makeRequest("GET /rss.xml");
+    Response resp;
+    router.handle(req, resp);
+    return resp.status() == StatusCode::NOT_FOUND && !resp.header("Location");
+}
+
+bool test_catchall_unknown_slashed_path_not_redirected() {
+    Router router = makeCatchallRouter();
+    Request req = makeRequest("GET /rss.xml/");
+    Response resp;
+    router.handle(req, resp);
+    return resp.status() == StatusCode::NOT_FOUND && !resp.header("Location");
+}
+
+// Redirect followed through keeps the query string end-to-end.
+bool test_catchall_redirect_preserves_query_end_to_end() {
+    Router router = makeCatchallRouter();
+
+    Request req = makeRequest("GET /blog/?page=1");
+    Response resp;
+    router.handle(req, resp);
+    if (!checkRedirect(resp, StatusCode::MOVED_PERMANENTLY, "/blog?page=1")) return false;
+
+    // Follow it: query string survives, final answer is 200.
+    Request req2 = makeRequest("GET /blog?page=1");
+    Response resp2;
+    router.handle(req2, resp2);
+    if (resp2.status() != StatusCode::OK) return false;
+    return req2.queryParameter("page") == std::optional<std::string>("1");
+}
+
+// Bug #4 claim check: the /* catch-all DOES match dot-paths like /.env
+// at Router level (pattern compiles to /.* which covers them).
+bool test_catchall_matches_dot_path() {
+    Router router;
+    router.get("/*", [](const Request&, Response& resp) { resp.setBody("caught"); });
+
+    Request req = makeRequest("GET /.env");
+    Response resp;
+    router.handle(req, resp);
+    return resp.status() == StatusCode::OK && resp.bodySize() > 0;
+}
+
 // Direction (a): request ends in '/', route does not -> 301 to stripped path.
 bool test_trailing_slash_redirect_get() {
     Router router;
@@ -344,6 +484,14 @@ int main() {
     RUN_ROUTER_TEST(test_trailing_slash_root_not_redirected, "Root path / is not redirected");
     RUN_ROUTER_TEST(test_trailing_slash_redirect_disabled, "Redirect disabled via setRedirectTrailingSlash(false)");
     RUN_ROUTER_TEST(test_trailing_slash_no_match_404, "Slashed path with no matching route still 404s");
+
+    RUN_ROUTER_TEST(test_catchall_concrete_route_not_redirected, "Bug#6: concrete route served, not redirected (catch-all present)");
+    RUN_ROUTER_TEST(test_catchall_slash_redirects_to_concrete, "Bug#6: GET /blog/ redirects once to /blog (catch-all present)");
+    RUN_ROUTER_TEST(test_catchall_no_redirect_loop, "Bug#6: following redirects always terminates (no ping-pong)");
+    RUN_ROUTER_TEST(test_catchall_unknown_path_not_redirected, "Bug#6: unknown path hits catch-all, no redirect");
+    RUN_ROUTER_TEST(test_catchall_unknown_slashed_path_not_redirected, "Bug#6: unknown slashed path hits catch-all, no redirect");
+    RUN_ROUTER_TEST(test_catchall_redirect_preserves_query_end_to_end, "Bug#6: redirect chain preserves query string");
+    RUN_ROUTER_TEST(test_catchall_matches_dot_path, "Bug#4: /* catch-all matches dot-paths like /.env");
 #undef RUN_ROUTER_TEST
 
     std::cout << std::endl;
