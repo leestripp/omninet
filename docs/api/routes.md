@@ -186,6 +186,31 @@ void testMatching() {
 
 ---
 
+## Trailing Slash Redirects
+
+With `setRedirectTrailingSlash(true)` (the default), the router canonicalises
+trailing slashes with a redirect instead of returning 404:
+
+| Request                | Matching route | Response |
+|------------------------|----------------|----------|
+| `GET /blog/`           | `/blog`        | `301` → `/blog` |
+| `GET /blog/?page=1`    | `/blog`        | `301` → `/blog?page=1` (query preserved) |
+| `GET /blog/hello/`     | `/blog/:slug`  | `301` → `/blog/hello` |
+| `GET /docs`            | `/docs/`       | `301` → `/docs/` |
+| `POST /contact/`       | `/contact`     | `308` → `/contact` (method and body preserved) |
+
+Notes:
+
+- Both directions are tested against the route's compiled pattern, so
+  parameterised routes redirect correctly.
+- `GET`/`HEAD` requests receive **301 Moved Permanently**; all other methods
+  receive **308 Permanent Redirect** so the method and body survive
+  (clients historically rewrite 301/302 POSTs to GET).
+- The root path `/` is never redirected.
+- Redirects fire before any middleware runs.
+- Disable with `router.setRedirectTrailingSlash(false)`; unmatched slashed
+  paths then return 404.
+
 ## Related Documentation
 
 - [HTTP Server API](./http-server.md) - Full server documentation

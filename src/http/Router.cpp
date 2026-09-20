@@ -334,25 +334,53 @@ void Router::handle(const Request& req, Response& resp) {
 
 
     
-    // Handle trailing slash redirect if enabled
+    // Handle trailing slash redirect if enabled, in BOTH directions:
+    //
+    //  a) Request ends in '/' but the matching route does not
+    //     (GET /blog/  -> 301 /blog).  This is the case real apps hit:
+    //     routes are virtually never registered with a trailing slash.
+    //  b) Request has no trailing slash but the matching route does
+    //     (GET /docs   -> 301 /docs/).
+    //
+    // v1.0.2 fix (bug #5): direction (a) was missing entirely, and the
+    // old direction-(b) code compared the raw pattern string
+    // (route.pattern == pathWithSlash) so it could never fire for
+    // parameterised patterns and ignored the request method.  Both
+    // directions now test the route's compiled regex via match() for the
+    // request's own method, preserve the query string (dropping it
+    // silently breaks filtered API requests like /api/v1/contents?type=blog),
+    // and answer non-GET/HEAD requests with 308 Permanent Redirect so the
+    // method and body survive (browsers/fetch historically rewrite 301/302
+    // POSTs to GET, silently dropping the body).  Redirects fire before
+    // middleware by design.
     std::string pathStr(req.path());
-    if (m_redirectTrailingSlash && !pathStr.empty() && pathStr.back() != '/') {
-        // Check if there's a route with trailing slash
-        std::string pathWithSlash = pathStr + "/";
-        for (const auto& route : m_routes) {
-            if (route.pattern == pathWithSlash) {
-                // Redirect to trailing slash version, preserving the query
-                // string (dropping it silently breaks filtered API requests
-                // like /api/v1/contents?type=blog).
-                std::string location = pathWithSlash;
-                std::string_view qs = req.queryString();
-                if (!qs.empty()) {
-                    location += '?';
-                    location += qs;
-                }
-                ROUTER_DEBUG("Redirecting " << pathStr << " to " << location);
-                resp.setStatus(StatusCode::MOVED_PERMANENTLY);
-                resp.setHeader("Location", location);
+    if (m_redirectTrailingSlash && pathStr.size() > 1) {
+        auto sendRedirect = [&](std::string location) {
+            std::string_view qs = req.queryString();
+            if (!qs.empty()) {
+                location += '?';
+                location += qs;
+            }
+            ROUTER_DEBUG("Redirecting " << pathStr << " to " << location);
+            resp.setStatus(req.method() == Method::GET || req.method() == Method::HEAD
+                               ? StatusCode::MOVED_PERMANENTLY    // 301
+                               : StatusCode::PERMANENT_REDIRECT); // 308 keeps method+body
+            resp.setHeader("Location", std::move(location));
+        };
+
+        if (pathStr.back() == '/') {
+            // Direction (a): strip the trailing slash and redirect if a
+            // route matches the stripped path for this method.
+            std::string stripped = pathStr.substr(0, pathStr.size() - 1);
+            if (match(req.method(), stripped)) {
+                sendRedirect(std::move(stripped));
+                return;
+            }
+        } else {
+            // Direction (b): append a slash and redirect if a route
+            // matches the slashed path for this method.
+            if (match(req.method(), pathStr + '/')) {
+                sendRedirect(pathStr + '/');
                 return;
             }
         }

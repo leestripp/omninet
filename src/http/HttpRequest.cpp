@@ -350,9 +350,12 @@ Version Request::version() const {
 }
 
 std::string_view Request::pathParam(size_t index) const {
-    if (index < m_pathParams.size()) {
-        auto it = m_pathParams.begin();
-        std::advance(it, index);
+    // v1.0.2 fix: indexed params were retrieved by advancing an iterator
+    // into the unordered_map, so pathParam(0..N) came back in unspecified
+    // (hash) order — e.g. /api/v1/users/456 returned 456 for index 0.
+    // Look up the numeric key directly instead.
+    auto it = m_pathParams.find(std::to_string(index));
+    if (it != m_pathParams.end()) {
         return it->second;
     }
     return "";

@@ -39,6 +39,7 @@ bool test_parameter_route() {
     if (!match) return false;
     
     Request req;
+    req.setPathParams(match->captures);  // Router::handle() does this before dispatch
     Response resp;
     match->handler(req, resp);
     
@@ -60,14 +61,15 @@ bool test_404_handler() {
         resp.setStatus(StatusCode::NOT_FOUND);
     });
     
-    auto match = router.match(Method::GET, "/notfound");
-    if (!match) return false;
+    // No route matches /notfound; handle() must invoke the notFoundHandler.
+    if (router.match(Method::GET, "/notfound")) return false;
     
     Request req;
+    req.parse("GET /notfound HTTP/1.1\r\nHost: test\r\n\r\n");
     Response resp;
-    match->handler(req, resp);
+    router.handle(req, resp);
     
-    if (resp.status() != 404) return false;
+    if (resp.status() != StatusCode::NOT_FOUND) return false;
     
     return true;
 }
@@ -102,6 +104,7 @@ bool test_multiple_params() {
     if (!match) return false;
     
     Request req;
+    req.setPathParams(match->captures);  // Router::handle() does this before dispatch
     Response resp;
     match->handler(req, resp);
     
@@ -111,6 +114,169 @@ bool test_multiple_params() {
     if (captured[2] != "456") return false;
     
     return true;
+}
+
+
+// ============================================================================
+// Bug #5 regression tests — trailing-slash redirect, both directions
+// ============================================================================
+
+namespace {
+
+Request makeRequest(const char* requestLine) {
+    Request req;
+    std::string raw = requestLine;
+    raw += " HTTP/1.1\r\nHost: test\r\n\r\n";
+    req.parse(raw);
+    return req;
+}
+
+// Returns true if resp is a redirect to expectedLocation with expectedStatus.
+bool checkRedirect(const Response& resp, StatusCode expectedStatus,
+                   const char* expectedLocation) {
+    if (resp.status() != expectedStatus) return false;
+    auto loc = resp.header("Location");
+    if (!loc) return false;
+    return *loc == expectedLocation;
+}
+
+} // namespace
+
+// Direction (a): request ends in '/', route does not -> 301 to stripped path.
+bool test_trailing_slash_redirect_get() {
+    Router router;
+    router.get("/blog", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setBody("blog index");
+    });
+
+    Request req = makeRequest("GET /blog/");
+    Response resp;
+    router.handle(req, resp);
+
+    return checkRedirect(resp, StatusCode::MOVED_PERMANENTLY, "/blog");
+}
+
+// Direction (a) preserves the query string.
+bool test_trailing_slash_redirect_preserves_query() {
+    Router router;
+    router.get("/blog", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setBody("blog index");
+    });
+
+    Request req = makeRequest("GET /blog/?page=1");
+    Response resp;
+    router.handle(req, resp);
+
+    return checkRedirect(resp, StatusCode::MOVED_PERMANENTLY, "/blog?page=1");
+}
+
+// Direction (a) works for parameterised routes.
+bool test_trailing_slash_redirect_param_route() {
+    Router router;
+    router.get("/blog/:slug", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setBody("post");
+    });
+
+    Request req = makeRequest("GET /blog/hello-world/");
+    Response resp;
+    router.handle(req, resp);
+
+    return checkRedirect(resp, StatusCode::MOVED_PERMANENTLY, "/blog/hello-world");
+}
+
+// Non-GET methods get 308 so the method and body survive the redirect.
+bool test_trailing_slash_redirect_post_uses_308() {
+    Router router;
+    router.post("/contact", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setBody("thanks");
+    });
+
+    Request req = makeRequest("POST /contact/");
+    Response resp;
+    router.handle(req, resp);
+
+    return checkRedirect(resp, StatusCode::PERMANENT_REDIRECT, "/contact");
+}
+
+// The redirect is method-aware: no POST route, so no redirect for POST.
+bool test_trailing_slash_redirect_method_mismatch() {
+    Router router;
+    router.get("/blog", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setBody("blog index");
+    });
+
+    Request req = makeRequest("POST /blog/");
+    Response resp;
+    router.handle(req, resp);
+
+    return resp.status() == StatusCode::NOT_FOUND;
+}
+
+// Direction (b): route registered WITH a trailing slash redirects requests
+// without it (now via regex match rather than raw pattern comparison).
+bool test_redirect_to_slashed_route() {
+    Router router;
+    router.get("/docs/", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setBody("docs");
+    });
+
+    Request req = makeRequest("GET /docs");
+    Response resp;
+    router.handle(req, resp);
+
+    return checkRedirect(resp, StatusCode::MOVED_PERMANENTLY, "/docs/");
+}
+
+// Root path "/" is never redirected (would be a loop).
+bool test_trailing_slash_root_not_redirected() {
+    Router router;
+    router.get("/", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setBody("home");
+    });
+
+    Request req = makeRequest("GET /");
+    Response resp;
+    router.handle(req, resp);
+
+    return resp.status() == StatusCode::OK && resp.bodySize() > 0;
+}
+
+// setRedirectTrailingSlash(false) disables the redirect -> 404.
+bool test_trailing_slash_redirect_disabled() {
+    Router router;
+    router.setRedirectTrailingSlash(false);
+    router.get("/blog", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setBody("blog index");
+    });
+
+    Request req = makeRequest("GET /blog/");
+    Response resp;
+    router.handle(req, resp);
+
+    return resp.status() == StatusCode::NOT_FOUND;
+}
+
+// A slashed request that matches nothing (even stripped) still 404s.
+bool test_trailing_slash_no_match_404() {
+    Router router;
+    router.get("/blog", [](const Request& req, Response& resp) {
+        (void)req;
+        resp.setBody("blog index");
+    });
+
+    Request req = makeRequest("GET /nope/");
+    Response resp;
+    router.handle(req, resp);
+
+    return resp.status() == StatusCode::NOT_FOUND;
 }
 
 int main() {
@@ -159,6 +325,27 @@ int main() {
         failed++;
     }
     
+
+#define RUN_ROUTER_TEST(fn, label) \
+    if (fn()) { \
+        std::cout << "[PASS] " << label << std::endl; \
+        passed++; \
+    } else { \
+        std::cout << "[FAIL] " << label << std::endl; \
+        failed++; \
+    }
+
+    RUN_ROUTER_TEST(test_trailing_slash_redirect_get, "Trailing-slash redirect (GET /blog/ -> 301 /blog)");
+    RUN_ROUTER_TEST(test_trailing_slash_redirect_preserves_query, "Trailing-slash redirect preserves query string");
+    RUN_ROUTER_TEST(test_trailing_slash_redirect_param_route, "Trailing-slash redirect on parameterised route");
+    RUN_ROUTER_TEST(test_trailing_slash_redirect_post_uses_308, "Trailing-slash redirect uses 308 for POST");
+    RUN_ROUTER_TEST(test_trailing_slash_redirect_method_mismatch, "Trailing-slash redirect is method-aware");
+    RUN_ROUTER_TEST(test_redirect_to_slashed_route, "Redirect to route registered with trailing slash");
+    RUN_ROUTER_TEST(test_trailing_slash_root_not_redirected, "Root path / is not redirected");
+    RUN_ROUTER_TEST(test_trailing_slash_redirect_disabled, "Redirect disabled via setRedirectTrailingSlash(false)");
+    RUN_ROUTER_TEST(test_trailing_slash_no_match_404, "Slashed path with no matching route still 404s");
+#undef RUN_ROUTER_TEST
+
     std::cout << std::endl;
     std::cout << "Router tests: " << passed << " passed, " << failed << " failed" << std::endl;
     

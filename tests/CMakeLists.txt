@@ -83,6 +83,11 @@ add_executable(test_http_response
     test_http_response.cpp
 )
 
+# Router tests (Bug #5: trailing-slash redirect regression tests)
+add_executable(test_router
+    test_router.cpp
+)
+
 # WebSocket broadcast tests (v0.7.0 Phase 11b)
 add_executable(test_websocket_broadcast
     test_websocket_broadcast.cpp
@@ -222,6 +227,11 @@ target_link_libraries(test_http_response PRIVATE
     pthread
 )
 
+target_link_libraries(test_router PRIVATE
+    OmniNet
+    pthread
+)
+
 target_link_libraries(test_websocket_broadcast PRIVATE
     OmniNet
     pthread
@@ -345,6 +355,7 @@ add_test(NAME test_async_file COMMAND test_async_file)
 add_test(NAME test_http_connection COMMAND test_http_connection)
 add_test(NAME test_sync_http_server COMMAND test_sync_http_server)
 add_test(NAME test_http_response COMMAND test_http_response)
+add_test(NAME test_router COMMAND test_router)
 add_test(NAME test_websocket_broadcast COMMAND test_websocket_broadcast)
 add_test(NAME test_websocket_echo COMMAND test_websocket_echo)
 add_test(NAME test_sse_streaming COMMAND test_sse_streaming)
