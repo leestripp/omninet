@@ -92,9 +92,48 @@ Socket::tryConnect(const std::string& host, uint16_t port) {
         m_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (m_fd == INVALID_SOCKET) continue;
 
+#ifdef _WIN32
         if (::connect(m_fd, rp->ai_addr, static_cast<socklen_t>(rp->ai_addrlen)) == 0) {
             break;
         }
+#else
+        // Non-blocking connect with a per-address deadline (3s). A
+        // black-holed address family — e.g. a LAN resolver returning an
+        // unreachable AAAA ahead of a working A record — must fail over
+        // to the next candidate, not hang the caller for the kernel's
+        // full SYN-retry window (~2 min). (2026-09-27: hive-client
+        // wedged at "Connecting to hive-server…" forever behind exactly
+        // that DNS answer; curl survived via Happy Eyeballs, we did
+        // not.)
+        int saved_flags = ::fcntl(m_fd, F_GETFL, 0);
+        ::fcntl(m_fd, F_SETFL, saved_flags | O_NONBLOCK);
+        int rc = ::connect(m_fd, rp->ai_addr,
+                           static_cast<socklen_t>(rp->ai_addrlen));
+        if (rc != 0 && errno == EINPROGRESS) {
+            fd_set wfds;
+            FD_ZERO(&wfds);
+            FD_SET(m_fd, &wfds);
+            struct timeval tv{3, 0};
+            rc = ::select(static_cast<int>(m_fd) + 1, nullptr, &wfds,
+                          nullptr, &tv);
+            if (rc > 0) {
+                int soerr = 0;
+                socklen_t sl = sizeof(soerr);
+                ::getsockopt(m_fd, SOL_SOCKET, SO_ERROR, &soerr, &sl);
+                if (soerr != 0) {
+                    errno = soerr;
+                    rc = -1;
+                } else {
+                    rc = 0;   // connected
+                }
+            } else {
+                errno = (rc == 0) ? ETIMEDOUT : errno;
+                rc = -1;
+            }
+        }
+        ::fcntl(m_fd, F_SETFL, saved_flags);   // restore blocking mode
+        if (rc == 0) break;
+#endif
 
         ::close(m_fd);
         m_fd = INVALID_SOCKET;
