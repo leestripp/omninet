@@ -88,57 +88,105 @@ Socket::tryConnect(const std::string& host, uint16_t port) {
             OmniNet::SocketError::InvalidAddress};
     }
 
+#ifndef _WIN32
+    // Happy Eyeballs (RFC 8305-style): race up to 4 candidates with a
+    // 250ms stagger instead of trying each sequentially. The 3s
+    // per-address failover fixed the wedge (6b4a104) but every request
+    // behind a black-holed address family then paid a 3s connect tax —
+    // with no keep-alive, that made the whole hive-client feel broken
+    // (2026-09-28: router synthesizing an unreachable AAAA for
+    // leestrippai.com; public DNS has no AAAA at all). First family to
+    // complete wins, like a browser.
+    constexpr int kMaxRace = 4;
+    constexpr int kStaggerMs = 250;
+    constexpr int kOverallMs = 5000;
+    struct addrinfo* cands[kMaxRace];
+    int nc = 0;
+    for (struct addrinfo* a = result; a && nc < kMaxRace; a = a->ai_next)
+        cands[nc++] = a;
+    int fds[kMaxRace];
+    bool dead[kMaxRace];
+    for (int i = 0; i < nc; ++i) { fds[i] = -1; dead[i] = false; }
+    int started = 0, winner = -1, elapsed_ms = 0, last_errno = 0;
+    while (elapsed_ms < kOverallMs && winner < 0) {
+        if (started < nc && elapsed_ms >= started * kStaggerMs) {
+            int s = ::socket(cands[started]->ai_family,
+                             cands[started]->ai_socktype,
+                             cands[started]->ai_protocol);
+            if (s >= 0) {
+                int fl = ::fcntl(s, F_GETFL, 0);
+                ::fcntl(s, F_SETFL, fl | O_NONBLOCK);
+                if (::connect(s, cands[started]->ai_addr,
+                              static_cast<socklen_t>(cands[started]->ai_addrlen)) == 0) {
+                    fds[started] = s;
+                    winner = started;          // instant connect (loopback)
+                } else if (errno == EINPROGRESS) {
+                    fds[started] = s;
+                } else {
+                    last_errno = errno;
+                    ::close(s);
+                    dead[started] = true;
+                }
+            }
+            ++started;
+        }
+        if (winner < 0) {
+            bool any_pending = false;
+            fd_set wfds;
+            FD_ZERO(&wfds);
+            int mx = -1;
+            for (int i = 0; i < started; ++i) {
+                if (fds[i] >= 0 && !dead[i]) {
+                    any_pending = true;
+                    FD_SET(fds[i], &wfds);
+                    if (fds[i] > mx) mx = fds[i];
+                }
+            }
+            if (!any_pending && started >= nc) break;   // all failed fast
+            struct timeval tv{0, 50000};
+            int rc = (mx >= 0) ? ::select(mx + 1, nullptr, &wfds, nullptr, &tv) : 0;
+            elapsed_ms += 50;
+            if (rc > 0) {
+                for (int i = 0; i < started; ++i) {
+                    if (fds[i] >= 0 && !dead[i] && FD_ISSET(fds[i], &wfds)) {
+                        int soerr = 0;
+                        socklen_t sl = sizeof(soerr);
+                        ::getsockopt(fds[i], SOL_SOCKET, SO_ERROR, &soerr, &sl);
+                        if (soerr == 0) {
+                            winner = i;
+                            break;
+                        }
+                        last_errno = soerr;
+                        ::close(fds[i]);
+                        fds[i] = -1;
+                        dead[i] = true;
+                    }
+                }
+            }
+        }
+    }
+    if (winner >= 0) {
+        m_fd = fds[winner];
+        int fl = ::fcntl(m_fd, F_GETFL, 0);
+        ::fcntl(m_fd, F_SETFL, fl & ~O_NONBLOCK);   // restore blocking
+        for (int i = 0; i < nc; ++i)
+            if (i != winner && fds[i] >= 0) ::close(fds[i]);
+    } else {
+        for (int i = 0; i < nc; ++i)
+            if (fds[i] >= 0) ::close(fds[i]);
+        errno = last_errno ? last_errno : ETIMEDOUT;
+        m_fd = INVALID_SOCKET;
+    }
+#else
     for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
         m_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (m_fd == INVALID_SOCKET) continue;
-
-#ifdef _WIN32
-        if (::connect(m_fd, rp->ai_addr, static_cast<socklen_t>(rp->ai_addrlen)) == 0) {
+        if (::connect(m_fd, rp->ai_addr, static_cast<socklen_t>(rp->ai_addrlen)) == 0)
             break;
-        }
-#else
-        // Non-blocking connect with a per-address deadline (3s). A
-        // black-holed address family — e.g. a LAN resolver returning an
-        // unreachable AAAA ahead of a working A record — must fail over
-        // to the next candidate, not hang the caller for the kernel's
-        // full SYN-retry window (~2 min). (2026-09-27: hive-client
-        // wedged at "Connecting to hive-server…" forever behind exactly
-        // that DNS answer; curl survived via Happy Eyeballs, we did
-        // not.)
-        int saved_flags = ::fcntl(m_fd, F_GETFL, 0);
-        ::fcntl(m_fd, F_SETFL, saved_flags | O_NONBLOCK);
-        int rc = ::connect(m_fd, rp->ai_addr,
-                           static_cast<socklen_t>(rp->ai_addrlen));
-        if (rc != 0 && errno == EINPROGRESS) {
-            fd_set wfds;
-            FD_ZERO(&wfds);
-            FD_SET(m_fd, &wfds);
-            struct timeval tv{3, 0};
-            rc = ::select(static_cast<int>(m_fd) + 1, nullptr, &wfds,
-                          nullptr, &tv);
-            if (rc > 0) {
-                int soerr = 0;
-                socklen_t sl = sizeof(soerr);
-                ::getsockopt(m_fd, SOL_SOCKET, SO_ERROR, &soerr, &sl);
-                if (soerr != 0) {
-                    errno = soerr;
-                    rc = -1;
-                } else {
-                    rc = 0;   // connected
-                }
-            } else {
-                errno = (rc == 0) ? ETIMEDOUT : errno;
-                rc = -1;
-            }
-        }
-        ::fcntl(m_fd, F_SETFL, saved_flags);   // restore blocking mode
-        if (rc == 0) break;
-#endif
-
         ::close(m_fd);
         m_fd = INVALID_SOCKET;
     }
-
+#endif
     freeaddrinfo(result);
 
     if (m_fd == INVALID_SOCKET) {
