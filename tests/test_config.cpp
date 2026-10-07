@@ -244,6 +244,22 @@ TEST(config_keepalive_timeout) {
     ASSERT_LE(timeout.count(), 300);
 }
 
+TEST(config_max_buffer_size) {
+    // v1.0.5: per-socket buffer cap is configurable. Default 16MB, and
+    // toJson/fromJson round-trips a custom value (e.g. 24MB audio proxy).
+    auto& cfg = OmniNet::Config::instance();
+    auto size = cfg.defaultMaxBufferSize();
+    ASSERT_GE(size, 1024u);
+    ASSERT_LE(size, 256 * 1024 * 1024);
+
+    OmniNet::ServerConfig sc;
+    ASSERT_EQ(sc.maxBufferSize, 16 * 1024 * 1024);
+    sc.maxBufferSize = 24 * 1024 * 1024;
+    auto j = sc.toJson();
+    auto restored = OmniNet::ServerConfig::fromJson(j);
+    ASSERT_EQ(restored.maxBufferSize, 24 * 1024 * 1024);
+}
+
 TEST(config_max_request_size) {
     auto& cfg = OmniNet::Config::instance();
     auto size = cfg.defaultMaxRequestSize();
@@ -405,6 +421,7 @@ int main() {
     
     std::cout << "\nNew Config Options Tests:\n";
     RUN(config_keepalive_timeout);
+    RUN(config_max_buffer_size);
     RUN(config_max_request_size);
     RUN(config_cors_defaults);
     RUN(config_cors_setter);

@@ -49,6 +49,10 @@ public:
         // Limits
         size_t maxRequestSize = 1024 * 1024;  // 1MB
         size_t maxHeaderSize = 64 * 1024;  // 64KB
+        // Per-connection socket buffer cap (v1.0.5). Default 16MB; raise
+        // for large-payload traffic (audio/video proxies), lower for
+        // memory-constrained services.
+        size_t maxBufferSize = 16 * 1024 * 1024;  // 16MB
         
         // TLS
         bool tlsEnabled = false;

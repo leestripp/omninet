@@ -61,6 +61,9 @@ struct ClientConfig {
     bool follow_redirects = true;
     int  max_redirect_hops = 5;
     bool verify_tls = true;
+    // Per-socket buffer cap (v1.0.5). Default 16MB; raise it when
+    // uploading large bodies (e.g. 21MB audio to a transcription API).
+    size_t maxBufferSize = 16 * 1024 * 1024;  // 16MB
 };
 
 // ============================================================================

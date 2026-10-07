@@ -84,6 +84,8 @@ public:
     // Default max request size
     size_t defaultMaxRequestSize() const;
     void setDefaultMaxRequestSize(size_t size);
+    size_t defaultMaxBufferSize() const { return m_defaultMaxBufferSize; }
+    void setDefaultMaxBufferSize(size_t v) { m_defaultMaxBufferSize = v; }
     
     // --- Threading ---
     
@@ -222,6 +224,7 @@ private:
     std::chrono::seconds m_defaultRequestTimeout{30};
     std::chrono::seconds m_defaultKeepAliveTimeout{5};
     size_t m_defaultMaxRequestSize = 1024 * 1024;  // 1MB
+    size_t m_defaultMaxBufferSize = 16 * 1024 * 1024;  // 16MB
     size_t m_defaultWorkerCount = 0;  // 0 = auto
     std::optional<std::string> m_defaultTlsCert;
     std::optional<std::string> m_defaultTlsKey;
@@ -282,6 +285,7 @@ struct ServerConfig {
     std::chrono::seconds requestTimeout{30};
     std::chrono::seconds keepAliveTimeout{5};
     size_t maxRequestSize = 1024 * 1024;  // 1MB
+    size_t maxBufferSize = 16 * 1024 * 1024;  // 16MB per-socket buffer cap (v1.0.5)
     
     // TLS
     bool tlsEnabled = false;

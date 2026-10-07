@@ -42,7 +42,8 @@ Socket::~Socket() {
 Socket::Socket(Socket&& other) noexcept
     : m_fd(other.m_fd)
     , m_ownsFd(other.m_ownsFd)
-    , m_nonBlocking(other.m_nonBlocking) {
+    , m_nonBlocking(other.m_nonBlocking)
+    , m_maxBufferSize(other.m_maxBufferSize) {
     other.m_fd = INVALID_SOCKET;
     other.m_ownsFd = false;
 }
@@ -55,6 +56,7 @@ Socket& Socket::operator=(Socket&& other) noexcept {
         m_fd = other.m_fd;
         m_ownsFd = other.m_ownsFd;
         m_nonBlocking = other.m_nonBlocking;
+        m_maxBufferSize = other.m_maxBufferSize;
         other.m_fd = INVALID_SOCKET;
         other.m_ownsFd = false;
     }
@@ -282,11 +284,11 @@ size_t Socket::send(std::span<const uint8_t> data) {
         throw SocketException(std::string("Invalid send buffer"), EINVAL);
     }
     // v1.0.4 fix (bug #8, ChimpFlow report #2): previously threw when
-    // data.size() > RECV_BUFFER_MAX (16MB), capping forwarded request
+    // data.size() > m_maxBufferSize (16MB), capping forwarded request
     // bodies (e.g. proxied multipart/audio uploads) at 16MB — even though
     // sendAll() already loops over subspans and ::send only writes what the
     // kernel accepts. Clamp per call instead, mirroring recv().
-    const size_t chunkSize = std::min(data.size(), RECV_BUFFER_MAX);
+    const size_t chunkSize = std::min(data.size(), m_maxBufferSize);
 
     ssize_t result = ::send(m_fd, reinterpret_cast<const char*>(data.data()),
                             static_cast<size_t>(chunkSize), 0);
@@ -321,9 +323,9 @@ size_t Socket::recv(std::span<uint8_t> buffer) {
     }
     
     // Reject absurdly large spans that could cause issues
-    if (buffer.size() > RECV_BUFFER_MAX) {
+    if (buffer.size() > m_maxBufferSize) {
         std::string msg = "Receive buffer too large: " + std::to_string(buffer.size()) + 
-                         " bytes (max: " + std::to_string(RECV_BUFFER_MAX) + ")";
+                         " bytes (max: " + std::to_string(m_maxBufferSize) + ")";
         throw SocketException(msg, ENOBUFS);
     }
     
@@ -343,8 +345,8 @@ std::vector<uint8_t> Socket::recvAll(size_t maxSize) {
         return {};
     }
     
-    // Cap at RECV_BUFFER_MAX to prevent allocating huge buffers
-    size_t actualSize = std::min(maxSize, RECV_BUFFER_MAX);
+    // Cap at m_maxBufferSize to prevent allocating huge buffers
+    size_t actualSize = std::min(maxSize, m_maxBufferSize);
     
     std::vector<uint8_t> buffer;
     try {
@@ -361,7 +363,7 @@ std::vector<uint8_t> Socket::recvAll(size_t maxSize) {
     std::span<uint8_t> recvSpan = std::span<uint8_t>(buffer.data(), buffer.size());
     
     // Validate span is usable before passing to recv()
-    if (recvSpan.data() == nullptr || recvSpan.size() > RECV_BUFFER_MAX) {
+    if (recvSpan.data() == nullptr || recvSpan.size() > m_maxBufferSize) {
         throw SocketException(std::string("Invalid span created for receive"), EINVAL);
     }
     
@@ -380,9 +382,9 @@ std::vector<uint8_t> Socket::recvAll(size_t maxSize) {
 
 std::vector<uint8_t> Socket::recvExactly(size_t n) {
     // Sanity check - don't try to receive absurdly large amounts
-    if (n > RECV_BUFFER_MAX) {
+    if (n > m_maxBufferSize) {
         std::string msg = "recvExactly requested too much data: " + std::to_string(n) + 
-                         " bytes (max: " + std::to_string(RECV_BUFFER_MAX) + ")";
+                         " bytes (max: " + std::to_string(m_maxBufferSize) + ")";
         throw SocketException(msg, ENOBUFS);
     }
     
@@ -390,7 +392,7 @@ std::vector<uint8_t> Socket::recvExactly(size_t n) {
     size_t totalReceived = 0;
     
     while (totalReceived < n) {
-        size_t chunkSize = std::min(n - totalReceived, RECV_BUFFER_MAX);
+        size_t chunkSize = std::min(n - totalReceived, m_maxBufferSize);
         size_t received = recv(std::span<uint8_t>(buffer.data() + totalReceived, chunkSize));
         if (received == 0) {
             throw SocketException(std::string("Connection closed before receiving all data"));
@@ -403,7 +405,7 @@ std::vector<uint8_t> Socket::recvExactly(size_t n) {
 
 std::optional<std::string> Socket::readLine(size_t maxLength) {
     // Limit maxLength to prevent buffer issues
-    maxLength = std::min(maxLength, RECV_BUFFER_MAX);
+    maxLength = std::min(maxLength, m_maxBufferSize);
     
     std::string line;
     line.reserve(256);
@@ -585,13 +587,13 @@ void Socket::setTcpNoDelay(bool enabled) {
 
 void Socket::setRecvBufferSize(size_t size) {
     // Cap at reasonable maximum to prevent DoS
-    size = std::min(size, RECV_BUFFER_MAX * 4);
+    size = std::min(size, m_maxBufferSize * 4);
     setOption(SOL_SOCKET, SO_RCVBUF, static_cast<int>(size));
 }
 
 void Socket::setSendBufferSize(size_t size) {
     // Cap at reasonable maximum to prevent DoS
-    size = std::min(size, RECV_BUFFER_MAX * 4);
+    size = std::min(size, m_maxBufferSize * 4);
     setOption(SOL_SOCKET, SO_SNDBUF, static_cast<int>(size));
 }
 

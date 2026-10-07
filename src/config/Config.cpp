@@ -470,6 +470,9 @@ void Config::loadFromJson(const json& j) {
         if (server.contains("maxRequestSize")) {
             m_defaultMaxRequestSize = server["maxRequestSize"].get<size_t>();
         }
+        if (server.contains("maxBufferSize")) {
+            m_defaultMaxBufferSize = server["maxBufferSize"].get<size_t>();
+        }
         if (server.contains("address")) {
             // Would be used when creating a server instance
         }
@@ -663,7 +666,8 @@ json Config::toJsonInternal() const {
         {"workers", m_defaultWorkerCount},
         {"requestTimeout", static_cast<int>(m_defaultRequestTimeout.count())},
         {"keepAliveTimeout", static_cast<int>(m_defaultKeepAliveTimeout.count())},
-        {"maxRequestSize", m_defaultMaxRequestSize}
+        {"maxRequestSize", m_defaultMaxRequestSize},
+        {"maxBufferSize", m_defaultMaxBufferSize}
     };
     
     // TLS
@@ -790,7 +794,8 @@ void Config::createDefaultConfig() {
             {"workers", 0},
             {"requestTimeout", 30},
             {"keepAliveTimeout", 5},
-            {"maxRequestSize", 1048576}
+            {"maxRequestSize", 1048576},
+            {"maxBufferSize", 16777216}
         }},
         {"tls", {
             {"enabled", false},
@@ -908,6 +913,7 @@ json ServerConfig::toJson() const {
         {"requestTimeout", static_cast<int>(requestTimeout.count())},
         {"keepAliveTimeout", static_cast<int>(keepAliveTimeout.count())},
         {"maxRequestSize", maxRequestSize},
+        {"maxBufferSize", maxBufferSize},
         {"tls", {
             {"enabled", tlsEnabled},
             {"certFile", tlsCertFile},
@@ -933,6 +939,7 @@ ServerConfig ServerConfig::fromJson(const json& j) {
     if (j.contains("requestTimeout")) cfg.requestTimeout = std::chrono::seconds(j["requestTimeout"].get<int>());
     if (j.contains("keepAliveTimeout")) cfg.keepAliveTimeout = std::chrono::seconds(j["keepAliveTimeout"].get<int>());
     if (j.contains("maxRequestSize")) cfg.maxRequestSize = j["maxRequestSize"].get<size_t>();
+    if (j.contains("maxBufferSize")) cfg.maxBufferSize = j["maxBufferSize"].get<size_t>();
     
     if (j.contains("tls")) {
         const auto& tls = j["tls"];

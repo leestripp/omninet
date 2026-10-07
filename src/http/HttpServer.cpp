@@ -661,6 +661,7 @@ void Server::handleConnection(std::unique_ptr<Socket> socket) {
             conn.setRequestTimeout(m_config.requestTimeout);
             conn.setKeepAliveTimeout(m_config.keepAliveTimeout);
             conn.setMaxRequestSize(m_config.maxRequestSize);
+            conn.socketPtr()->setMaxBufferSize(m_config.maxBufferSize);
 
             SERVER_DEBUG("Calling conn.processRequests()");
             ++m_stats.requestsActive;

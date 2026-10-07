@@ -625,6 +625,7 @@ Client::connect(const std::string& scheme, const std::string& host,
             if (!sock->isOpen()) {
                 return std::unexpected(ClientError::ConnectFailed);
             }
+            sock->setMaxBufferSize(cfg.maxBufferSize);
             if (!cfg.verify_tls) {
                 auto* tls = dynamic_cast<OmniNet::TLSSocket*>(sock.get());
                 if (tls) tls->setVerifyMode(OmniNet::TLSVerify::NONE);
@@ -636,6 +637,7 @@ Client::connect(const std::string& scheme, const std::string& host,
             if (!sock->isOpen()) {
                 return std::unexpected(ClientError::ConnectFailed);
             }
+            sock->setMaxBufferSize(cfg.maxBufferSize);
             return sock;
         }
     } catch (...) {

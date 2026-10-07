@@ -10,6 +10,8 @@
 
 using namespace OmniNet;
 
+#define ASSERT_S(cond) do { if (!(cond)) { std::cout << "  FAIL: " #cond "\n"; return 1; } } while(0)
+
 int main() {
     std::cout << "Testing Socket buffer overflow protection...\n";
     
@@ -119,6 +121,70 @@ int main() {
         assert(totalReceived.load() == payloadSize && "did not receive full payload");
         assert(received == payload && "payload corrupted in transit");
         std::cout << "  PASS: send() accepts spans over RECV_BUFFER_MAX (16MB+1 loopback)\n";
+    }
+
+    // Test 6: per-socket maxBufferSize override (v1.0.5). The cap must be
+    // tunable per socket without touching the library: clamp a live pair
+    // to 1MB and verify send() clamps, recvExactly() rejects, and the
+    // accessor reflects it; a 0 argument must be ignored.
+    {
+        Socket a;
+        ASSERT_S(a.maxBufferSize() == Socket::maxRecvSize());
+        a.setMaxBufferSize(1024 * 1024);  // 1MB
+        ASSERT_S(a.maxBufferSize() == 1024 * 1024);
+        a.setMaxBufferSize(0);            // ignored: must not clear the cap
+        ASSERT_S(a.maxBufferSize() == 1024 * 1024);
+
+        Socket listener;
+        listener.bind("127.0.0.1", 0);
+        listener.listen(1);
+        uint16_t port = listener.localPort();
+        Socket client;
+        client.connect("127.0.0.1", port);
+        auto server = listener.accept();
+        client.setMaxBufferSize(1024 * 1024);
+        server->setMaxBufferSize(1024 * 1024);
+
+        // send() of a 2MB span on a 1MB-capped socket: clamps, no throw.
+        std::vector<uint8_t> big(2 * 1024 * 1024, 0xAB);
+        std::atomic<size_t> drained{0};
+        std::thread receiver([&]() {
+            std::vector<uint8_t> buf(64 * 1024);
+            while (drained.load() < big.size()) {
+                size_t n = server->recv(std::span<uint8_t>(buf.data(), buf.size()));
+                if (n == 0) break;
+                drained += n;
+            }
+        });
+        // send() may write fewer bytes than the cap (kernel partial
+        // write), so loop like sendAll() does; every single call must
+        // stay within the cap and none may throw.
+        size_t totalSent = 0;
+        size_t maxSingle = 0;
+        while (totalSent < big.size()) {
+            size_t n = client.send(
+                std::span<const uint8_t>(big.data() + totalSent, big.size() - totalSent));
+            if (n == 0) break;
+            maxSingle = std::max(maxSingle, n);
+            totalSent += n;
+        }
+        receiver.join();
+        ASSERT_S(totalSent == big.size());
+        ASSERT_S(drained.load() == big.size());
+        ASSERT_S(maxSingle == 1024 * 1024);  // never exceeded the 1MB cap
+
+        // recvExactly() beyond the cap throws on the capped socket,
+        // and the default cap is unchanged elsewhere.
+        bool caught = false;
+        try {
+            server->recvExactly(2 * 1024 * 1024);
+        } catch (const SocketException&) {
+            caught = true;
+        }
+        ASSERT_S(caught);
+        Socket untouched;  // fresh socket keeps the 16MB default
+        ASSERT_S(untouched.maxBufferSize() == Socket::maxRecvSize());
+        std::cout << "  PASS: per-socket maxBufferSize override (1MB cap clamps send/recvExactly)\n";
     }
 
     std::cout << "\nAll buffer overflow protection tests passed!\n";

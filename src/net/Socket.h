@@ -41,9 +41,13 @@ namespace OmniNet {
 // Constants
 // ============================================================================
 
-// Maximum receive buffer size to prevent buffer overflow attacks
-// Requests larger than this will be rejected
-static constexpr size_t RECV_BUFFER_MAX = 16 * 1024 * 1024;  // 16MB max single recv
+// Default maximum buffer size to prevent buffer overflow attacks.
+// Requests larger than this will be rejected. This is only the DEFAULT —
+// v1.0.5 made the cap per-socket configurable (Socket::setMaxBufferSize,
+// HttpServer::Config / ClientConfig maxBufferSize, config "server":
+// {"maxBufferSize": N}), so services can tune it down (1MB) or up (24MB+)
+// without touching the library.
+static constexpr size_t RECV_BUFFER_MAX = 16 * 1024 * 1024;  // 16MB default cap
 
 // ============================================================================
 // Base Socket Class
@@ -57,8 +61,17 @@ public:
     // Wrap an existing file descriptor
     explicit Socket(SOCKET fd);
     
-    // Get the maximum allowed receive buffer size
+    // Get the maximum allowed receive buffer size (the library default)
     static constexpr size_t maxRecvSize() { return RECV_BUFFER_MAX; }
+
+    // Per-socket buffer cap (v1.0.5). Bounds send()/recv() single-call
+    // sizes and the recvAll()/recvExactly()/readLine() limit checks.
+    // Lower it for memory-constrained services, raise it for large-payload
+    // traffic (e.g. audio upload proxies). A maxSize of 0 is ignored.
+    void setMaxBufferSize(size_t maxSize) {
+        if (maxSize > 0) m_maxBufferSize = maxSize;
+    }
+    size_t maxBufferSize() const { return m_maxBufferSize; }
     
     virtual ~Socket();
     
@@ -204,6 +217,7 @@ protected:
     SOCKET m_fd = INVALID_SOCKET;
     bool m_ownsFd = true;
     bool m_nonBlocking = false;
+    size_t m_maxBufferSize = RECV_BUFFER_MAX;  // per-socket cap (v1.0.5)
 };
 
 // ============================================================================
