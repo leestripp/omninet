@@ -1,6 +1,7 @@
 // OmniNet - HTTP Connection Implementation
 #include "HttpConnection.h"
 
+#include <algorithm>
 #include <iostream>
 
 #include "net/Socket.h"
@@ -183,7 +184,10 @@ bool Connection::readRequest() {
     
     // Safety limit - prevent unbounded buffer growth
     static constexpr size_t SAFETY_HEADER_LIMIT = 1024 * 1024;  // 1MB for headers
-    static constexpr size_t SAFETY_BODY_LIMIT = 10 * 1024 * 1024; // 10MB for body
+    static constexpr size_t SAFETY_BODY_LIMIT = 10 * 1024 * 1024; // 10MB floor for body
+    // Effective body cap: follows the configured m_maxRequestSize when that
+    // is larger (servers accepting big uploads, e.g. audio), else the floor.
+    const size_t bodyLimit = std::max(m_maxRequestSize, SAFETY_BODY_LIMIT);
     
     // Read until we have complete headers (double CRLF)
     // Then optionally read body based on Content-Length or Transfer-Encoding
@@ -242,8 +246,8 @@ bool Connection::readRequest() {
             }
         } else {
             // Reading body
-            if (buffer.size() + chunk.size() > SAFETY_BODY_LIMIT) {
-                CONN_DEBUG("  ERROR: Body would exceed safety limit (" << SAFETY_BODY_LIMIT << " bytes)");
+            if (buffer.size() + chunk.size() > bodyLimit) {
+                CONN_DEBUG("  ERROR: Body would exceed safety limit (" << bodyLimit << " bytes)");
                 return false;
             }
         }
