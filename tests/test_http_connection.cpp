@@ -166,7 +166,8 @@ static void run_test_connection(std::unique_ptr<Connection> conn,
 // TCP-based test: spin up a server socket, accept a connection, run
 // Connection on it, send a request, verify body.
 static void run_tcp_test(const std::string& request,
-                          CapturedRequest& cap) {
+                          CapturedRequest& cap,
+                          size_t maxRequestSize = 0) {
     uint16_t port = 0;
     int listen_fd = bind_listening_socket(port);
     if (listen_fd < 0) {
@@ -193,6 +194,11 @@ static void run_tcp_test(const std::string& request,
 
         auto sock = std::make_unique<Socket>(cfd);
         auto conn = std::make_unique<Connection>(std::move(sock));
+        // Bug #7: without this the body cap is the hardcoded 10MB floor,
+        // and a >10MB upload is dropped even when the server config allows it.
+        if (maxRequestSize > 0) {
+            conn->setMaxRequestSize(maxRequestSize);
+        }
         run_test_connection(std::move(conn), cap, done);
     });
 
@@ -324,6 +330,46 @@ TEST(invalid_chunk_size_returns_error) {
 // ============================================================================
 // Main
 // ============================================================================
+
+TEST(large_body_accepted_within_raised_limit) {
+    // v1.0.4 fix (bug #7, ChimpFlow report #1): a 12MB body must be
+    // accepted when the server raises maxRequestSize. The pre-fix code
+    // enforced a hardcoded 10MB SAFETY_BODY_LIMIT and dropped the request
+    // mid-read regardless of the configured limit.
+    const size_t bodySize = 12 * 1024 * 1024;  // 12MB > old 10MB cap
+    std::string request =
+        "POST /upload HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Content-Type: application/octet-stream\r\n"
+        "Content-Length: " + std::to_string(bodySize) + "\r\n"
+        "\r\n";
+    request.append(bodySize, 'x');
+
+    CapturedRequest cap;
+    run_tcp_test(request, cap, /*maxRequestSize=*/ 32 * 1024 * 1024);
+
+    ASSERT_TRUE(cap.captured.load());
+    ASSERT_EQ(cap.method, std::string("POST"));
+    ASSERT_EQ(cap.path, std::string("/upload"));
+    ASSERT_EQ(cap.body.size(), bodySize);
+}
+
+TEST(body_over_default_limit_still_rejected) {
+    // The configured limit must still be enforced: with the default 1MB,
+    // a 2MB body is rejected (handler never invoked).
+    const size_t bodySize = 2 * 1024 * 1024;
+    std::string request =
+        "POST /upload HTTP/1.1\r\n"
+        "Host: localhost\r\n"
+        "Content-Length: " + std::to_string(bodySize) + "\r\n"
+        "\r\n";
+    request.append(bodySize, 'x');
+
+    CapturedRequest cap;
+    run_tcp_test(request, cap);  // default 1MB limit
+
+    ASSERT_TRUE(!cap.captured.load());
+}
 
 int main() {
     std::cout << "========================================" << std::endl;

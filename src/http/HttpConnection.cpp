@@ -1,6 +1,8 @@
 // OmniNet - HTTP Connection Implementation
 #include "HttpConnection.h"
 
+#include <algorithm>
+
 #include <iostream>
 
 #include "net/Socket.h"
@@ -183,7 +185,15 @@ bool Connection::readRequest() {
     
     // Safety limit - prevent unbounded buffer growth
     static constexpr size_t SAFETY_HEADER_LIMIT = 1024 * 1024;  // 1MB for headers
-    static constexpr size_t SAFETY_BODY_LIMIT = 10 * 1024 * 1024; // 10MB for body
+    static constexpr size_t SAFETY_BODY_LIMIT = 10 * 1024 * 1024; // 10MB floor for body
+    // v1.0.4 fix (bug #7, ChimpFlow report #1): the body cap was the
+    // hardcoded SAFETY_BODY_LIMIT regardless of the configured
+    // m_maxRequestSize, so raising Config::maxRequestSize past 10MB had no
+    // effect and big uploads were dropped mid-read (connection closed, no
+    // response). The effective cap now follows the larger of the two: the
+    // floor still protects servers that leave the default (1MB), while
+    // maxRequestSize becomes the single, documented knob for upload size.
+    const size_t bodyLimit = std::max(m_maxRequestSize, SAFETY_BODY_LIMIT);
     
     // Read until we have complete headers (double CRLF)
     // Then optionally read body based on Content-Length or Transfer-Encoding
@@ -242,8 +252,8 @@ bool Connection::readRequest() {
             }
         } else {
             // Reading body
-            if (buffer.size() + chunk.size() > SAFETY_BODY_LIMIT) {
-                CONN_DEBUG("  ERROR: Body would exceed safety limit (" << SAFETY_BODY_LIMIT << " bytes)");
+            if (buffer.size() + chunk.size() > bodyLimit) {
+                CONN_DEBUG("  ERROR: Body would exceed safety limit (" << bodyLimit << " bytes)");
                 return false;
             }
         }

@@ -278,12 +278,18 @@ std::unique_ptr<Socket> Socket::accept() {
 
 size_t Socket::send(std::span<const uint8_t> data) {
     // Validate span
-    if (data.data() == nullptr || data.size() > RECV_BUFFER_MAX) {
+    if (data.data() == nullptr) {
         throw SocketException(std::string("Invalid send buffer"), EINVAL);
     }
-    
+    // v1.0.4 fix (bug #8, ChimpFlow report #2): previously threw when
+    // data.size() > RECV_BUFFER_MAX (16MB), capping forwarded request
+    // bodies (e.g. proxied multipart/audio uploads) at 16MB — even though
+    // sendAll() already loops over subspans and ::send only writes what the
+    // kernel accepts. Clamp per call instead, mirroring recv().
+    const size_t chunkSize = std::min(data.size(), RECV_BUFFER_MAX);
+
     ssize_t result = ::send(m_fd, reinterpret_cast<const char*>(data.data()),
-                            static_cast<size_t>(data.size()), 0);
+                            static_cast<size_t>(chunkSize), 0);
     if (result < 0) {
         if (wouldBlock()) return 0;
         throw SocketException(std::string("Send failed"), getError());

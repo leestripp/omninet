@@ -88,8 +88,12 @@ bool isValidHexFormat(std::string_view token, size_t expectedBytes) {
 }
 
 bool isValidApiKeyFormat(std::string_view apiKey, size_t minPrefixLen) {
-    // Must contain underscore
-    auto pos = apiKey.find('_');
+    // v1.0.4 fix (bug #9, ChimpFlow report #3): split at the LAST
+    // underscore, not the first. Generated prefixes may themselves contain
+    // underscores (e.g. "omn_sk_<hex>_<secret>"); with find('_') everything
+    // after the first underscore was treated as the secret, so multi-
+    // underscore keys failed the secret's alphanumeric check.
+    auto pos = apiKey.rfind('_');
     if (pos == std::string_view::npos) {
         return false;
     }

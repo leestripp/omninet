@@ -159,6 +159,13 @@ void test_is_valid_api_key_format() {
     std::string validKey = generateApiKey("test");
     // Valid key should pass format check (our generator creates valid format)
     ASSERT_TRUE(isValidApiKeyFormat(validKey, 3));
+    // v1.0.4 (bug #9, ChimpFlow report #3): prefixes containing more than
+    // one underscore must validate — the split is at the LAST underscore,
+    // so "omn_sk_<hex>_<secret>" treats only the final segment as the
+    // secret. With a first-underscore split the secret contains '_' and
+    // fails the alphanumeric check.
+    ASSERT_TRUE(isValidApiKeyFormat("omn_sk_a3f8b2c1_0123456789abcdef", 3));
+    ASSERT_TRUE(isValidApiKeyFormat("svc_prod_eu_abcdef0123456789", 3));
     
     // No underscore at all
     ASSERT_FALSE(isValidApiKeyFormat("testnounderscorevalu"));
