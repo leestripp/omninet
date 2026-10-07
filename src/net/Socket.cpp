@@ -278,15 +278,12 @@ std::unique_ptr<Socket> Socket::accept() {
 
 size_t Socket::send(std::span<const uint8_t> data) {
     // Validate span
-    if (data.data() == nullptr) {
+    if (data.data() == nullptr || data.size() > RECV_BUFFER_MAX) {
         throw SocketException(std::string("Invalid send buffer"), EINVAL);
     }
-    // Clamp per-call size, mirroring the recv() side: ::send only writes
-    // what the kernel accepts anyway, and sendAll() loops over subspans.
-    // Throwing here capped forwarded request bodies at RECV_BUFFER_MAX.
-    size_t chunkSize = std::min(data.size(), RECV_BUFFER_MAX);
+    
     ssize_t result = ::send(m_fd, reinterpret_cast<const char*>(data.data()),
-                            static_cast<size_t>(chunkSize), 0);
+                            static_cast<size_t>(data.size()), 0);
     if (result < 0) {
         if (wouldBlock()) return 0;
         throw SocketException(std::string("Send failed"), getError());
