@@ -415,9 +415,18 @@ ClientResponseStream::read_some() {
     auto fetch = [&]() -> bool {
         // Wait for data (or EOF) before reading. Socket::recvAll()
         // does a single recv() and returns empty on EAGAIN, which
-        // we cannot distinguish from EOF. So wait first.
-        if (!m_state->socket->waitForRead(
-                std::chrono::milliseconds(100))) {
+        // we cannot distinguish from EOF. So wait first. The 100ms
+        // poll only bounds close() latency — a poll timeout is NOT
+        // EOF. Returning false here makes callers (and read_some's
+        // chunked decoder) truncate a slow stream: SSE responses can
+        // legitimately go seconds before their first byte (e.g. the
+        // server resizes its context mid-request), which surfaced as
+        // zero-byte streaming responses. Keep waiting for real data.
+        while (!m_state->eof &&
+               !m_state->socket->waitForRead(
+                   std::chrono::milliseconds(100))) {
+        }
+        if (m_state->eof) {
             return false;
         }
         uint8_t buf[64 * 1024];
