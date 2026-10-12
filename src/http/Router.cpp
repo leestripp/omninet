@@ -322,6 +322,10 @@ void Router::serveStatic(std::string urlPrefix, const std::string& directory) {
         
         // Serve the static file
         auto& mutableReq = const_cast<Request&>(req);
+        // The handler resolves files relative to its root, so it must see
+        // the prefix-stripped path — serving it the full request path would
+        // look for <root>/ui/index.html and 404 on every prefix mount.
+        mutableReq.setPath(std::move(urlPath));
         handler->handle(mutableReq, resp);
     });
 }
