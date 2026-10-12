@@ -286,6 +286,10 @@ void Router::serveStatic(std::string urlPrefix, const std::string& directory) {
     
     // Use StaticHandler for serving static files
     std::shared_ptr<StaticHandler> handler(new StaticHandler(dirCopy));
+    // Directory requests (mount point, trailing slash) should serve an
+    // index file; StaticHandler ships with an empty index list, which
+    // would 404 every directory URL.
+    handler->setIndexFiles({"index.html", "index.htm"});
     
     // Register a prefix-based route instead of catch-all
     // This prevents shadowing other routes like /omninet/*
