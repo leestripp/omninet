@@ -5,18 +5,20 @@
 
 #include <iostream>
 
+#include <sstream>
+
 #include "net/Socket.h"
 #include "utils/Exception.h"
 
-// Debug logging
-#define DEBUG_CONNECTION 1
-#if DEBUG_CONNECTION
+// Connection trace. Routed through the Logger at DEBUG level so
+// Logger::setLevel() governs it — silent at INFO, verbose with
+// TRAMETES_LOG_LEVEL=debug. Never std::cerr: that bypassed levels and
+// flooded the journal with per-request chatter.
+#include "utils/Logger.h"
 #define CONN_DEBUG(msg) do { \
-    std::cerr << "[HttpConnection] " << msg << std::endl; \
+    std::ostringstream _connDbg; _connDbg << msg; \
+    OmniNet::Logger::instance().debug(std::string_view(_connDbg.str())); \
 } while(0)
-#else
-#define CONN_DEBUG(msg) do {} while(0)
-#endif
 
 namespace OmniNet::HTTP {
 

@@ -7,20 +7,20 @@
 #include <csignal>
 #include <iostream>
 
+#include <sstream>
+
 #ifndef _WIN32
 #include <fcntl.h>   // fcntl(), F_GETFL, F_SETFL, O_NONBLOCK
 #include <unistd.h>  // pipe(), close(), write()
 #endif
 
 // Debug logging
-#define DEBUG_SERVER 1
-#if DEBUG_SERVER
+// Server trace through the Logger at DEBUG level (see HttpConnection.cpp).
+#include "utils/Logger.h"
 #define SERVER_DEBUG(msg) do { \
-    std::cerr << "[HttpServer] " << msg << std::endl; \
+    std::ostringstream _srvDbg; _srvDbg << msg; \
+    OmniNet::Logger::instance().debug(std::string_view(_srvDbg.str())); \
 } while(0)
-#else
-#define SERVER_DEBUG(msg) do {} while(0)
-#endif
 
 namespace OmniNet::HTTP {
 
