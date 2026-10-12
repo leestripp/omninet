@@ -275,6 +275,38 @@ bool ApiKeyStore::revoke(std::string_view rawKey) {
     return false;
 }
 
+bool ApiKeyStore::restore(std::string_view keyId) {
+    auto stmt = m_db.prepare(
+        "UPDATE api_keys "
+        "SET revoked = 0, revoked_at = NULL "
+        "WHERE id = ? AND revoked = 1"
+    );
+    stmt.bind(1, std::string(keyId));
+    stmt.step();
+    stmt.reset();
+
+    auto selectStmt = m_db.prepare("SELECT changes()");
+    if (selectStmt.step()) {
+        return selectStmt.columnInt64(0) > 0;
+    }
+    return false;
+}
+
+bool ApiKeyStore::remove(std::string_view keyId) {
+    auto stmt = m_db.prepare(
+        "DELETE FROM api_keys WHERE id = ? AND revoked = 1"
+    );
+    stmt.bind(1, std::string(keyId));
+    stmt.step();
+    stmt.reset();
+
+    auto selectStmt = m_db.prepare("SELECT changes()");
+    if (selectStmt.step()) {
+        return selectStmt.columnInt64(0) > 0;
+    }
+    return false;
+}
+
 bool ApiKeyStore::revokeById(std::string_view keyId) {
     auto now = std::chrono::system_clock::now();
     std::string nowStr = Utils::formatIso8601(now);

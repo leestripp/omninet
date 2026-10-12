@@ -97,6 +97,16 @@ public:
     
     // Revoke by public ID (key prefix)
     bool revokeById(std::string_view keyId);
+
+    // Un-revoke a key (admin undo). Returns false if the key does not
+    // exist or was not revoked.
+    bool restore(std::string_view keyId);
+
+    // Permanently delete a key row. Only REVOKED keys may be removed —
+    // revoking first is mandatory so an in-use key can never be
+    // deleted outright. Returns false if the key does not exist or is
+    // still active.
+    bool remove(std::string_view keyId);
     
     // Revoke all keys for a user
     size_t revokeAllForUser(std::string_view userId);
