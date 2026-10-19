@@ -310,7 +310,12 @@ std::vector<uint8_t> TLSSocket::recvAll(size_t maxSize) {
         
         size_t bytes = recv(buffer);
         if (bytes == 0) {
-            break;
+            // recv()==0 conflates TLS WANT_READ (a partial record
+            // arrived; the peer is alive) with a real close. Only a
+            // definitive peer close ends the read — anything else is
+            // "no full record yet", so keep waiting.
+            if (hasPeerClosed()) break;
+            continue;
         }
         result.insert(result.end(), buffer.begin(), buffer.begin() + bytes);
     }

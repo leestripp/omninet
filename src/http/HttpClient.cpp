@@ -285,7 +285,14 @@ std::string readAll(OmniNet::Socket& socket, const ClientConfig& cfg,
         } catch (...) {
             break;  // peer closed abruptly or fd invalid
         }
-        if (n == 0) break;  // peer closed (EOF)
+        if (n == 0) {
+            // 0 from a TLS socket means "no complete record yet"
+            // (WANT_READ) as often as a real close; only trust the
+            // definitive peer-close probe (2026-10-19: 21MB WAN
+            // downloads truncated to one ~16KB TLS record otherwise).
+            if (socket.hasPeerClosed()) break;  // peer closed (EOF)
+            continue;
+        }
         out.append(reinterpret_cast<const char*>(buf), n);
     }
     return out;
@@ -432,8 +439,15 @@ ClientResponseStream::read_some() {
         uint8_t buf[64 * 1024];
         auto got = m_state->socket->recvAll(sizeof(buf));
         if (got.empty()) {
-            m_state->eof = true;
-            return false;
+            // recvAll() returns empty on a TLS WANT_READ lull as well as
+            // on a real close; only a definitive peer close is EOF. With
+            // the peer alive we simply have no data yet: return true
+            // with leftover untouched so the caller loops back in.
+            if (m_state->socket->hasPeerClosed()) {
+                m_state->eof = true;
+                return false;
+            }
+            return true;
         }
         m_state->leftover.append(reinterpret_cast<const char*>(got.data()),
                                  got.size());
@@ -720,7 +734,27 @@ Client::exchange(std::unique_ptr<OmniNet::Socket> socket,
         return std::unexpected(ClientError::RecvFailed);
     }
 
-    return parseResponse(raw);
+    auto resp = parseResponse(raw);
+    if (!resp.has_value()) return resp;
+    // Fail loud on a truncated body: a short read must never surface as
+    // a successful response (2026-10-19: TLS WANT_READ masquerading as
+    // EOF cut 21MB downloads to ~16KB and callers cached the stubs).
+    {
+        const std::string cl = resp->header("Content-Length");
+        if (!cl.empty()) {
+            size_t expected = 0;
+            bool numeric = true;
+            for (char c : cl) {
+                if (c < '0' || c > '9') { numeric = false; break; }
+                expected = expected * 10 + static_cast<size_t>(c - '0');
+            }
+            if (numeric && expected > 0 &&
+                resp->bodyAsString().size() < expected) {
+                return std::unexpected(ClientError::RecvFailed);
+            }
+        }
+    }
+    return resp;
 }
 
 // ----- Phase 7: send_streaming -----
