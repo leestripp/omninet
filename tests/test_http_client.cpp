@@ -33,6 +33,7 @@ struct LocalServer {
     int chunk_count = 3;
     int chunk_size = 4;
     int header_delay_ms = 0;
+    int keep_open_ms = 0;
 
     void start(int p) {
         port = p;
@@ -158,7 +159,8 @@ struct LocalServer {
             for (const auto& [k, v] : headers) {
                 resp += k + ": " + v + "\r\n";
             }
-            resp += "Connection: close\r\n\r\n";
+            resp += keep_open_ms > 0 ? "Connection: keep-alive\r\n\r\n"
+                                     : "Connection: close\r\n\r\n";
             client->sendAll(std::span<const uint8_t>(
                 reinterpret_cast<const uint8_t*>(resp.data()),
                 resp.size()));
@@ -181,6 +183,10 @@ struct LocalServer {
                 client->sendAll(std::span<const uint8_t>(
                     reinterpret_cast<const uint8_t*>(body.data()),
                     body.size()));
+            }
+            if (keep_open_ms > 0) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(keep_open_ms));
             }
             client->close();
         } catch (...) {}
@@ -226,10 +232,10 @@ void test_invalid_url() {
 void test_get() {
     std::cout << "test_get\n"; std::cout.flush();
     LocalServer srv;
-    srv.response_body = "hello world"; srv.start(18080);
+    srv.response_body = "hello world"; srv.start(18100);
     std::cout << "test_get after start\n"; std::cout.flush();
     ClientRequest req;
-    req.method("GET").url("http://127.0.0.1:18080/test");
+    req.method("GET").url("http://127.0.0.1:18100/test");
     std::cout << "test_get before send\n"; std::cout.flush();
     auto result = Client::get_instance().send_blocking(req);
     std::cout << "test_get after send has=" << result.has_value() << "\n"; std::cout.flush();
@@ -475,6 +481,28 @@ void test_streaming_header_timeout() {
     }
 }
 
+void test_blocking_content_length_keep_alive() {
+    std::cout << "test_blocking_content_length_keep_alive\n";
+    LocalServer srv;
+    srv.response_body = "complete response";
+    srv.keep_open_ms = 1000;
+    srv.start(18096);
+    ClientConfig cfg;
+    cfg.request_timeout = std::chrono::seconds(5);
+    ClientRequest req;
+    req.url("http://127.0.0.1:18096/keep-alive");
+    const auto start = std::chrono::steady_clock::now();
+    auto result = Client::get_instance().send_blocking(req, cfg);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start).count();
+    EXPECT(result.has_value());
+    if (result.has_value()) {
+        EXPECT(result->bodyAsString() == "complete response");
+    }
+    EXPECT(elapsed < 500);
+    srv.stop();
+}
+
 int main() {
     signal(SIGPIPE, SIG_IGN);
     test_url_parse();
@@ -492,6 +520,7 @@ int main() {
     test_streaming_request_chunked();
     test_streaming_read_some_partial();
     test_streaming_header_timeout();
+    test_blocking_content_length_keep_alive();
 
     std::cout << "\nResults: " << passed << " passed, "
               << failed << " failed\n";

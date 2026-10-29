@@ -163,7 +163,7 @@ static std::string get_header(const std::string& response, const std::string& na
 TEST(server_start_stop) {
     // Verify server starts and stops cleanly
     Server::Config cfg;
-    cfg.port = 18080;
+    cfg.port = 18102;
     cfg.workerCount = 1;
     Server server(cfg);
     server.router().get("/test", [](const Request&, Response& resp) {

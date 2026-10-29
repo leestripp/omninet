@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstring>
 #include <future>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -255,6 +256,73 @@ std::string buildRequest(const ClientRequest& req, const std::string& path) {
     return out;
 }
 
+// Return the complete wire size once the headers declare a valid
+// Content-Length. Chunked and malformed responses keep their existing
+// EOF/timeout handling; transfer-encoding takes precedence over length.
+std::optional<size_t> contentLengthResponseSize(std::string_view raw,
+                                                size_t header_end) {
+    size_t pos = raw.find("\r\n");
+    if (pos == std::string_view::npos) return std::nullopt;
+    pos += 2;
+
+    bool have_content_length = false;
+    bool chunked = false;
+    size_t content_length = 0;
+    while (pos < header_end) {
+        const size_t next_eol = raw.find("\r\n", pos);
+        if (next_eol == std::string_view::npos || next_eol > header_end) break;
+        const std::string_view line = raw.substr(pos, next_eol - pos);
+        const size_t colon = line.find(':');
+        if (colon != std::string_view::npos) {
+            const std::string name = toLower(line.substr(0, colon));
+            size_t value_start = colon + 1;
+            while (value_start < line.size() &&
+                   (line[value_start] == ' ' || line[value_start] == '\t')) {
+                ++value_start;
+            }
+            size_t value_end = line.size();
+            while (value_end > value_start &&
+                   (line[value_end - 1] == ' ' || line[value_end - 1] == '\t')) {
+                --value_end;
+            }
+            const std::string_view value =
+                line.substr(value_start, value_end - value_start);
+            if (name == "content-length") {
+                size_t parsed = 0;
+                bool valid = !value.empty();
+                for (const char c : value) {
+                    if (c < '0' || c > '9') {
+                        valid = false;
+                        break;
+                    }
+                    const size_t digit = static_cast<size_t>(c - '0');
+                    if (parsed >
+                        (std::numeric_limits<size_t>::max() - digit) / 10) {
+                        valid = false;
+                        break;
+                    }
+                    parsed = parsed * 10 + digit;
+                }
+                have_content_length = valid;
+                if (valid) content_length = parsed;
+            } else if (name == "transfer-encoding") {
+                if (toLower(value).find("chunked") != std::string::npos) {
+                    chunked = true;
+                }
+            }
+        }
+        pos = next_eol + 2;
+    }
+
+    if (!have_content_length || chunked) return std::nullopt;
+    constexpr size_t header_separator_size = 4;
+    if (content_length > std::numeric_limits<size_t>::max() -
+                             header_end - header_separator_size) {
+        return std::nullopt;
+    }
+    return header_end + header_separator_size + content_length;
+}
+
 // Read the response body via a recv() loop driven by waitForRead().
 // NOTE: Socket::recvAll() is misleadingly named -- it does a single
 // recv() call and returns empty on EAGAIN/EWOULDBLOCK. We must
@@ -268,6 +336,8 @@ std::string readAll(OmniNet::Socket& socket, const ClientConfig& cfg,
     auto deadline = std::chrono::steady_clock::now() + cfg.request_timeout;
     bool use_timeout = cfg.request_timeout.count() > 0;
     bool check_stop = stop.stop_possible();
+    bool headers_complete = false;
+    std::optional<size_t> expected_size;
     while (true) {
         if (check_stop && stop.stop_requested()) break;
         auto now = std::chrono::steady_clock::now();
@@ -294,6 +364,14 @@ std::string readAll(OmniNet::Socket& socket, const ClientConfig& cfg,
             continue;
         }
         out.append(reinterpret_cast<const char*>(buf), n);
+        if (!headers_complete) {
+            const size_t header_end = out.find("\r\n\r\n");
+            if (header_end != std::string::npos) {
+                headers_complete = true;
+                expected_size = contentLengthResponseSize(out, header_end);
+            }
+        }
+        if (expected_size && out.size() >= *expected_size) break;
     }
     return out;
 }
