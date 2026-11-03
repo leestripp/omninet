@@ -53,6 +53,11 @@ add_executable(test_async_logger
     test_async_logger.cpp
 )
 
+# Socket and TLS ownership tests
+add_executable(test_socket
+    test_socket.cpp
+)
+
 # AsyncTlsSocket tests (Phase 8b)
 add_executable(test_async_tls
     test_async_tls.cpp
@@ -196,6 +201,8 @@ target_link_libraries(test_async_logger PRIVATE
     OmniNet
     pthread
 )
+
+target_link_libraries(test_socket PRIVATE OmniNet pthread)
 
 target_link_libraries(test_async_tls PRIVATE
     OmniNet
@@ -349,6 +356,7 @@ add_test(NAME test_io_context COMMAND test_io_context)
 add_test(NAME test_async_server COMMAND test_async_server)
 add_test(NAME test_async_database COMMAND test_async_database)
 add_test(NAME test_async_logger COMMAND test_async_logger)
+add_test(NAME test_socket COMMAND test_socket)
 add_test(NAME test_async_tls COMMAND test_async_tls)
 add_test(NAME test_expected COMMAND test_expected)
 add_test(NAME test_async_file COMMAND test_async_file)

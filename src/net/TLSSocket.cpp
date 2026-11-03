@@ -15,8 +15,12 @@ TLSSocket::TLSSocket() : m_serverMode(false), m_handshakeDone(false) {
     initContext(TLSMode::CLIENT);
 }
 
-TLSSocket::TLSSocket(std::unique_ptr<Socket> socket) 
-    : Socket(socket->fd()), m_serverMode(true), m_handshakeDone(false), m_underlyingSocket(std::move(socket)) {
+TLSSocket::TLSSocket(std::unique_ptr<Socket> socket)
+    // Transfer ownership into the Socket base. Keeping the accepted socket's
+    // fd as well made both objects close it during API-connection teardown;
+    // the second close could hit an unrelated descriptor reused by another
+    // thread (OzMail daemon: getaddrinfo netlink EBADF/SIGABRT).
+    : Socket(socket->release()), m_serverMode(true), m_handshakeDone(false), m_underlyingSocket(std::move(socket)) {
     initContext(TLSMode::SERVER);
 }
 

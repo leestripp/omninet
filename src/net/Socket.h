@@ -148,6 +148,10 @@ public:
     
     // Get underlying file descriptor
     SOCKET fd() const;
+
+    // Relinquish descriptor ownership without closing it. The caller becomes
+    // responsible for the returned descriptor; this socket becomes empty.
+    SOCKET release();
     
     // Get peer address as string
     std::string peerAddress() const;

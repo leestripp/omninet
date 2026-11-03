@@ -488,6 +488,12 @@ SOCKET Socket::fd() const {
     return m_fd;
 }
 
+SOCKET Socket::release() {
+    const SOCKET fd = m_fd;
+    m_fd = INVALID_SOCKET;
+    return fd;
+}
+
 std::string Socket::peerAddress() const {
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
