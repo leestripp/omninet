@@ -338,6 +338,10 @@ std::string readAll(OmniNet::Socket& socket, const ClientConfig& cfg,
     bool check_stop = stop.stop_possible();
     bool headers_complete = false;
     std::optional<size_t> expected_size;
+    // Readiness means some ciphertext arrived, not that OpenSSL has a full
+    // TLS record. Keep SSL_read() non-blocking so a partial record cannot
+    // escape request_timeout or cancellation after waitForRead() returns.
+    socket.setNonBlocking(true);
     while (true) {
         if (check_stop && stop.stop_requested()) break;
         auto now = std::chrono::steady_clock::now();
@@ -722,15 +726,15 @@ Client::connect(const std::string& scheme, const std::string& host,
             auto sock = tlsCtx->createSocket();
             sock->setSNIHostname(host);
             sock->setALPNProtocols({"http/1.1"});
+            if (!cfg.verify_tls) {
+                auto* tls = dynamic_cast<OmniNet::TLSSocket*>(sock.get());
+                if (tls) tls->setVerifyMode(OmniNet::TLSVerify::NONE);
+            }
             sock->connect(host, port_num);
             if (!sock->isOpen()) {
                 return std::unexpected(ClientError::ConnectFailed);
             }
             sock->setMaxBufferSize(cfg.maxBufferSize);
-            if (!cfg.verify_tls) {
-                auto* tls = dynamic_cast<OmniNet::TLSSocket*>(sock.get());
-                if (tls) tls->setVerifyMode(OmniNet::TLSVerify::NONE);
-            }
             return sock;
         } else {
             auto sock = std::make_unique<OmniNet::Socket>();

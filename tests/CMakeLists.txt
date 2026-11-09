@@ -118,6 +118,11 @@ add_executable(test_http_client
     test_http_client.cpp
 )
 
+# Blocking TLS reads must not escape the HTTP client's request timeout.
+add_executable(test_http_client_tls_timeout
+    test_http_client_tls_timeout.cpp
+)
+
 # XDG Base Directory tests
 add_executable(test_xdg_paths
     test_xdg_paths.cpp
@@ -263,6 +268,10 @@ target_link_libraries(test_http_client PRIVATE
     OmniNet
     pthread
 )
+target_link_libraries(test_http_client_tls_timeout PRIVATE
+    OmniNet
+    pthread
+)
 
 target_link_libraries(test_xdg_paths PRIVATE
     OmniNet
@@ -293,6 +302,7 @@ target_compile_features(test_streaming_response PRIVATE cxx_std_23)
 target_compile_features(test_websocket_broadcast PRIVATE cxx_std_23)
 target_compile_features(test_websocket_echo PRIVATE cxx_std_23)
 target_compile_features(test_http_client PRIVATE cxx_std_23)
+target_compile_features(test_http_client_tls_timeout PRIVATE cxx_std_23)
 target_compile_features(test_xdg_paths PRIVATE cxx_std_23)
 
 # Include directories - use parent source dir
@@ -335,6 +345,9 @@ target_include_directories(test_async_file PRIVATE
 target_include_directories(test_http_client PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
+target_include_directories(test_http_client_tls_timeout PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
 target_include_directories(test_xdg_paths PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
@@ -369,6 +382,7 @@ add_test(NAME test_websocket_echo COMMAND test_websocket_echo)
 add_test(NAME test_sse_streaming COMMAND test_sse_streaming)
 add_test(NAME test_streaming_response COMMAND test_streaming_response)
 add_test(NAME test_http_client COMMAND test_http_client)
+add_test(NAME test_http_client_tls_timeout COMMAND test_http_client_tls_timeout)
 add_test(NAME test_xdg_paths COMMAND test_xdg_paths)
 target_link_libraries(test_udp_socket PRIVATE OmniNet pthread)
 target_link_libraries(test_bitstream PRIVATE OmniNet pthread)
