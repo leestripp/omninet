@@ -123,6 +123,11 @@ add_executable(test_http_client_tls_timeout
     test_http_client_tls_timeout.cpp
 )
 
+# A rejected TLS client must not terminate the HTTP server's accept loop.
+add_executable(test_http_server_tls_handshake
+    test_http_server_tls_handshake.cpp
+)
+
 # XDG Base Directory tests
 add_executable(test_xdg_paths
     test_xdg_paths.cpp
@@ -272,6 +277,10 @@ target_link_libraries(test_http_client_tls_timeout PRIVATE
     OmniNet
     pthread
 )
+target_link_libraries(test_http_server_tls_handshake PRIVATE
+    OmniNet
+    pthread
+)
 
 target_link_libraries(test_xdg_paths PRIVATE
     OmniNet
@@ -303,6 +312,7 @@ target_compile_features(test_websocket_broadcast PRIVATE cxx_std_23)
 target_compile_features(test_websocket_echo PRIVATE cxx_std_23)
 target_compile_features(test_http_client PRIVATE cxx_std_23)
 target_compile_features(test_http_client_tls_timeout PRIVATE cxx_std_23)
+target_compile_features(test_http_server_tls_handshake PRIVATE cxx_std_23)
 target_compile_features(test_xdg_paths PRIVATE cxx_std_23)
 
 # Include directories - use parent source dir
@@ -348,6 +358,9 @@ target_include_directories(test_http_client PRIVATE
 target_include_directories(test_http_client_tls_timeout PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
+target_include_directories(test_http_server_tls_handshake PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
 target_include_directories(test_xdg_paths PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
@@ -383,6 +396,7 @@ add_test(NAME test_sse_streaming COMMAND test_sse_streaming)
 add_test(NAME test_streaming_response COMMAND test_streaming_response)
 add_test(NAME test_http_client COMMAND test_http_client)
 add_test(NAME test_http_client_tls_timeout COMMAND test_http_client_tls_timeout)
+add_test(NAME test_http_server_tls_handshake COMMAND test_http_server_tls_handshake)
 add_test(NAME test_xdg_paths COMMAND test_xdg_paths)
 target_link_libraries(test_udp_socket PRIVATE OmniNet pthread)
 target_link_libraries(test_bitstream PRIVATE OmniNet pthread)
